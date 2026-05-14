@@ -11,6 +11,8 @@ S_LEGAL = "You are a sharp legal advisor.\nAnalyze risks, contracts, compliance.
 S_BIZ = "You are a senior business strategist.\nAnalyze market, revenue, growth.\nBe direct. Max 3 sentences."
 S_STRAT = "You are a strategic thinker.\nAnalyze long-term implications and risks.\nBe direct. Max 3 sentences."
 
+CLAUDE_MODEL = "claude-3-5-sonnet-20241022"
+
 
 def _hdr(tenant_id: str) -> dict[str, str]:
     return {"X-BEN-Tenant": tenant_id}
@@ -43,14 +45,20 @@ async def _openai(cx: httpx.AsyncClient, model: str, system: str, q: str, tenant
 
 
 async def _legal(cx: httpx.AsyncClient, q: str, tenant_id: str) -> tuple[str, float]:
+    """Anthropic Messages API: x-api-key + anthropic-version (never Authorization: Bearer)."""
     k = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not k:
         return "missing ANTHROPIC_API_KEY", 0.0
     r = await cx.post(
         "https://api.anthropic.com/v1/messages",
-        headers={"x-api-key": k, "anthropic-version": "2023-06-01", "content-type": "application/json", **_hdr(tenant_id)},
+        headers={
+            "x-api-key": k,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+            **_hdr(tenant_id),
+        },
         json={
-            "model": "claude-3-5-sonnet-20241022",
+            "model": CLAUDE_MODEL,
             "max_tokens": 512,
             "system": S_LEGAL,
             "messages": [{"role": "user", "content": q}],
