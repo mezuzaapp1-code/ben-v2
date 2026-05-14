@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from services.chat_service import handle_chat
+from services.council_service import run_council
 
 app = FastAPI()
 app.add_middleware(
@@ -30,3 +31,13 @@ class ChatBody(BaseModel):
 @app.post("/chat")
 async def chat(body: ChatBody):
     return await handle_chat(body.message, "anonymous", body.tenant_id, body.tier)
+
+
+class CouncilBody(BaseModel):
+    question: str
+    tenant_id: str = Field(..., description="UUID string for org / tracing")
+
+
+@app.post("/council")
+async def council(body: CouncilBody):
+    return await run_council(body.question, body.tenant_id)
