@@ -12,7 +12,7 @@ _FALLBACK = {"openai": "gpt-4o-mini", "anthropic": "claude-3-5-haiku-20241022", 
 _RATES: dict[tuple[str, str], tuple[float, float]] = {
     ("openai", "gpt-4o-mini"): (0.15e-6, 0.60e-6),
     ("openai", "gpt-4o"): (2.5e-6, 10e-6),
-    ("anthropic", "claude-sonnet-4-6"): (3e-6, 15e-6),
+    ("anthropic", "claude-3-5-sonnet-20241022"): (3e-6, 15e-6),
     ("anthropic", "claude-3-5-haiku-20241022"): (1e-6, 5e-6),
     ("google", "gemini-1.5-flash"): (0.1e-6, 0.4e-6),
 }
@@ -22,18 +22,19 @@ _CB: dict[str, dict[str, float | int]] = {}
 def _tier_primary(tier: str) -> tuple[str, str]:
     t = (tier or "free").lower()
     if t == "pro":
-        return "anthropic", "claude-sonnet-4-6"
+        return "anthropic", "claude-3-5-sonnet-20241022"
     if t == "enterprise":
         return "openai", "gpt-4o"
     return "openai", "gpt-4o-mini"
 
 
 def _attempts(tier: str) -> list[tuple[str, str]]:
+    t = (tier or "free").lower()
+    if t == "free":
+        return [("openai", "gpt-4o-mini")]
     p, m = _tier_primary(tier)
     out = [(p, m)]
-    t = (tier or "free").lower()
-    chain = ("openai", "anthropic") if t == "free" else _CHAIN
-    for x in chain:
+    for x in _CHAIN:
         if x != p:
             out.append((x, _FALLBACK[x]))
     return out
