@@ -197,6 +197,28 @@
   color: #555;
 }
 
+.council {
+  background: #1a1a1a;
+  color: #ddd;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  padding: 0 0.85rem;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.council:hover:not(:disabled) {
+  border-color: #555;
+  color: #fff;
+}
+
+.council:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .send {
   background: #eaeaea;
   color: #0a0a0a;
