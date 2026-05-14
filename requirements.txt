@@ -6,3 +6,4 @@ clerk-backend-api
 fastapi
 httpx
 uvicorn[standard]
+stripe
