@@ -11,6 +11,23 @@ const COUNCIL_LABEL = {
   'Strategy Advisor': '🎯 Strategy Advisor',
 }
 
+function councilSynthesisBubbleText(s) {
+  const disagree =
+    s.main_disagreement != null && String(s.main_disagreement).trim() !== ''
+      ? String(s.main_disagreement)
+      : 'None'
+  const ae = s.agreement_estimate ?? 'unknown'
+  const rec = s.recommendation ?? ''
+  const cons = s.consensus_points ?? ''
+  return `🧠 BEN Synthesis (${ae})
+${rec}
+
+✅ Consensus: ${cons}
+⚡ Disagreement: ${disagree}
+
+This is a structured reasoning layer, not a final answer.`
+}
+
 function App() {
   const [threads, setThreads] = useState([])
   const [activeId, setActiveId] = useState(null)
@@ -109,16 +126,28 @@ function App() {
       })
       const data = await res.json().catch(() => ({}))
       const members = Array.isArray(data.council) ? data.council : []
+      const syn = data.synthesis && typeof data.synthesis === 'object' ? data.synthesis : null
       const extras = members.map((c, i) => {
         const name = c.expert || 'Advisor'
         const head = COUNCIL_LABEL[name] || name
+        const lastExpert = i === members.length - 1 && !syn
         return {
           role: 'assistant',
           content: `${head}: ${c.response ?? ''}`,
           model_used: c.model ?? '',
-          cost_usd: i === members.length - 1 ? data.cost_usd ?? 0 : 0,
+          cost_usd: lastExpert ? data.cost_usd ?? 0 : 0,
         }
       })
+      if (syn) {
+        extras.push({
+          role: 'assistant',
+          kind: 'council_synthesis',
+          synthesis: syn,
+          content: councilSynthesisBubbleText(syn),
+          model_used: 'synthesis',
+          cost_usd: data.cost_usd ?? 0,
+        })
+      }
       setThreads((prev) =>
         prev.map((t) => (t.id === tid ? { ...t, messages: [...t.messages, ...extras] } : t))
       )
@@ -162,17 +191,33 @@ function App() {
       <main className="main">
         <div className="messages">
           {(active?.messages ?? []).map((m, i) => (
-            <div key={i} className={`bubble-wrap ${m.role}`}>
-              <div className={`bubble ${m.role}`}>
-                <div className="bubble-text">{m.content}</div>
-                {m.role === 'assistant' && (m.model_used || m.cost_usd !== undefined) && (
-                  <div className="meta">
-                    {m.model_used && <span>{m.model_used}</span>}
-                    {m.model_used && <span className="dot">·</span>}
-                    <span>${Number(m.cost_usd).toFixed(6)}</span>
-                  </div>
-                )}
-              </div>
+            <div
+              key={i}
+              className={`bubble-wrap ${m.role}${m.kind === 'council_synthesis' ? ' synthesis-wrap' : ''}`}
+            >
+              {m.kind === 'council_synthesis' && m.synthesis ? (
+                <div className="bubble synthesis">
+                  <div className="bubble-text">{m.content}</div>
+                  {(m.model_used || m.cost_usd !== undefined) && (
+                    <div className="meta">
+                      {m.model_used && <span>{m.model_used}</span>}
+                      {m.model_used && <span className="dot">·</span>}
+                      <span>${Number(m.cost_usd).toFixed(6)}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className={`bubble ${m.role}`}>
+                  <div className="bubble-text">{m.content}</div>
+                  {m.role === 'assistant' && (m.model_used || m.cost_usd !== undefined) && (
+                    <div className="meta">
+                      {m.model_used && <span>{m.model_used}</span>}
+                      {m.model_used && <span className="dot">·</span>}
+                      <span>${Number(m.cost_usd).toFixed(6)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
+from typing import Any
+
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Numeric, String, Text, func, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 SCHEMA = "ben"
@@ -61,7 +63,9 @@ class CognitiveEvent(Base):
 class KnowledgeObject(Base):
     __tablename__ = "knowledge_objects"
     __table_args__ = (
-        CheckConstraint("type IN ('problem','hypothesis','insight','decision','contradiction')"),
+        CheckConstraint(
+            "type IN ('problem','hypothesis','insight','decision','contradiction','synthesis')"
+        ),
         CheckConstraint("status IN ('active','evolving','resolved','rejected','archived')"),
         Index("ix_ko_org", "org_id"),
         Index("ix_ko_created", "created_at"),
@@ -72,8 +76,8 @@ class KnowledgeObject(Base):
     org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     type: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(512), nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    confidence: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
+    content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    confidence: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
