@@ -31,7 +31,9 @@ def _tier_primary(tier: str) -> tuple[str, str]:
 def _attempts(tier: str) -> list[tuple[str, str]]:
     p, m = _tier_primary(tier)
     out = [(p, m)]
-    for x in _CHAIN:
+    t = (tier or "free").lower()
+    chain = ("openai", "anthropic") if t == "free" else _CHAIN
+    for x in chain:
         if x != p:
             out.append((x, _FALLBACK[x]))
     return out
