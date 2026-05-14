@@ -72,10 +72,10 @@ def _hdr(tenant_id: str) -> dict[str, str]:
 
 
 async def _call_openai(cx: httpx.AsyncClient, model: str, message: str, tenant_id: str) -> tuple[str, int, int, int]:
-    k = os.getenv("OPENAI_API_KEY") or ""
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
     r = await cx.post(
         "https://api.openai.com/v1/chat/completions",
-        headers={"Authorization": f"Bearer {k}", **_hdr(tenant_id)},
+        headers={"Authorization": f"Bearer {api_key}", **_hdr(tenant_id)},
         json={"model": model, "messages": [{"role": "user", "content": message}]},
     )
     r.raise_for_status()
@@ -86,10 +86,10 @@ async def _call_openai(cx: httpx.AsyncClient, model: str, message: str, tenant_i
 
 
 async def _call_anthropic(cx: httpx.AsyncClient, model: str, message: str, tenant_id: str) -> tuple[str, int, int, int]:
-    k = os.getenv("ANTHROPIC_API_KEY") or ""
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     r = await cx.post(
         "https://api.anthropic.com/v1/messages",
-        headers={"x-api-key": k, "anthropic-version": "2023-06-01", "content-type": "application/json", **_hdr(tenant_id)},
+        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json", **_hdr(tenant_id)},
         json={"model": model, "max_tokens": 4096, "messages": [{"role": "user", "content": message}]},
     )
     r.raise_for_status()
@@ -101,9 +101,9 @@ async def _call_anthropic(cx: httpx.AsyncClient, model: str, message: str, tenan
 
 
 async def _call_google(cx: httpx.AsyncClient, model: str, message: str, tenant_id: str) -> tuple[str, int, int, int]:
-    k = os.getenv("GOOGLE_API_KEY") or ""
+    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
     url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent"
-    r = await cx.post(url, params={"key": k}, headers=_hdr(tenant_id), json={"contents": [{"parts": [{"text": message}]}]})
+    r = await cx.post(url, params={"key": api_key}, headers=_hdr(tenant_id), json={"contents": [{"parts": [{"text": message}]}]})
     r.raise_for_status()
     d = r.json()
     parts = ((d.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
@@ -119,7 +119,7 @@ async def route_request(message: str, tenant_id: str, tier: str) -> dict[str, An
     last: BaseException | None = None
     async with httpx.AsyncClient(timeout=120.0) as cx:
         for prov, model in _attempts(tier):
-            if not os.getenv(keys[prov]):
+            if not (os.getenv(keys[prov]) or "").strip():
                 continue
             if not _cb_ready(prov):
                 continue
