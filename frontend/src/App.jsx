@@ -2,8 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import './App.css'
 
 const TENANT_ID = '00000000-0000-0000-0000-000000000001'
-/** Dev: Vite proxies /chat → http://localhost:8002/chat */
-const CHAT_URL = import.meta.env.DEV ? '/chat' : 'http://localhost:8002/chat'
+const CHAT_URL = 'https://ben-v2-production.up.railway.app/chat'
 
 function App() {
   const [threads, setThreads] = useState([])

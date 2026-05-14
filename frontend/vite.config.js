@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/chat': { target: 'http://localhost:8002', changeOrigin: true },
+      '/chat': { target: 'https://ben-v2-production.up.railway.app', changeOrigin: true },
     },
   },
 })
