@@ -8,13 +8,13 @@ from typing import Any
 import httpx
 
 _CHAIN = ("openai", "anthropic", "google")
-_FALLBACK = {"openai": "gpt-4o-mini", "anthropic": "claude-3-5-haiku-20241022", "google": "gemini-2.0-flash"}
+_FALLBACK = {"openai": "gpt-4o-mini", "anthropic": "claude-3-5-haiku-20241022", "google": "gemini-1.5-flash"}
 _RATES: dict[tuple[str, str], tuple[float, float]] = {
     ("openai", "gpt-4o-mini"): (0.15e-6, 0.60e-6),
     ("openai", "gpt-4o"): (2.5e-6, 10e-6),
     ("anthropic", "claude-sonnet-4-6"): (3e-6, 15e-6),
     ("anthropic", "claude-3-5-haiku-20241022"): (1e-6, 5e-6),
-    ("google", "gemini-2.0-flash"): (0.1e-6, 0.4e-6),
+    ("google", "gemini-1.5-flash"): (0.1e-6, 0.4e-6),
 }
 _CB: dict[str, dict[str, float | int]] = {}
 
@@ -101,7 +101,7 @@ async def _call_anthropic(cx: httpx.AsyncClient, model: str, message: str, tenan
 
 async def _call_google(cx: httpx.AsyncClient, model: str, message: str, tenant_id: str) -> tuple[str, int, int, int]:
     k = os.getenv("GOOGLE_API_KEY") or ""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent"
     r = await cx.post(url, params={"key": k}, headers=_hdr(tenant_id), json={"contents": [{"parts": [{"text": message}]}]})
     r.raise_for_status()
     d = r.json()
