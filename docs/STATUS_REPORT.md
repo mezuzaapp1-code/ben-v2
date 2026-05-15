@@ -1,80 +1,111 @@
-# BEN TASK REPORT — Council Degraded Expert Honesty v1
+# BEN TASK REPORT — Council Degraded Expert Honesty v1 (merge + production)
 
 **Last updated:** 2026-05-15
 
 ## 1. Task Name
 
-Council degraded expert honesty — expose expert outcomes and honest synthesis agreement.
+Merge and production-verify council degraded expert honesty (`feature/council-degraded-honesty-v1`).
 
 ## 2. Branch
 
-`feature/council-degraded-honesty-v1`
+`main` @ `e0c056c` (fast-forward merge)
 
 ## 3. Goal
 
-When experts timeout/fail, council output must not imply full 3/3 agreement. Add `provider`, `model`, `outcome` per expert; honest synthesis prompt + post-processing; minimal UI status labels.
+Deploy honest expert metadata and synthesis agreement to production; verify API shape, degraded paths (local), and UI (Vercel).
 
-## 4. Files Changed
+## 4. Files Changed (merge)
 
-| File | Change type |
-|------|-------------|
-| `services/council_service.py` | modified |
-| `frontend/src/App.jsx` | modified |
-| `frontend/src/App.css` | modified |
-| `tests/test_council_degraded_honesty.py` | added |
-| `scripts/verify_council_prerelease.py` | modified |
-| `docs/RISK_REGISTER.md` | modified |
+| File | Change |
+|------|--------|
+| `services/council_service.py` | Expert `provider`, `model`, `outcome`; honest synthesis |
+| `frontend/src/App.jsx`, `App.css` | Status labels + synthesis disclaimer |
+| `tests/test_council_degraded_honesty.py` | Unit tests |
+| `scripts/verify_council_honesty_prod.py` | Prod smoke helper |
 
-## 5. Code Changes
+## 5. Before / After (production API)
 
-- Each council member: `expert`, `provider`, `model`, `outcome` (`ok` \| `degraded` \| `timeout` \| `error`), `response`.
-- Synthesis prompt marks unavailable experts; system rules forbid false `2/3` / `3/3`.
-- `_honest_agreement_estimate()` corrects LLM agreement when any expert not `ok`.
-- Frontend: expert status label + synthesis prefix when any expert failed.
+**Before:** `council[]` had only `expert`, `model`, `response`; synthesis could show misleading `2/3`.
 
-## 6. Before / After
+**After (prod sample, all experts ok):**
+```json
+{
+  "expert": "Legal Advisor",
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-6",
+  "outcome": "ok",
+  "response": "..."
+}
+```
+`synthesis.agreement_estimate`: `"3/3 available"`
 
-**Before:** Legal timeout → response `Expert unavailable (timeout)` but `model: "claude"` and synthesis could show `agreement_estimate: "2/3"`.
+**After (local mocked Legal timeout):**
+- Legal: `outcome: "timeout"`, `provider: "anthropic"`
+- `agreement_estimate`: `"2/2 available"`
+- UI strings: `Unavailable: timeout`, `Based on available expert responses.`
 
-**After:** Legal → `outcome: "timeout"`, `provider: "anthropic"`, actual model; synthesis → `"2/2 available"`; UI → `Unavailable: timeout` + `Based on available expert responses.`
-
-## 7. Verification Executed
+## 6. Verification Executed
 
 ```bash
+git fetch origin
+git rev-parse e0c056c origin/main
 python -m pytest tests/test_council_degraded_honesty.py -v
 cd frontend && npm run build
+git checkout main && git pull && git merge feature/council-degraded-honesty-v1
+git push -v origin HEAD
+python scripts/verify_council_honesty_prod.py
+python -m pytest tests/test_council_degraded_honesty.py::test_legal_timeout_degraded_honest_synthesis -v
+cd frontend && vercel --prod --yes
+python scripts/probe_vercel_honesty_ui.py
 ```
 
-## 8. Verification Results
+## 7. Verification Results
 
-| Check | Result |
-|-------|--------|
-| Happy path all `outcome=ok` | **PASS** |
-| Legal timeout → `outcome=timeout`, not `ok` | **PASS** |
-| Invalid Anthropic model → degraded/error | **PASS** |
-| Synthesis not `2/3` when legal failed | **PASS** |
-| No `HTTPStatusError` in responses | **PASS** |
-| Top-level keys unchanged | **PASS** (`cost_usd`, `council`, `question`, `synthesis`, `request_id`) |
-| `cost_usd` numeric | **PASS** |
-| Prod deploy | **NOT VERIFIED** |
+| Check | Result | Notes |
+|-------|--------|-------|
+| Branch + `e0c056c` on origin | **PASS** | |
+| pytest (3 tests) | **PASS** | |
+| Frontend build | **PASS** | |
+| Merge to `main` | **PASS** | `04bc370..e0c056c` |
+| GET `/health` | **PASS** | 200 |
+| GET `/ready` | **PASS** | 200 |
+| POST `/council` | **PASS** | 200 |
+| `request_id`, `cost_usd`, top-level keys | **PASS** | |
+| `provider`, `outcome` on each expert | **PASS** | Prod |
+| Local degraded Legal timeout | **PASS** | pytest |
+| Local invalid Anthropic model | **PASS** | pytest (suite) |
+| Prod forced Legal degraded | **NOT EXECUTED** | Intentionally local-only per task |
+| Vercel UI strings in bundle | **PASS** | After `vercel --prod` |
+| No HTTPStatusError in responses | **PASS** | Prod + tests |
 
-## 9. Runtime matrix (unchanged routing)
+### VERIFIED vs INFERRED
 
-| Advisor | Provider | Model |
-|---------|----------|-------|
-| Legal | anthropic | `ANTHROPIC_MODEL` / default |
-| Business | openai | `gpt-4o` |
-| Strategy | openai | `gpt-4o-mini` |
+| Finding | Class |
+|---------|--------|
+| `origin/main` = `e0c056c` | **VERIFIED** |
+| Prod API new fields | **VERIFIED** |
+| Degraded honesty behavior | **VERIFIED** (local pytest) |
+| Prod UI labels on live browser | **INFERRED** from bundle probe post-deploy |
 
-## 10. Risks
+## 8. Production smoke detail
+
+```
+GET /health -> 200
+GET /ready -> 200
+POST /council -> 200
+experts: [('Legal Advisor', 'ok', 'anthropic'), ('Business Advisor', 'ok', 'openai'), ('Strategy Advisor', 'ok', 'openai')]
+agreement_estimate: 3/3 available
+```
+
+## 9. Risks
 
 | ID | Status |
 |----|--------|
-| **R-021** | **FIXED** (local tests) — synthesis overstatement when experts degrade |
+| **R-021** | **FIXED** — pytest + prod API field verification |
 
-## 11. Ready Status
+## 10. Ready Status
 
-**READY TO MERGE** (after review) — not merged per request.
+**READY FOR PRODUCTION USE** — backend deployed; frontend redeployed to Vercel for UI labels.
 
 ---
 

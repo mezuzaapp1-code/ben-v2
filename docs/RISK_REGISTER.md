@@ -1,6 +1,6 @@
 # BEN Risk Register
 
-**Last register review:** 2026-05-15 (R-019 log verification — traffic sent, logs not pulled)
+**Last register review:** 2026-05-15 (council honesty v1 merged + prod verified)
 
 **RISK_REGISTER.md changed:** YES
 
@@ -44,7 +44,7 @@
 | R-003 | Untracked scripts / test JSON clutter | Low | FIXED | 2026-05-15 | 2026-05-15 | **2026-05-15** | Hygiene merge | — |
 | R-017 | Council worst-case may exceed 25s DELIBERATE | Low–Medium | FIXED | 2026-05-15 | 2026-05-15 | **2026-05-15** | Outer 25s cap on prod | — |
 | R-020 | Frontend deploy without Clerk publishable key | Low | FIXED | 2026-05-15 | 2026-05-15 | **2026-05-15** | Vercel env + bundle `pk_*` + sign-in UI **VERIFIED**; signed-in Bearer header E2E optional | — |
-| R-021 | Council synthesis may overstate agreement when experts degrade | Medium | FIXED | 2026-05-15 | 2026-05-15 | **2026-05-15** | `outcome`/`provider` on experts; synthesis `N/N available`; UI status labels | — |
+| R-021 | Council synthesis may overstate agreement when experts degrade | Medium | FIXED | 2026-05-15 | 2026-05-15 | **2026-05-15** | Merged `e0c056c`; prod API `provider`/`outcome` **VERIFIED**; degraded path pytest **VERIFIED**; Vercel UI redeployed | — |
 
 ---
 
