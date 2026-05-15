@@ -1,6 +1,6 @@
 # BEN Risk Register
 
-**Last register review:** 2026-05-15 (JSON logging merged to main + prod API smoke)
+**Last register review:** 2026-05-15 (timing governance docs merged to main)
 
 **RISK_REGISTER.md changed:** YES
 
@@ -12,8 +12,9 @@
 |----|----------------|----------|--------|------------|--------------|---------------------------|-------------|---------------|----------------|
 | R-002 | Railway variables not CLI-verified | Low–Medium | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Manual Railway dashboard audit | No | No |
 | R-003 | Untracked `_council_test.json` and `scripts/` | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Commit `scripts/`; gitignore test JSON | No | No |
-| R-009 | Timing & Load Governance (docs only on branch) | Medium | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Merge `feature/timing-load-governance-v1` or fold into main | No | No |
-| R-012 | Runtime latency instrumentation | Medium | **PARTIAL** | 2026-05-15 | 2026-05-15 | **CHANGED** — merged `82739c2` to `main`; prod API smoke **PASS**; prod Railway JSON log tail **NOT VERIFIED** (`railway login` unauthorized) | `railway login` → sample `ben.ops` JSON lines in Railway UI | No | No |
+| R-010 | No runtime load isolation yet | Medium | OPEN | 2026-05-15 | 2026-05-15 | **NEW** (from governance docs) | Enforce per-subsystem budgets per `TIMING_GOVERNANCE.md` | No | No |
+| R-011 | No queue infrastructure yet | Medium | OPEN | 2026-05-15 | 2026-05-15 | **NEW** (from governance docs) | Async persist / background council (T-107) | No | No |
+| R-012 | Runtime latency instrumentation | Medium | **PARTIAL** | 2026-05-15 | 2026-05-15 | UNCHANGED | `railway login` → prod `ben.ops` JSON log sample | No | No |
 
 ---
 
@@ -33,7 +34,8 @@
 |----|----------------|----------|--------|------------|--------------|----------|-------|
 | R-001 | No `/health` in production | Medium | FIXED | 2026-05-15 | 2026-05-15 | **2026-05-15** | Prod `/health` 200. |
 | R-005 | `/health` healthy path not integration-tested | Medium | FIXED | 2026-05-15 | 2026-05-15 | **2026-05-15** | Prod `/ready` 200. |
-| R-008 | Structured logs without JSON formatter | Low | FIXED | 2026-05-15 | 2026-05-15 | **2026-05-15** | `BenOpsJsonFormatter` on `ben.ops`; local + prod deploy `82739c2` **VERIFIED**; prod log line sample **NOT VERIFIED** (CLI) | — |
+| R-008 | Structured logs without JSON formatter | Low | FIXED | 2026-05-15 | 2026-05-15 | **2026-05-15** | `BenOpsJsonFormatter` on `ben.ops`; prod deploy `82739c2` **VERIFIED** | — |
+| R-009 | Timing & Load Governance (docs only) | Medium | FIXED | 2026-05-15 | 2026-05-15 | **2026-05-15** | Merged `ac89049` — `TIMING_GOVERNANCE.md`, `INSTRUMENTATION_PLAN.md`, `COST_GOVERNANCE.md` on `main` | — |
 
 ---
 
