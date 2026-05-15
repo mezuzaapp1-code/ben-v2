@@ -168,14 +168,16 @@ async def _gemini_completion(
         _log_provider_failure(provider="google", subsystem="council", message="missing GOOGLE_API_KEY")
         return "missing GOOGLE_API_KEY", 0.0
     t0 = time.perf_counter()
-    url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent"
-    prompt = f"{system}\n\n{q}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     try:
         r = await cx.post(
             url,
             params={"key": api_key},
             headers=_hdr(tenant_id),
-            json={"contents": [{"parts": [{"text": prompt}]}]},
+            json={
+                "systemInstruction": {"parts": [{"text": system}]},
+                "contents": [{"role": "user", "parts": [{"text": q}]}],
+            },
         )
         r.raise_for_status()
         d = r.json()

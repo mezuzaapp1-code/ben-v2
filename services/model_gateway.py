@@ -105,7 +105,7 @@ async def _call_anthropic(cx: httpx.AsyncClient, model: str, message: str, tenan
 
 async def _call_google(cx: httpx.AsyncClient, model: str, message: str, tenant_id: str) -> tuple[str, int, int, int]:
     api_key = os.getenv("GOOGLE_API_KEY", "").strip()
-    url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     r = await cx.post(url, params={"key": api_key}, headers=_hdr(tenant_id), json={"contents": [{"parts": [{"text": message}]}]})
     r.raise_for_status()
     d = r.json()
