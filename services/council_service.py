@@ -24,7 +24,7 @@ S_LEGAL = "You are a sharp legal advisor.\nAnalyze risks, contracts, compliance.
 S_BIZ = "You are a senior business strategist.\nAnalyze market, revenue, growth.\nBe direct. Max 3 sentences."
 S_STRAT = "You are a strategic thinker.\nAnalyze long-term implications and risks.\nBe direct. Max 3 sentences."
 
-CLAUDE_MODEL = "claude-3-5-sonnet-20241022"
+ANTHROPIC_MODEL_DEFAULT = "claude-sonnet-4-6"
 
 SYNTHESIS_MODEL_DEFAULT = "gpt-4o-mini"
 SYNTHESIS_TIMEOUT_S = 10.0
@@ -69,6 +69,7 @@ async def _legal(cx: httpx.AsyncClient, q: str, tenant_id: str) -> tuple[str, fl
     k = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not k:
         return "missing ANTHROPIC_API_KEY", 0.0
+    model = os.getenv("ANTHROPIC_MODEL", ANTHROPIC_MODEL_DEFAULT).strip() or ANTHROPIC_MODEL_DEFAULT
     r = await cx.post(
         "https://api.anthropic.com/v1/messages",
         headers={
@@ -78,7 +79,7 @@ async def _legal(cx: httpx.AsyncClient, q: str, tenant_id: str) -> tuple[str, fl
             **_hdr(tenant_id),
         },
         json={
-            "model": CLAUDE_MODEL,
+            "model": model,
             "max_tokens": 512,
             "system": S_LEGAL,
             "messages": [{"role": "user", "content": q}],
