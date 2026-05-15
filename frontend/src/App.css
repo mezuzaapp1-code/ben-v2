@@ -145,6 +145,19 @@
   color: #e4e4e4;
 }
 
+.bubble-wrap.synthesis-wrap {
+  margin-top: 0.6rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid #222;
+}
+
+.bubble.synthesis {
+  background: #1a1b1f;
+  border: 1px solid #2e3138;
+  border-left: 2px solid #5b8cff;
+  color: #e0e2e8;
+}
+
 .bubble-text {
   white-space: pre-wrap;
   word-break: break-word;
