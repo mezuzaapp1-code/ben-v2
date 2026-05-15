@@ -14,11 +14,12 @@
 | R-010 | No runtime load isolation yet | Medium | **PARTIAL** | 2026-05-15 | 2026-05-15 | UNCHANGED | Per-tenant concurrency / queues | No | No |
 | R-011 | No queue infrastructure yet | Medium | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | T-107 | No | No |
 | R-012 | Runtime latency instrumentation | Medium | **PARTIAL** | 2026-05-15 | 2026-05-15 | UNCHANGED | Prod JSON log sample | No | No |
-| R-013 | Unauthenticated `/chat` and `/council` | **High** | **PARTIAL** | 2026-05-15 | 2026-05-15 | **CHANGED** — shadow mode on prod `d8a9407`; **ENFORCE_AUTH=false** **VERIFIED** via `/health`; traffic still open | Frontend Bearer + enable enforce when ready | No | **Yes** (until enforce) |
+| R-013 | Unauthenticated `/chat` and `/council` | **High** | **PARTIAL** | 2026-05-15 | 2026-05-15 | **CHANGED** — frontend branch sends Clerk Bearer when signed in; prod **ENFORCE_AUTH=false**; unsigned traffic still open | Merge frontend branch; set Vercel `VITE_CLERK_PUBLISHABLE_KEY`; enable enforce when ready | No | **Yes** (until enforce) |
 | R-014 | Client-supplied `tenant_id` without auth binding | **High** | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Phase 3 tenant binding | No | **Yes** (cross-tenant) |
 | R-015 | No rate limiting on expensive routes | Medium | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | T-108 Phase 4 | No | No |
 | R-018 | Accidental shell artifact files in repo root | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Manual delete locally | No | No |
-| R-019 | Auth shadow without production log baseline | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED — Railway CLI/logs **NOT VERIFIED** | `railway login` → sample `shadow_auth_check` lines | No | No |
+| R-019 | Auth shadow without production log baseline | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED — Railway CLI/logs **NOT VERIFIED**; signed-in Vercel users should increase `auth_valid` after frontend deploy | `railway login` → sample `shadow_auth_check` lines | No | No |
+| R-020 | Frontend deploy without Clerk publishable key | Low | OPEN | 2026-05-15 | 2026-05-15 | **NEW** — app works unsigned; no Bearer sent until `VITE_CLERK_PUBLISHABLE_KEY` on Vercel | Set Clerk env on Vercel after merge | No | No |
 
 ---
 

@@ -1,9 +1,13 @@
+import { SignInButton, SignOutButton, useAuth } from '@clerk/clerk-react'
 import { useCallback, useMemo, useState } from 'react'
+import { buildBenHeaders } from './api/benHeaders.js'
+import { useBenAuthContext } from './auth/BenAuthContext.jsx'
+import { BEN_API_BASE, DEFAULT_TENANT_ID } from './config.js'
 import './App.css'
 
-const TENANT_ID = '00000000-0000-0000-0000-000000000001'
-const CHAT_URL = 'https://ben-v2-production.up.railway.app/chat'
-const COUNCIL_URL = 'https://ben-v2-production.up.railway.app/council'
+const CHAT_URL = `${BEN_API_BASE}/chat`
+const COUNCIL_URL = `${BEN_API_BASE}/council`
+const HAS_CLERK_UI = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim())
 
 const COUNCIL_LABEL = {
   'Legal Advisor': '⚖️ Legal Advisor',
@@ -28,7 +32,30 @@ ${rec}
 This is a structured reasoning layer, not a final answer.`
 }
 
+function ClerkAuthControls() {
+  const { isSignedIn } = useAuth()
+  if (!HAS_CLERK_UI) return null
+  return (
+    <div className="auth-controls">
+      {isSignedIn ? (
+        <SignOutButton>
+          <button type="button" className="auth-btn">
+            Sign out
+          </button>
+        </SignOutButton>
+      ) : (
+        <SignInButton mode="modal">
+          <button type="button" className="auth-btn">
+            Sign in
+          </button>
+        </SignInButton>
+      )}
+    </div>
+  )
+}
+
 function App() {
+  const { getToken } = useBenAuthContext()
   const [threads, setThreads] = useState([])
   const [activeId, setActiveId] = useState(null)
   const [input, setInput] = useState('')
@@ -62,10 +89,11 @@ function App() {
     )
     setLoading(true)
     try {
+      const headers = await buildBenHeaders(getToken)
       const res = await fetch(CHAT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, tenant_id: TENANT_ID, tier }),
+        headers,
+        body: JSON.stringify({ message: text, tenant_id: DEFAULT_TENANT_ID, tier }),
       })
       const data = await res.json().catch(() => ({}))
       const assistant = {
@@ -103,7 +131,7 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }, [input, loading, activeId, threads, tier, newThread])
+  }, [input, loading, activeId, threads, tier, newThread, getToken])
 
   const council = useCallback(async () => {
     const text = input.trim()
@@ -119,10 +147,11 @@ function App() {
     )
     setLoading(true)
     try {
+      const headers = await buildBenHeaders(getToken)
       const res = await fetch(COUNCIL_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: text, tenant_id: TENANT_ID }),
+        headers,
+        body: JSON.stringify({ question: text, tenant_id: DEFAULT_TENANT_ID }),
       })
       const data = await res.json().catch(() => ({}))
       const members = Array.isArray(data.council) ? data.council : []
@@ -165,12 +194,13 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }, [input, loading, activeId, threads, newThread])
+  }, [input, loading, activeId, threads, newThread, getToken])
 
   return (
     <div className="app">
       <aside className="sidebar">
         <div className="brand">BEN</div>
+        {HAS_CLERK_UI ? <ClerkAuthControls /> : null}
         <button type="button" className="new-btn" onClick={newThread}>
           + New chat
         </button>

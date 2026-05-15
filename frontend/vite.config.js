@@ -7,6 +7,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/chat': { target: 'https://ben-v2-production.up.railway.app', changeOrigin: true },
+      '/council': { target: 'https://ben-v2-production.up.railway.app', changeOrigin: true },
     },
   },
 })

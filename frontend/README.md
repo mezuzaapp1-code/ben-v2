@@ -1,16 +1,24 @@
-# React + Vite
+# BEN frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite UI for BEN chat and council.
 
-Currently, two official plugins are available:
+## Environment
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Copy `.env.example` to `.env.local`:
 
-## React Compiler
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `VITE_CLERK_PUBLISHABLE_KEY` | No | When set, enables Clerk sign-in and sends `Authorization: Bearer` on `/chat` and `/council`. |
+| `VITE_BEN_API_BASE` | No | API origin without trailing slash. Unset: production Railway URL in builds; same-origin (Vite proxy) in `npm run dev`. |
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Tokens are obtained via Clerk only; the app does not log or store bearer tokens.
 
-## Expanding the ESLint configuration
+## Commands
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+npm install
+npm run dev    # http://localhost:5173 — proxies /chat and /council to Railway
+npm run build
+```
+
+Backend auth enforcement remains off until explicitly enabled (`ENFORCE_AUTH=false`).

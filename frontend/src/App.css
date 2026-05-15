@@ -31,7 +31,27 @@
   font-size: 0.75rem;
   color: #888;
   text-transform: uppercase;
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.auth-controls {
+  margin-bottom: 0.75rem;
+}
+
+.auth-btn {
+  background: transparent;
+  color: #aaa;
+  border: 1px solid #2a2a2a;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  width: 100%;
+}
+
+.auth-btn:hover {
+  border-color: #444;
+  color: #eee;
 }
 
 .new-btn {
