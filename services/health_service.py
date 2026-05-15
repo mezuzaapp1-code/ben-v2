@@ -13,6 +13,7 @@ from sqlalchemy import text
 from database.connection import get_db_session
 from services.ops.request_context import attach_request_id
 from services.ops.structured_log import log_warning
+from services.ops.timing import measure
 from services.ops.timeouts import DB_PING_TIMEOUT_S
 
 SERVICE_NAME = "ben-v2"
@@ -64,36 +65,44 @@ def _required_env_ready() -> bool:
 
 async def ping_database() -> bool:
     try:
-        async with asyncio.timeout(DB_PING_TIMEOUT_S):
-            async with get_db_session() as session:
-                await session.execute(text("SELECT 1"))
+        async with measure(subsystem="health", operation="db_ping", provider="database"):
+            async with asyncio.timeout(DB_PING_TIMEOUT_S):
+                async with get_db_session() as session:
+                    await session.execute(text("SELECT 1"))
         return True
     except Exception as e:
         log_warning(
             "database ping failed",
             subsystem="health",
+            provider="database",
             category="provider_unavailable",
             exc=e,
+            operation="db_ping",
+            outcome="error",
         )
         return False
 
 
 async def get_migration_head() -> str | None:
     try:
-        async with asyncio.timeout(DB_PING_TIMEOUT_S):
-            async with get_db_session() as session:
-                row = (
-                    await session.execute(text("SELECT version_num FROM alembic_version LIMIT 1"))
-                ).scalar_one_or_none()
-                if row is None:
-                    return None
-                return str(row).strip() or None
+        async with measure(subsystem="ready", operation="db_migration_lookup", provider="database"):
+            async with asyncio.timeout(DB_PING_TIMEOUT_S):
+                async with get_db_session() as session:
+                    row = (
+                        await session.execute(text("SELECT version_num FROM alembic_version LIMIT 1"))
+                    ).scalar_one_or_none()
+                    if row is None:
+                        return None
+                    return str(row).strip() or None
     except Exception as e:
         log_warning(
             "migration lookup failed",
-            subsystem="health",
+            subsystem="ready",
+            provider="database",
             category="unknown_error",
             exc=e,
+            operation="db_migration_lookup",
+            outcome="error",
         )
         return None
 

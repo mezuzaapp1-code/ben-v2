@@ -35,12 +35,22 @@ def log_warning(
     provider: str | None = None,
     category: str | None = None,
     exc: BaseException | None = None,
+    duration_ms: int | None = None,
+    operation: str | None = None,
+    outcome: str | None = None,
     **extra: Any,
 ) -> None:
+    fields: dict[str, Any] = dict(extra)
+    if duration_ms is not None:
+        fields["duration_ms"] = duration_ms
+    if operation:
+        fields["operation"] = operation
+    if outcome:
+        fields["outcome"] = outcome
     logger.warning(
         message,
         exc_info=exc,
-        extra=_base_extra(subsystem=subsystem, provider=provider, category=category, **extra),
+        extra=_base_extra(subsystem=subsystem, provider=provider, category=category, **fields),
     )
 
 
@@ -57,4 +67,30 @@ def log_error(
         message,
         exc_info=exc,
         extra=_base_extra(subsystem=subsystem, provider=provider, category=category, **extra),
+    )
+
+
+def log_info(
+    message: str,
+    *,
+    subsystem: str,
+    provider: str | None = None,
+    category: str | None = None,
+    duration_ms: int | None = None,
+    operation: str | None = None,
+    outcome: str | None = None,
+    **extra: Any,
+) -> None:
+    """Structured INFO for timing and operational metrics (no secrets)."""
+    fields: dict[str, Any] = {}
+    if duration_ms is not None:
+        fields["duration_ms"] = duration_ms
+    if operation:
+        fields["operation"] = operation
+    if outcome:
+        fields["outcome"] = outcome
+    fields.update(extra)
+    logger.info(
+        message,
+        extra=_base_extra(subsystem=subsystem, provider=provider, category=category, **fields),
     )
