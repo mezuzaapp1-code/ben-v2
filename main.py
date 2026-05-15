@@ -15,6 +15,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from services.chat_service import handle_chat
 from services.council_service import run_council
 from services.health_service import build_health_payload, build_ready_payload
+from services.ops.logging_config import configure_ben_ops_logging
 from services.ops.request_context import set_request_id
 from services.ops.startup import validate_startup
 from services.ops.timing import measure
@@ -35,6 +36,7 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_ben_ops_logging()
     validate_startup()
     yield
 

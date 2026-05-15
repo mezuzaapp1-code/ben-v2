@@ -4,23 +4,23 @@
 
 ## Current Phase
 
-Runtime instrumentation v1 merged to `main` and production-verified (API). Log field visibility pending JSON formatter.
+JSON structured logging v1 **complete on branch** — local verification **PASS**; merge to `main` + prod deploy pending.
 
 ## Current Active Branch
 
-`main` @ `2f016b8` (merge) includes `4d39da9` runtime instrumentation
+`feature/json-logging-v1` — ready to merge
 
 ## Current Active Task
 
-Post-merge verification complete; next: JSON log formatter (R-008) or timing governance docs merge.
+Merge JSON logging branch and confirm Railway JSON log lines (closes R-012 prod gap).
 
 ## Recently Completed Tasks
 
 | Task | Outcome |
 |------|---------|
-| Runtime Instrumentation v1 | Merged `feature/runtime-instrumentation-v1` → `main`; prod smoke **PASS** |
-| Hardening v1 | `/health`, `/ready`, `request_id`, graceful degradation live |
-| Council synthesis | Prod **200**, synthesis + `cost_usd` |
+| JSON logging v1 | Local **PASS**: `ben.ops` one-JSON-line-per-record; required fields; safety checks **PASS** |
+| Runtime Instrumentation v1 | On `main`; prod API smoke **PASS** |
+| Hardening v1 | `/health`, `/ready`, `request_id` live in prod |
 
 ## Blocked Tasks
 
@@ -28,32 +28,23 @@ None.
 
 ## Open Risks
 
-R-002, R-003, R-008, R-009, **R-012 (PARTIAL)** — see `docs/RISK_REGISTER.md`.
+R-002, R-003, R-009, **R-012 (PARTIAL)** — see `docs/RISK_REGISTER.md`. **R-008 FIXED** (formatter; local verify only).
 
 ## Production Status
 
 | Item | Status |
 |------|--------|
-| URL | `https://ben-v2-production.up.railway.app` |
-| `GET /health` | **200** — `healthy`, `database=ok`, `request_id` |
-| `GET /ready` | **200** — `ready=true`, `migration_head=002_ko_synthesis_jsonb` |
-| `POST /council` | **200** — 3 experts, synthesis present, `cost_usd` numeric, no raw provider errors |
-| Timing logs in Railway UI | **NOT VERIFIED** (CLI unauthorized) |
-
-## Runtime instrumentation (this release)
-
-- `services/ops/timing.py` — `measure()`, `log_timing()` with `duration_ms`, `operation`, `outcome`
-- Instrumented: `/health`, `/ready`, `/council`, OpenAI, Anthropic, synthesis, DB ping/migration/persist
-- **No response shape changes**
+| JSON `ben.ops` on Railway | **NOT VERIFIED** (branch not on `main` yet) |
+| Last prod API smoke (`main`) | **PASS** (prior session) |
 
 ## Deployment Readiness
 
-**READY** for continued operation. **PARTIAL** observability until R-008 formatter deploys.
+**READY TO MERGE** `feature/json-logging-v1`. **READY WITH WARNINGS** for full observability until prod log sample.
 
 ## Recommended Next Step
 
-1. Add lightweight JSON log formatter for `ben.ops` (close R-008, complete R-012).
-2. `railway login` → sample production logs for `GET /health completed`, `provider_openai`.
-3. Merge `feature/timing-load-governance-v1` if not already on `main`.
+1. Merge `feature/json-logging-v1` → `main` and redeploy.
+2. Sample Railway logs for `operation` + `duration_ms` JSON fields.
+3. Re-run `/ready` against DB-up environment to verify `db_migration_lookup` log line.
 
 READY FOR CHATGPT REVIEW
