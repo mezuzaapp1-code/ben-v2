@@ -2,7 +2,7 @@
 
 Operational timing policy for BEN-V2. **Measure first, automate later.** This document defines targets and isolation rules; runtime enforcement is phased in after instrumentation (see `INSTRUMENTATION_PLAN.md`).
 
-**Status:** Foundation v1 — documentation only (no runtime enforcement in this phase).
+**Status:** Foundation v1 docs + **runtime timeout alignment v1** (`services/ops/timeouts.py` tier constants enforced).
 
 ---
 
@@ -32,7 +32,7 @@ Operational timing policy for BEN-V2. **Measure first, automate later.** This do
 **Notes**
 
 - Targets are **design goals**, not yet enforced SLOs.
-- Current code references: `services/ops/timeouts.py` (HTTP 120s client, synthesis 10s, DB ping 2s) — alignment review is a future implementation task.
+- Runtime constants: `services/ops/timeouts.py` — FAST 5s route, PRO 12s provider, synthesis 10s, DB ping 2s / persist 5s; experts run in parallel within DELIBERATE envelope.
 - User-facing responses must return within **DELIBERATE** hard timeout even if synthesis or persist is skipped.
 
 ---

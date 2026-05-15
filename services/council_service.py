@@ -22,6 +22,7 @@ from services.ops.structured_log import log_warning
 from services.ops.timing import log_timing, measure
 from services.ops.timeouts import (
     DB_OPERATION_TIMEOUT_S,
+    EXPERT_CALL_TIMEOUT_S,
     HTTP_CLIENT_TIMEOUT_S,
     SYNTHESIS_TIMEOUT_S,
 )
@@ -162,7 +163,7 @@ async def _safe_expert(
     t0 = time.perf_counter()
     op = f"expert_{label.lower()}"
     try:
-        text, cost = await coro_factory()
+        text, cost = await asyncio.wait_for(coro_factory(), timeout=EXPERT_CALL_TIMEOUT_S)
         duration_ms = int((time.perf_counter() - t0) * 1000)
         if text.startswith("Expert unavailable") or text.startswith("missing "):
             log_timing(
@@ -294,20 +295,22 @@ async def _persist_synthesis_ko(tenant_id: str, question: str, synthesis: dict[s
 async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
     timeout = httpx.Timeout(HTTP_CLIENT_TIMEOUT_S)
     async with httpx.AsyncClient(timeout=timeout) as cx:
-        ra, ca = await _safe_expert(
-            lambda: _legal(cx, question, tenant_id),
-            provider="anthropic",
-            label="Legal",
-        )
-        rb, cb = await _safe_expert(
-            lambda: _openai(cx, "gpt-4o", S_BIZ, question, tenant_id),
-            provider="openai",
-            label="Business",
-        )
-        rc, cc = await _safe_expert(
-            lambda: _openai(cx, "gpt-4o-mini", S_STRAT, question, tenant_id),
-            provider="openai",
-            label="Strategy",
+        (ra, ca), (rb, cb), (rc, cc) = await asyncio.gather(
+            _safe_expert(
+                lambda: _legal(cx, question, tenant_id),
+                provider="anthropic",
+                label="Legal",
+            ),
+            _safe_expert(
+                lambda: _openai(cx, "gpt-4o", S_BIZ, question, tenant_id),
+                provider="openai",
+                label="Business",
+            ),
+            _safe_expert(
+                lambda: _openai(cx, "gpt-4o-mini", S_STRAT, question, tenant_id),
+                provider="openai",
+                label="Strategy",
+            ),
         )
 
         synthesis: dict[str, Any] | None = None
@@ -327,7 +330,7 @@ async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
                     timeout=SYNTHESIS_TIMEOUT_S,
                 )
             synthesis = _parse_synthesis_json(raw_syn)
-        except TimeoutError as e:
+        except (TimeoutError, asyncio.TimeoutError) as e:
             log_warning(
                 "council synthesis timed out",
                 subsystem="council",

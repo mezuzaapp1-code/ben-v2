@@ -7,6 +7,8 @@ from typing import Any
 
 import httpx
 
+from services.ops.timeouts import HTTP_CLIENT_TIMEOUT_S
+
 _CHAIN = ("openai", "anthropic", "google")
 _FALLBACK = {"openai": "gpt-4o-mini", "anthropic": "claude-3-5-haiku-20241022", "google": "gemini-1.5-flash"}
 _RATES: dict[tuple[str, str], tuple[float, float]] = {
@@ -117,7 +119,7 @@ async def route_request(message: str, tenant_id: str, tier: str) -> dict[str, An
     t0 = time.perf_counter()
     keys = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "google": "GOOGLE_API_KEY"}
     last: BaseException | None = None
-    async with httpx.AsyncClient(timeout=120.0) as cx:
+    async with httpx.AsyncClient(timeout=HTTP_CLIENT_TIMEOUT_S) as cx:
         for prov, model in _attempts(tier):
             if not (os.getenv(keys[prov]) or "").strip():
                 continue

@@ -14,7 +14,7 @@ from database.connection import get_db_session
 from services.ops.request_context import attach_request_id
 from services.ops.structured_log import log_warning
 from services.ops.timing import measure
-from services.ops.timeouts import DB_PING_TIMEOUT_S
+from services.ops.timeouts import DB_PING_TIMEOUT_S, HEALTH_ROUTE_TIMEOUT_S
 
 SERVICE_NAME = "ben-v2"
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -114,7 +114,18 @@ async def build_health_payload() -> tuple[dict[str, Any], int]:
     if not checks_env["anthropic_configured"]:
         log_warning("ANTHROPIC_API_KEY not configured", subsystem="health", category="config_error")
 
-    db_ok = await ping_database()
+    try:
+        async with asyncio.timeout(HEALTH_ROUTE_TIMEOUT_S):
+            db_ok = await ping_database()
+    except TimeoutError:
+        log_warning(
+            "health route budget exceeded",
+            subsystem="health",
+            category="timeout",
+            operation="GET /health",
+            outcome="timeout",
+        )
+        db_ok = False
     payload = attach_request_id(
         {
             "status": "healthy" if db_ok else "degraded",
@@ -138,8 +149,20 @@ async def build_ready_payload() -> tuple[dict[str, Any], int]:
     if not _env_present("ANTHROPIC_API_KEY"):
         log_warning("ANTHROPIC_API_KEY not configured", subsystem="ready", category="config_error")
 
-    db_ok = await ping_database()
-    migration_head = await get_migration_head() if db_ok else None
+    db_ok = False
+    migration_head = None
+    try:
+        async with asyncio.timeout(HEALTH_ROUTE_TIMEOUT_S):
+            db_ok = await ping_database()
+            migration_head = await get_migration_head() if db_ok else None
+    except TimeoutError:
+        log_warning(
+            "ready route budget exceeded",
+            subsystem="ready",
+            category="timeout",
+            operation="GET /ready",
+            outcome="timeout",
+        )
     head = migration_head if migration_head else "unknown"
     env_ok = _required_env_ready()
     ready = db_ok and env_ok and migration_head is not None

@@ -4,56 +4,52 @@
 
 ## Current Phase
 
-**Security Baseline v1 documentation merged to `main`** (`1114462`). No runtime auth enforcement. Timing governance + JSON logging on `main`. Production APIs remain **unauthenticated** (by design until T-108 Phase 2).
+**Timeout budget alignment v1** on `feature/timeout-budget-alignment-v1` — runtime constants aligned to `TIMING_GOVERNANCE.md` tiers. Security baseline docs on `main`. Auth **not** enforced.
 
 ## Current Active Branch
 
-`main` @ `1114462` (+ docs follow-up commit pending)
+`feature/timeout-budget-alignment-v1`
 
 ## Current Active Task
 
-**Next implementation layer:** timeout budget alignment (`timeouts.py` vs `TIMING_GOVERNANCE.md`). **Security:** T-108 Phase 1–2 when ready (secrets hygiene, then Clerk wiring behind `ENFORCE_AUTH`).
+Verify timeout alignment locally; merge after review. **Next after merge:** T-108 Phase 1 (secrets hygiene) before auth enforcement.
 
 ## Recently Completed Tasks
 
 | Task | Outcome |
 |------|---------|
-| Security Baseline v1 docs | Merged `feature/security-baseline-v1` → `main`; R-013–R-016 registered |
-| Timing governance docs | On `main` (`ac89049`) |
-| JSON logging v1 | On `main` (`82739c2`); prod API smoke **PASS** |
+| Timeout alignment v1 (branch) | `timeouts.py` tiers; PRO 12s providers; FAST 5s health; parallel experts |
+| Security Baseline v1 docs | On `main` |
+| JSON logging v1 | On `main` (`82739c2`) |
 
 ## Blocked Tasks
 
-Auth enforcement (T-108 Phase 2) — intentionally deferred; requires Clerk prod config + frontend Bearer + `ENFORCE_AUTH` flag.
+Full DELIBERATE 25s envelope enforcement — **PARTIAL** (R-017: theoretical 27s worst case).
 
 ## Open Risks
 
-R-002, R-003, R-010, R-011, **R-012 (PARTIAL)**, **R-013 (HIGH, OPEN)**, **R-014 (HIGH, OPEN)**, **R-015 (OPEN)**, **R-016 (OPEN)** — see `docs/RISK_REGISTER.md`.
+R-002, R-003, **R-010 (PARTIAL)**, R-011, **R-012 (PARTIAL)**, R-013–R-016, **R-017** — see `docs/RISK_REGISTER.md`.
+
+## Timeout alignment state
+
+| Tier | Constant | Value |
+|------|----------|-------|
+| FAST | `HEALTH_ROUTE_TIMEOUT_S` | 5s |
+| FAST | `DB_PING_TIMEOUT_S` | 2s |
+| PRO | `HTTP_CLIENT_TIMEOUT_S` / `EXPERT_CALL_TIMEOUT_S` | 12s |
+| DELIBERATE | `SYNTHESIS_TIMEOUT_S` | 10s |
+| DELIBERATE | `DB_OPERATION_TIMEOUT_S` | 5s (optional persist) |
+
+**Remaining gaps:** no request-level DELIBERATE hard cap; `/chat` uses PRO 12s only; load isolation (R-010) and rate limits (R-015) not implemented.
 
 ## Production Status
 
-| Item | Status |
-|------|--------|
-| Deploy | Unchanged by docs-only merge (last API verify `82739c2`) |
-| Auth on council/chat | **Not enforced** (R-013) |
-| JSON `ben.ops` in Railway | **NOT VERIFIED** |
-
-## Security artifacts (on main)
-
-| Doc | Purpose |
-|-----|---------|
-| `docs/SECURITY_BASELINE.md` | Auth, tenant, routes, hardening, T-108 phases |
-| `docs/SECRETS_GOVERNANCE.md` | Env classes, rotation, logging redaction |
-| `docs/TASK_QUEUE.md` | T-108 Phases 1–5 defined |
-
-## Deployment Readiness
-
-**READY** — docs-only merge complete; no deploy required. **NOT READY** for auth hardening until T-108 Phase 2+.
+Unchanged until branch merges and deploys.
 
 ## Recommended Next Step
 
-1. **Timeout budget alignment** — `services/ops/timeouts.py` vs `TIMING_GOVERNANCE.md`.
-2. **T-108 Phase 1** — secrets/repo hygiene (`.gitignore` test JSON).
-3. **T-108 Phase 2** — wire Clerk with `ENFORCE_AUTH=false` default until frontend ready.
+1. Review and merge `feature/timeout-budget-alignment-v1` → `main`; prod smoke.
+2. **T-108 Phase 1** — secrets/repo hygiene.
+3. Optional: outer 25s council envelope (close R-017).
 
 READY FOR CHATGPT REVIEW
