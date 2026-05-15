@@ -1,6 +1,6 @@
 # BEN Risk Register
 
-**Last register review:** 2026-05-15 (security baseline foundation v1)
+**Last register review:** 2026-05-15 (security baseline docs merged to main)
 
 **RISK_REGISTER.md changed:** YES
 
