@@ -4,35 +4,45 @@
 
 ## Current Phase
 
-**T-108 Phase 2 — auth shadow mode v1** on `feature/auth-shadow-mode-v1`. Observe auth first; **ENFORCE_AUTH=false** (default).
+**Auth shadow mode v1 live on production** (`d8a9407`). **ENFORCE_AUTH=false** — unauthenticated council/chat **still work**.
 
 ## Current Active Branch
 
-`feature/auth-shadow-mode-v1`
+`main` @ `d8a9407`
 
-## Current Active Task
+## Auth shadow deployment status
 
-Verify shadow mode locally; merge when ready. **Do not** set `ENFORCE_AUTH=true` in production yet.
-
-## Auth shadow mode status
-
-| Flag | Default | Production intent |
-|------|---------|-------------------|
-| `ENFORCE_AUTH` | `false` | Keep false until frontend sends Bearer |
-| `AUTH_SHADOW_MODE` | `true` | Log `auth_missing` / `auth_valid` / `auth_invalid` on `/chat`, `/council` |
+| Item | Status |
+|------|--------|
+| Deploy version | `d8a940716420591766cf745c0bf34620b447f43b` |
+| `auth_enforcement` in prod `/health` | **false** — **VERIFIED** |
+| `auth_shadow_mode` in prod `/health` | **true** — **VERIFIED** |
+| Council without Authorization | **200** — **VERIFIED** |
+| Council with invalid Bearer | **200** — **VERIFIED** |
+| Railway `ENFORCE_AUTH` / `AUTH_SHADOW_MODE` vars | **NOT VERIFIED** (CLI unauthorized); health reflects expected flags |
+| Prod `shadow_auth_check` logs | **NOT VERIFIED** (R-019 OPEN) |
 
 ## Enforcement status
 
-**Disabled** — unauthenticated requests still **HTTP 200** on council/chat when `ENFORCE_AUTH=false`.
+**Disabled** — do not set `ENFORCE_AUTH=true` in Railway until frontend sends Clerk Bearer.
 
-## Recommended Next Step
+## Production smoke (session)
 
-1. Merge shadow mode → `main`; deploy with **ENFORCE_AUTH=false**.
-2. Sample `ben.ops` logs for auth outcome distribution (R-019).
-3. **Phase 3** tenant binding **or** frontend Clerk Bearer wiring before `ENFORCE_AUTH=true`.
+| Endpoint | HTTP | Notes |
+|----------|------|-------|
+| `GET /health` | 200 | `auth_enforcement=false`, `auth_shadow_mode=true` |
+| `GET /ready` | 200 | `auth` block matches |
+| `POST /council` (no auth) | 200 | 3 experts, synthesis present |
+| `POST /council` (invalid Bearer) | 200 | shape unchanged |
 
 ## Open Risks
 
-R-013 **PARTIAL**, R-014 **OPEN**, R-019 **OPEN** — see `docs/RISK_REGISTER.md`.
+R-013 **PARTIAL**, R-014 **OPEN**, R-019 **OPEN**, R-015/R-016 unchanged.
+
+## Recommended Next Step
+
+1. **Frontend Bearer token wiring** on `/council` and `/chat`.
+2. **Phase 3** tenant binding (`tenant_id` == JWT `org_id`).
+3. `railway login` → confirm `shadow_auth_check` log lines (close R-019).
 
 READY FOR CHATGPT REVIEW
