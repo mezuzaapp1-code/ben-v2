@@ -1,13 +1,11 @@
 """T12 Council: three experts in parallel, then BEN synthesis (sequential).
 
 Synthesis is isolated: failures return expert results only (synthesis null).
-Future: critique rounds, judge layers, confidence scoring, multi-stage deliberation.
 """
 from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 import uuid
 from typing import Any
@@ -17,17 +15,21 @@ from sqlalchemy import text
 
 from database.connection import get_db_session
 from database.models import KnowledgeObject
-
-logger = logging.getLogger(__name__)
+from services.ops.failure_classification import FAILURE_CONFIG_ERROR, classify_failure
+from services.ops.request_context import attach_request_id, get_request_id
+from services.ops.structured_log import log_warning
+from services.ops.timeouts import (
+    DB_OPERATION_TIMEOUT_S,
+    HTTP_CLIENT_TIMEOUT_S,
+    SYNTHESIS_TIMEOUT_S,
+)
 
 S_LEGAL = "You are a sharp legal advisor.\nAnalyze risks, contracts, compliance.\nBe direct. Max 3 sentences."
 S_BIZ = "You are a senior business strategist.\nAnalyze market, revenue, growth.\nBe direct. Max 3 sentences."
 S_STRAT = "You are a strategic thinker.\nAnalyze long-term implications and risks.\nBe direct. Max 3 sentences."
 
 ANTHROPIC_MODEL_DEFAULT = "claude-sonnet-4-6"
-
 SYNTHESIS_MODEL_DEFAULT = "gpt-4o-mini"
-SYNTHESIS_TIMEOUT_S = 10.0
 
 SYNTHESIS_SYSTEM = """You are BEN, a Cognitive Operating System.
 Your job is to synthesize expert opinions into structured organizational reasoning.
@@ -47,9 +49,19 @@ def _cost_claude(pi: int, po: int) -> float:
     return 3e-6 * pi + 15e-6 * po
 
 
+def _degraded_expert_response(category: str) -> str:
+    return f"Expert unavailable ({category}). Please retry or check configuration."
+
+
+def _log_provider_failure(*, provider: str, subsystem: str, exc: BaseException | None = None, message: str) -> None:
+    category = classify_failure(exc) if exc else FAILURE_CONFIG_ERROR
+    log_warning(message, subsystem=subsystem, provider=provider, category=category, exc=exc)
+
+
 async def _openai(cx: httpx.AsyncClient, model: str, system: str, q: str, tenant_id: str) -> tuple[str, float]:
     k = os.getenv("OPENAI_API_KEY", "").strip()
     if not k:
+        _log_provider_failure(provider="openai", subsystem="council", message="missing OPENAI_API_KEY")
         return "missing OPENAI_API_KEY", 0.0
     r = await cx.post(
         "https://api.openai.com/v1/chat/completions",
@@ -65,9 +77,9 @@ async def _openai(cx: httpx.AsyncClient, model: str, system: str, q: str, tenant
 
 
 async def _legal(cx: httpx.AsyncClient, q: str, tenant_id: str) -> tuple[str, float]:
-    """Anthropic Messages API: x-api-key + anthropic-version (never Authorization: Bearer)."""
     k = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not k:
+        _log_provider_failure(provider="anthropic", subsystem="council", message="missing ANTHROPIC_API_KEY")
         return "missing ANTHROPIC_API_KEY", 0.0
     model = os.getenv("ANTHROPIC_MODEL", ANTHROPIC_MODEL_DEFAULT).strip() or ANTHROPIC_MODEL_DEFAULT
     r = await cx.post(
@@ -93,10 +105,23 @@ async def _legal(cx: httpx.AsyncClient, q: str, tenant_id: str) -> tuple[str, fl
     return txt, _cost_claude(pi, po)
 
 
-def _unwrap(x: Any) -> tuple[str, float]:
-    if isinstance(x, BaseException):
-        return repr(x), 0.0
-    return x
+async def _safe_expert(
+    coro_factory,
+    *,
+    provider: str,
+    label: str,
+) -> tuple[str, float]:
+    try:
+        return await coro_factory()
+    except Exception as e:
+        category = classify_failure(e)
+        _log_provider_failure(
+            provider=provider,
+            subsystem="council",
+            exc=e,
+            message=f"{label} expert failed",
+        )
+        return _degraded_expert_response(category), 0.0
 
 
 def _synthesis_user_prompt(question: str, legal: str, business: str, strategy: str) -> str:
@@ -164,32 +189,52 @@ def _parse_synthesis_json(raw: str) -> dict[str, Any]:
 async def _persist_synthesis_ko(tenant_id: str, question: str, synthesis: dict[str, Any]) -> None:
     org = uuid.UUID(tenant_id)
     title = (question[:100] if question else "Council synthesis")[:512]
-    async with get_db_session() as session:
-        await session.execute(text("SELECT set_config('app.current_org_id', :v, true)"), {"v": str(org)})
-        session.add(
-            KnowledgeObject(
-                org_id=org,
-                type="synthesis",
-                status="evolving",
-                confidence=None,
-                title=title,
-                content=dict(synthesis),
+
+    async def _do() -> None:
+        async with get_db_session() as session:
+            await session.execute(text("SELECT set_config('app.current_org_id', :v, true)"), {"v": str(org)})
+            session.add(
+                KnowledgeObject(
+                    org_id=org,
+                    type="synthesis",
+                    status="evolving",
+                    confidence=None,
+                    title=title,
+                    content=dict(synthesis),
+                )
             )
+            await session.commit()
+
+    try:
+        await asyncio.wait_for(_do(), timeout=DB_OPERATION_TIMEOUT_S)
+    except Exception as e:
+        log_warning(
+            "council synthesis persist failed",
+            subsystem="council",
+            provider="database",
+            category=classify_failure(e),
+            exc=e,
         )
-        await session.commit()
 
 
 async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=120.0) as cx:
-        raw = await asyncio.gather(
-            _legal(cx, question, tenant_id),
-            _openai(cx, "gpt-4o", S_BIZ, question, tenant_id),
-            _openai(cx, "gpt-4o-mini", S_STRAT, question, tenant_id),
-            return_exceptions=True,
+    timeout = httpx.Timeout(HTTP_CLIENT_TIMEOUT_S)
+    async with httpx.AsyncClient(timeout=timeout) as cx:
+        ra, ca = await _safe_expert(
+            lambda: _legal(cx, question, tenant_id),
+            provider="anthropic",
+            label="Legal",
         )
-        ra, ca = _unwrap(raw[0])
-        rb, cb = _unwrap(raw[1])
-        rc, cc = _unwrap(raw[2])
+        rb, cb = await _safe_expert(
+            lambda: _openai(cx, "gpt-4o", S_BIZ, question, tenant_id),
+            provider="openai",
+            label="Business",
+        )
+        rc, cc = await _safe_expert(
+            lambda: _openai(cx, "gpt-4o-mini", S_STRAT, question, tenant_id),
+            provider="openai",
+            label="Strategy",
+        )
 
         synthesis: dict[str, Any] | None = None
         synth_cost = 0.0
@@ -207,18 +252,27 @@ async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
                 timeout=SYNTHESIS_TIMEOUT_S,
             )
             synthesis = _parse_synthesis_json(raw_syn)
-        except TimeoutError:
-            logger.warning("council synthesis timed out after %ss", SYNTHESIS_TIMEOUT_S)
+        except TimeoutError as e:
+            log_warning(
+                "council synthesis timed out",
+                subsystem="council",
+                provider="openai",
+                category="timeout",
+                exc=e,
+            )
         except Exception as e:
-            logger.warning("council synthesis failed: %s", e, exc_info=True)
+            log_warning(
+                "council synthesis failed",
+                subsystem="council",
+                provider="openai",
+                category=classify_failure(e),
+                exc=e,
+            )
 
     if synthesis is not None:
-        try:
-            await _persist_synthesis_ko(tenant_id, question, synthesis)
-        except Exception as e:
-            logger.warning("council synthesis persist failed: %s", e, exc_info=True)
+        await _persist_synthesis_ko(tenant_id, question, synthesis)
 
-    return {
+    payload = {
         "question": question,
         "council": [
             {"expert": "Legal Advisor", "model": "claude", "response": ra},
@@ -228,3 +282,6 @@ async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
         "synthesis": synthesis,
         "cost_usd": round(ca + cb + cc + synth_cost, 6),
     }
+    if get_request_id():
+        return attach_request_id(payload)
+    return payload

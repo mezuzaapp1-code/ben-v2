@@ -1,15 +1,45 @@
+from contextlib import asynccontextmanager
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI
+import uuid
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from services.chat_service import handle_chat
 from services.council_service import run_council
+from services.health_service import build_health_payload, build_ready_payload
+from services.ops.request_context import set_request_id
+from services.ops.startup import validate_startup
 
-app = FastAPI()
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Assign request_id for traced routes."""
+
+    _TRACED = frozenset({"/council", "/health", "/ready"})
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path in self._TRACED:
+            incoming = request.headers.get("X-Request-ID", "").strip()
+            set_request_id(incoming if incoming else str(uuid.uuid4()))
+        response = await call_next(request)
+        return response
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    validate_startup()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+app.add_middleware(RequestIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -20,6 +50,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/health")
+async def health():
+    payload, status_code = await build_health_payload()
+    return JSONResponse(content=payload, status_code=status_code)
+
+
+@app.get("/ready")
+async def ready():
+    payload, status_code = await build_ready_payload()
+    return JSONResponse(content=payload, status_code=status_code)
 
 
 class ChatBody(BaseModel):
