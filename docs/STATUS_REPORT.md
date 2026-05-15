@@ -1,60 +1,66 @@
-# BEN TASK REPORT — Council Reasoning Preservation v1
+# BEN TASK REPORT — Tenant Binding v1
 
 **Last updated:** 2026-05-15
 
 ## 1. Task Name
 
-Preserve differentiated legal / operational / strategic reasoning in council synthesis (optional structured fields).
+Server-authoritative tenant identity for `/chat` and `/council` using Clerk JWT claims (`org_id` / nested `o.id`); client JSON tenancy fields untrusted.
 
 ## 2. Branch
 
-`feature/reasoning-preservation-v1` (not merged)
+`feature/tenant-binding-v1` (not merged)
 
-## 3. Before / after synthesis (conceptual)
+## 3. Before / after authority flow
 
-**Before:** JSON `{ recommendation, consensus_points, main_disagreement, agreement_estimate }` tended to collapse nuance into one blurb.
+**Before:** `tenant_id` from request body was passed through to RLS / provider headers and could be spoofed on unsigned traffic.
 
-**After:** Same core keys **plus** optional: `shared_recommendation`, `disagreement_points`, `legal_reasoning`, `operational_reasoning`, `strategic_reasoning`, `infrastructure_reasoning`, `minority_or_unique_views`. Omitted or absent when empty. `recommendation` always present for backward compatibility.
+**After:** `TenantContext` is built only from verified JWT when `Authorization: Bearer` is valid; unsigned traffic uses `BEN_ANONYMOUS_ORG_ID` (default `00000000-0000-0000-0000-000000000001`). Optional body `tenant_id` is **ignored** when anonymous; when JWT-bound, mismatched body `tenant_id` returns **422**. Unknown JSON keys (`org_id`, etc.) return **422** (`extra="forbid"`). `ENFORCE_AUTH` remains default **false**.
 
-## 4. Runtime matrix
-
-Unchanged: Legal → Anthropic, Business → OpenAI, Strategy → Gemini, Synthesis → OpenAI.
-
-## 5. Verification
+## 4. Verification commands
 
 ```bash
-python -m pytest tests/test_reasoning_preservation.py tests/test_council_gemini_strategy.py tests/test_council_degraded_honesty.py -v
+python -m pytest tests/test_tenant_binding.py tests/test_council_degraded_honesty.py tests/test_council_gemini_strategy.py tests/test_reasoning_preservation.py -v
 cd frontend && npm run build
 ```
+
+## 5. Forged tenant test (pytest)
+
+| Case | Expected | Result |
+|------|----------|--------|
+| JWT org A + body `tenant_id` B | 422 | **PASS** |
+| Unsigned + arbitrary body `tenant_id` | Server uses anonymous org | **PASS** |
+| JWT org A + omitted body `tenant_id` | Handler receives org A | **PASS** |
 
 ## 6. PASS / FAIL
 
 | Check | Result |
 |-------|--------|
-| Extended synthesis fields (mocked) | **PASS** |
-| Degraded expert honesty (`2/2 available`) | **PASS** |
-| Backward compat minimal JSON | **PASS** |
-| Existing council tests | **PASS** |
-| Frontend build | **PASS** |
-| Production | **NOT VERIFIED** |
+| JWT org resolution + mismatch 422 | **PASS** |
+| Anonymous ignores forged body tenant | **PASS** |
+| Extra JSON fields forbidden | **PASS** |
+| `ENFORCE_AUTH=true` invalid JWT → 401 | **PASS** |
+| JWT valid, org missing → 400 | **PASS** |
+| `/health` checks: `tenant_binding_enabled`, `enforce_auth` | **PASS** |
+| Council/chat response shapes unchanged | **PASS** (mocked) |
+| Production signed smoke | **NOT VERIFIED** |
 
 ## 7. VERIFIED vs INFERRED
 
 | Finding | Class |
 |---------|--------|
-| Parser + honest agreement_post-process | **VERIFIED** (code + pytest) |
-| LLM follows preservation prompt in prod | **INFERRED** |
+| Cross-tenant body forgery blocked when signed | **VERIFIED** (pytest) |
+| Production Clerk org claim shape / UX | **INFERRED** |
 
 ## 8. Risks
 
 | ID | Status |
 |----|--------|
-| R-022 | **PARTIAL** |
-| R-024 | **OPEN** — compression risk until prod validated |
+| R-014 | **PARTIAL** — pytest only; **not FIXED** until prod |
+| R-019 | **OPEN** — extend log review for `tenant_bind` |
 
 ## 9. Readiness
 
-**READY FOR REVIEW** — merge + prod spot-check on nuanced prompts.
+**READY FOR REVIEW** — deploy + prod signed request with forged body to close R-014.
 
 ---
 

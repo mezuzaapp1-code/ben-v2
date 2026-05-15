@@ -1,6 +1,6 @@
 # BEN Risk Register
 
-**Last register review:** 2026-05-15 (Reasoning preservation v1 — branch, not merged)
+**Last register review:** 2026-05-15 (Tenant binding v1 — branch, not merged)
 
 **RISK_REGISTER.md changed:** YES
 
@@ -15,13 +15,14 @@
 | R-011 | No queue infrastructure yet | Medium | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | T-107 | No | No |
 | R-012 | Runtime latency instrumentation | Medium | **PARTIAL** | 2026-05-15 | 2026-05-15 | UNCHANGED | Prod JSON log sample | No | No |
 | R-013 | Unauthenticated `/chat` and `/council` | **High** | **PARTIAL** | 2026-05-15 | 2026-05-15 | **CHANGED** — Phase A: API leakage + `request_id` **VERIFIED**; signed-in Bearer + `auth_valid` logs **NOT VERIFIED** | Manual DevTools Bearer check; `railway logs`; tenant binding; then enforce | No | **Yes** (until enforce) |
-| R-014 | Client-supplied `tenant_id` without auth binding | **High** | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Phase 3 tenant binding | No | **Yes** (cross-tenant) |
+| R-014 | Client-supplied `tenant_id` without auth binding | **High** | **PARTIAL** | 2026-05-15 | 2026-05-15 | **CHANGED** — server org from Clerk JWT for signed; body `tenant_id` optional (422 if mismatched when signed); unsigned uses `BEN_ANONYMOUS_ORG_ID`; forged org/jwt-org cross **VERIFIED** (pytest); **PROD NOT VERIFIED** | Prod signed + body mismatch smoke; then consider **FIXED** | No | **Yes** (until prod check) |
 | R-015 | No rate limiting on expensive routes | Medium | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | T-108 Phase 4 | No | No |
 | R-018 | Accidental shell artifact files in repo root | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Manual delete locally | No | No |
-| R-019 | Auth shadow without production log baseline | Low | OPEN | 2026-05-15 | 2026-05-15 | **CHANGED** — prod traffic for all shadow outcomes **SENT** (unsigned, invalid, valid JWT); `railway logs` **NOT VERIFIED** (CLI unauthorized in agent env) | Local: `railway login` → `verify_r019_production_logs.py` | No | No |
+| R-019 | Auth shadow without production log baseline | Low | OPEN | 2026-05-15 | 2026-05-15 | **CHANGED** — `tenant_bind` logs add `auth_present`/`org_bound`/`auth_source` (no JWT); prod log sample still **NOT VERIFIED** | `railway logs` + `tenant bound for POST` | No | No |
 | R-022 | Multi-provider council response divergence | Medium | **PARTIAL** | 2026-05-15 | 2026-05-15 | **CHANGED** — synthesis v1 adds domain reasoning sections; differentiation **PARTIALLY VERIFIED** (pytest); prod open | Monitor LLM compliance + council UX | No | No |
 | R-023 | Gemini Strategy Advisor operational variability | Low–Medium | **PARTIAL** | 2026-05-15 | 2026-05-15 | **CHANGED** — prod Strategy `google`/`gemini-2.5-flash`/`ok` **VERIFIED**; `gemini-1.5-flash` **FAIL** (retired) | Pin `GEMINI_MODEL=gemini-2.5-flash` on Railway | No | No |
 | R-024 | Council synthesis compresses distinct expert reasoning | Medium | OPEN | 2026-05-15 | 2026-05-15 | **NEW** — optional `legal_reasoning`/`strategic_reasoning`/etc.; pytest **NOT PROD VERIFIED** until merge | Merge `feature/reasoning-preservation-v1` + prod spot-check | No | No |
+| R-025 | Legal Advisor (Anthropic) timeout variability under heavier prompts | Medium | OPEN | 2026-05-15 | 2026-05-15 | **NEW** — prod short prompt 0/5 Legal timeout; ~3.4k char prompt 1/2 Legal `timeout`; `claude-sonnet-4-6` **VERIFIED** ok when fast enough | Tail logs (`provider_anthropic` duration); optional Haiku eval; prompt bounding; **not FIXED** | No | No |
 
 ---
 

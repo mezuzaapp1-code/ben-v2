@@ -21,10 +21,18 @@ def is_auth_shadow_mode() -> bool:
     return _env_bool("AUTH_SHADOW_MODE", True)
 
 
+def get_anonymous_org_id() -> str:
+    """Server-side org UUID for unsigned requests (never take this from client JSON)."""
+    return os.getenv("BEN_ANONYMOUS_ORG_ID", "00000000-0000-0000-0000-000000000001").strip()
+
+
 def auth_config_for_health() -> dict[str, bool]:
     """Safe booleans for /health and /ready (no secrets)."""
+    en = is_enforce_auth()
     return {
-        "auth_enforcement": is_enforce_auth(),
+        "auth_enforcement": en,
+        "enforce_auth": en,
+        "tenant_binding_enabled": True,
         "auth_shadow_mode": is_auth_shadow_mode(),
         "clerk_secret_configured": bool(os.getenv("CLERK_SECRET_KEY", "").strip()),
     }

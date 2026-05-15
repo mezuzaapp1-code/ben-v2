@@ -2,7 +2,7 @@ import { SignInButton, SignOutButton, useAuth } from '@clerk/clerk-react'
 import { useCallback, useMemo, useState } from 'react'
 import { buildBenHeaders } from './api/benHeaders.js'
 import { useBenAuthContext } from './auth/BenAuthContext.jsx'
-import { BEN_API_BASE, DEFAULT_TENANT_ID } from './config.js'
+import { BEN_API_BASE } from './config.js'
 import './App.css'
 
 const CHAT_URL = `${BEN_API_BASE}/chat`
@@ -128,7 +128,7 @@ function App() {
       const res = await fetch(CHAT_URL, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ message: text, tenant_id: DEFAULT_TENANT_ID, tier }),
+        body: JSON.stringify({ message: text, tier }),
       })
       const data = await res.json().catch(() => ({}))
       const assistant = {
@@ -186,7 +186,7 @@ function App() {
       const res = await fetch(COUNCIL_URL, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ question: text, tenant_id: DEFAULT_TENANT_ID }),
+        body: JSON.stringify({ question: text }),
       })
       const data = await res.json().catch(() => ({}))
       const members = Array.isArray(data.council) ? data.council : []
