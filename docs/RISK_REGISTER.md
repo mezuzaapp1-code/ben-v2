@@ -1,6 +1,6 @@
 # BEN Risk Register
 
-**Last register review:** 2026-05-15 (hardening sprint)
+**Last register review:** 2026-05-15 (hardening merge + production smoke)
 
 **RISK_REGISTER.md changed:** YES
 
@@ -10,11 +10,9 @@
 
 | ID | Risk / Issue | Severity | Status | First Seen | Last Checked | Changed Since Last Report | Next Action | Blocks Merge? | Blocks Deploy? |
 |----|----------------|----------|--------|------------|--------------|---------------------------|-------------|---------------|----------------|
-| R-001 | No `/health` endpoint in production yet | Medium | IN_PROGRESS | 2026-05-15 | 2026-05-15 | **CHANGED** — implemented on `feature/hardening-v1` (includes health layer); prod deploy pending | Merge hardening or operational-health; verify prod `/health` `/ready` | No | No |
-| R-002 | Railway variables not CLI-verified | Low–Medium | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Confirm in Railway UI | No | No |
-| R-003 | Untracked local files `_council_test.json` and `scripts/` | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Commit or gitignore | No | No |
-| R-005 | Healthy path for `/health` not live integration-tested yet | Medium | OPEN | 2026-05-15 | 2026-05-15 | **CHANGED** — degraded path verified; healthy 200 still needs reachable DB post-deploy | Re-verify after merge/deploy | No | No |
-| R-008 | Structured logs use `logging.extra` without custom formatter | Low | OPEN | 2026-05-15 | 2026-05-15 | **NEW** | Add JSON log formatter or Railway log drain mapping | No | No |
+| R-002 | Railway variables not CLI-verified | Low–Medium | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Confirm in Railway UI or `railway login` | No | No |
+| R-003 | Untracked local files `_council_test.json` and `scripts/` | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Commit useful scripts or add to `.gitignore` | No | No |
+| R-008 | Structured logs use `logging.extra` without custom formatter | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Add JSON log formatter or Railway log drain mapping | No | No |
 
 ---
 
@@ -32,7 +30,8 @@
 
 | ID | Risk / Issue | Severity | Status | First Seen | Last Checked | Resolved | Notes |
 |----|----------------|----------|--------|------------|--------------|----------|-------|
-| — | *(none yet)* | — | — | — | — | — | |
+| R-001 | No `/health` endpoint in production yet | Medium | FIXED | 2026-05-15 | 2026-05-15 | **2026-05-15** | Merged `feature/hardening-v1` → `main` (`b7a4d85`). Prod smoke: `GET /health` **200**, `request_id` present, `status=healthy`, `database=ok`. |
+| R-005 | Healthy path for `/health` not live integration-tested yet | Medium | FIXED | 2026-05-15 | 2026-05-15 | **2026-05-15** | Prod smoke: `GET /ready` **200**, `ready=true`, `migration_head=002_ko_synthesis_jsonb`. Healthy path verified against Railway DB. |
 
 ---
 
