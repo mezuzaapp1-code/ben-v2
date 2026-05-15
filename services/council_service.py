@@ -43,7 +43,7 @@ S_STRAT = "You are a strategic thinker.\nAnalyze long-term implications and risk
 ANTHROPIC_MODEL_DEFAULT = "claude-sonnet-4-6"
 SYNTHESIS_MODEL_DEFAULT = "gpt-4o-mini"
 BUSINESS_MODEL = "gpt-4o"
-GEMINI_MODEL_DEFAULT = "gemini-2.0-flash"
+GEMINI_MODEL_DEFAULT = "gemini-2.5-flash"
 
 SYNTHESIS_SYSTEM = """You are BEN, a Cognitive Operating System.
 Your job is to synthesize expert opinions into structured organizational reasoning.
