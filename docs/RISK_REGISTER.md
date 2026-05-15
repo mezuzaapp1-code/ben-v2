@@ -1,6 +1,6 @@
 # BEN Risk Register
 
-**Last register review:** 2026-05-15 (Clerk key on Vercel + prod redeploy verified)
+**Last register review:** 2026-05-15 (Auth Verification Phase A — automated checks)
 
 **RISK_REGISTER.md changed:** YES
 
@@ -14,11 +14,11 @@
 | R-010 | No runtime load isolation yet | Medium | **PARTIAL** | 2026-05-15 | 2026-05-15 | UNCHANGED | Per-tenant concurrency / queues | No | No |
 | R-011 | No queue infrastructure yet | Medium | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | T-107 | No | No |
 | R-012 | Runtime latency instrumentation | Medium | **PARTIAL** | 2026-05-15 | 2026-05-15 | UNCHANGED | Prod JSON log sample | No | No |
-| R-013 | Unauthenticated `/chat` and `/council` | **High** | **PARTIAL** | 2026-05-15 | 2026-05-15 | **CHANGED** — Clerk key on Vercel **VERIFIED**; sign-in UI live; signed-in Bearer headers **NOT VERIFIED**; **ENFORCE_AUTH=false** | Confirm Bearer via DevTools or test creds; tenant binding; then enforce | No | **Yes** (until enforce) |
+| R-013 | Unauthenticated `/chat` and `/council` | **High** | **PARTIAL** | 2026-05-15 | 2026-05-15 | **CHANGED** — Phase A: API leakage + `request_id` **VERIFIED**; signed-in Bearer + `auth_valid` logs **NOT VERIFIED** | Manual DevTools Bearer check; `railway logs`; tenant binding; then enforce | No | **Yes** (until enforce) |
 | R-014 | Client-supplied `tenant_id` without auth binding | **High** | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Phase 3 tenant binding | No | **Yes** (cross-tenant) |
 | R-015 | No rate limiting on expensive routes | Medium | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | T-108 Phase 4 | No | No |
 | R-018 | Accidental shell artifact files in repo root | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Manual delete locally | No | No |
-| R-019 | Auth shadow without production log baseline | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED — `railway logs` **NOT VERIFIED** (CLI unauthorized); API `/health` shadow flags **VERIFIED** | `railway login` → `railway logs --lines 200` → `shadow_auth_check` / `auth_valid` | No | No |
+| R-019 | Auth shadow without production log baseline | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED — Phase A: `railway logs` **NOT VERIFIED** (CLI unauthorized); `auth_valid` **NOT VERIFIED**; API smoke + `request_id` **VERIFIED** | `railway login` → logs → confirm `auth_missing` / `auth_invalid` / `auth_valid` | No | No |
 
 ---
 
