@@ -10,7 +10,7 @@ import httpx
 from services.ops.timeouts import HTTP_CLIENT_TIMEOUT_S
 
 _CHAIN = ("openai", "anthropic", "google")
-_FALLBACK = {"openai": "gpt-4o-mini", "anthropic": "claude-3-5-haiku-20241022", "google": "gemini-2.0-flash"}
+_FALLBACK = {"openai": "gpt-4o-mini", "anthropic": "claude-3-5-haiku-20241022", "google": "gemini-2.5-flash"}
 _RATES: dict[tuple[str, str], tuple[float, float]] = {
     ("openai", "gpt-4o-mini"): (0.15e-6, 0.60e-6),
     ("openai", "gpt-4o"): (2.5e-6, 10e-6),

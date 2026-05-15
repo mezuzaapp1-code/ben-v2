@@ -83,8 +83,8 @@ def main() -> int:
     model = str(strat.get("model", ""))
     if "gemini" not in model.lower():
         failures.append(f"strategy model unexpected: {model}")
-    if model == "gemini-1.5-flash":
-        failures.append("strategy still on retired gemini-1.5-flash default")
+    if model in ("gemini-1.5-flash", "gemini-1.5-pro"):
+        failures.append(f"strategy on retired model id: {model}")
 
     blob = json.dumps(data)
     for pat in SECRET_PATTERNS:

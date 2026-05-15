@@ -36,7 +36,7 @@ How BEN-V2 stores, accesses, rotates, and logs secrets. **Documentation v1** —
 | `OPENAI_API_KEY` | Server env | `council_service`, `model_gateway` |
 | `ANTHROPIC_API_KEY` | Server env | `council_service` (legal expert) |
 | `GOOGLE_API_KEY` | Server env | `model_gateway`, `council_service` (Strategy Advisor) |
-| `GEMINI_MODEL` / `GOOGLE_MODEL` | Server env | Council Strategy model override (default `gemini-1.5-flash`) |
+| `GEMINI_MODEL` / `GOOGLE_MODEL` | Server env | Council Strategy override (default `gemini-2.5-flash`; do not use retired 1.5 ids) |
 | `CLERK_SECRET_KEY` | Server env | `auth/clerk_auth.py` |
 | Stripe / Clerk webhook secrets | Server env | `billing/` (when routes enabled) |
 
