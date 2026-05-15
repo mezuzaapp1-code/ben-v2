@@ -1,4 +1,9 @@
+# Secrets and local env (never commit)
 .env
+.env.local
+.env.*.local
+
+# Python
 .venv/
 __pycache__/
 *.py[cod]
@@ -6,8 +11,25 @@ __pycache__/
 .mypy_cache/
 *.egg-info/
 dist/
+
+# Local test payloads and council fixtures (no secrets; keep out of repo)
+_test.json
+_council_test.json
+*_council_test.json
+council_test_*.json
+*.local.json
+
+# Logs and diagnostics
+*.log
+ben_ops_*.jsonl
+
+# Accidental PowerShell / shell redirect artifacts (repo root)
+e -ErrorAction SilentlyContinue
+s git,python,node -ErrorAction SilentlyContinue *
+
+# Frontend build
 frontend/node_modules/
 frontend/dist/
+
+# OS
 .DS_Store
-_test.json
-*.log

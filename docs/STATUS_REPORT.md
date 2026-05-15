@@ -4,55 +4,50 @@
 
 ## Current Phase
 
-**Timeout budget alignment v1 merged and live in production** (`b798e05`). Prod API smoke **PASS**. Auth **not** enforced.
+**T-108 Phase 1 — secrets hygiene** on `feature/secrets-hygiene-v1`. No runtime, auth, or schema changes.
 
 ## Current Active Branch
 
-`main` @ `b798e05`
+`feature/secrets-hygiene-v1`
 
 ## Current Active Task
 
-Choose next layer: **R-017** outer council 25s cap **or** **T-108 Phase 1** secrets hygiene (recommended before auth).
+Repo cleanup + rotation checklist; merge after review.
 
 ## Recently Completed Tasks
 
 | Task | Outcome |
 |------|---------|
-| Timeout alignment merge + deploy | Fast-forward to `main`; Railway version `b798e05` |
-| Production smoke | **PASS** — health/ready/council 200; council **7.24s** wall-clock |
+| Timeout alignment v1 | On `main` (`b798e05`); prod smoke **PASS** |
 | Security Baseline v1 docs | On `main` |
-| JSON logging v1 | On `main` |
+| T-108 Phase 1 (branch) | `.gitignore` expanded; verification scripts committed; `SECRETS_ROTATION_CHECKLIST.md` |
 
-## Blocked Tasks
+## Secrets hygiene status
 
-None for continued operation. Auth enforcement intentionally deferred (R-013).
+| Item | Status |
+|------|--------|
+| `.env` gitignored | **YES** |
+| Local council test JSON gitignored | **YES** |
+| Verification scripts in `scripts/` | **COMMITTED** (no live secrets) |
+| Rotation checklist | `docs/SECRETS_ROTATION_CHECKLIST.md` |
+| Shell junk files | **Gitignored** — manual delete still recommended (R-018) |
+
+## Repo cleanup status
+
+- **R-003 FIXED** on branch (scripts + ignore rules)
+- Stray PowerShell artifacts: ignored, not deleted (documented)
 
 ## Open Risks
 
-R-002, R-003, **R-010 (PARTIAL)**, R-011, **R-012 (PARTIAL)**, R-013–R-016, **R-017 (OPEN)**.
+R-002, R-010–R-015, R-016, R-017, **R-018** — see `docs/RISK_REGISTER.md`.
 
-## Production status (timeout alignment)
+## Production Status
 
-| Endpoint | HTTP | Wall-clock (session) |
-|----------|------|----------------------|
-| `GET /health` | 200 healthy | **0.76s** |
-| `GET /ready` | 200 ready | **0.23s** |
-| `POST /council` | 200, 3 experts, synthesis present | **7.24s** |
-
-Provider-level `duration_ms` in Railway logs: **NOT VERIFIED** (CLI unauthorized).
-
-## Timeout constants (prod code)
-
-FAST 5s route / 2s DB ping · PRO 12s providers · synthesis 10s · persist 5s
-
-## Deployment Readiness
-
-**READY FOR OPERATION** — timeout tiers live. **PARTIAL** observability (R-012 prod JSON logs).
+Unchanged until this branch merges (docs/gitignore/scripts only).
 
 ## Recommended Next Step
 
-1. **T-108 Phase 1** — secrets/repo hygiene (before auth).
-2. **R-017** — optional outer 25s `wait_for` on full council path.
-3. `railway login` — close R-012 prod JSON log sample.
+1. Merge `feature/secrets-hygiene-v1` → `main`.
+2. Choose: **R-017** outer 25s council cap **or** **T-108 Phase 2** auth shadow mode (`ENFORCE_AUTH=false` default).
 
 READY FOR CHATGPT REVIEW
