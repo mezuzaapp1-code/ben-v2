@@ -1,6 +1,6 @@
 # BEN Risk Register
 
-**Last register review:** 2026-05-15 (frontend bearer merged to main + prod smoke)
+**Last register review:** 2026-05-15 (Vercel CLI env verification + prod redeploy)
 
 **RISK_REGISTER.md changed:** YES
 
@@ -18,8 +18,8 @@
 | R-014 | Client-supplied `tenant_id` without auth binding | **High** | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Phase 3 tenant binding | No | **Yes** (cross-tenant) |
 | R-015 | No rate limiting on expensive routes | Medium | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | T-108 Phase 4 | No | No |
 | R-018 | Accidental shell artifact files in repo root | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Manual delete locally | No | No |
-| R-019 | Auth shadow without production log baseline | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED — Railway CLI/logs **NOT VERIFIED**; signed-in Vercel users should increase `auth_valid` after frontend deploy | `railway login` → sample `shadow_auth_check` lines | No | No |
-| R-020 | Frontend deploy without Clerk publishable key | Low | OPEN | 2026-05-15 | 2026-05-15 | **CHANGED** — bundle probe `ben-v2.vercel.app`: **MISSING** `pk_*` in JS; dashboard env **NOT VERIFIED** | Set `VITE_CLERK_PUBLISHABLE_KEY` on Vercel Production + redeploy | No | No |
+| R-019 | Auth shadow without production log baseline | Low | OPEN | 2026-05-15 | 2026-05-15 | **CHANGED** — `railway logs` **NOT VERIFIED** (CLI unauthorized); API shadow flags **VERIFIED** via `/health` | `railway login` → `railway logs --lines 200` → `shadow_auth_check` / `auth_valid` | No | No |
+| R-020 | Frontend deploy without Clerk publishable key | Low | OPEN | 2026-05-15 | 2026-05-15 | **VERIFIED MISSING** — `vercel env ls` shows **no** env vars; post-redeploy bundle has **no** `pk_*`; signed-in Bearer E2E **NOT VERIFIED** | `vercel env add VITE_CLERK_PUBLISHABLE_KEY production` → `vercel --prod` → bundle + Network tab check | No | No |
 
 ---
 
