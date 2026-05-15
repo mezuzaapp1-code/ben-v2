@@ -4,52 +4,55 @@
 
 ## Current Phase
 
-**Timeout budget alignment v1** on `feature/timeout-budget-alignment-v1` — runtime constants aligned to `TIMING_GOVERNANCE.md` tiers. Security baseline docs on `main`. Auth **not** enforced.
+**Timeout budget alignment v1 merged and live in production** (`b798e05`). Prod API smoke **PASS**. Auth **not** enforced.
 
 ## Current Active Branch
 
-`feature/timeout-budget-alignment-v1`
+`main` @ `b798e05`
 
 ## Current Active Task
 
-Verify timeout alignment locally; merge after review. **Next after merge:** T-108 Phase 1 (secrets hygiene) before auth enforcement.
+Choose next layer: **R-017** outer council 25s cap **or** **T-108 Phase 1** secrets hygiene (recommended before auth).
 
 ## Recently Completed Tasks
 
 | Task | Outcome |
 |------|---------|
-| Timeout alignment v1 (branch) | `timeouts.py` tiers; PRO 12s providers; FAST 5s health; parallel experts |
+| Timeout alignment merge + deploy | Fast-forward to `main`; Railway version `b798e05` |
+| Production smoke | **PASS** — health/ready/council 200; council **7.24s** wall-clock |
 | Security Baseline v1 docs | On `main` |
-| JSON logging v1 | On `main` (`82739c2`) |
+| JSON logging v1 | On `main` |
 
 ## Blocked Tasks
 
-Full DELIBERATE 25s envelope enforcement — **PARTIAL** (R-017: theoretical 27s worst case).
+None for continued operation. Auth enforcement intentionally deferred (R-013).
 
 ## Open Risks
 
-R-002, R-003, **R-010 (PARTIAL)**, R-011, **R-012 (PARTIAL)**, R-013–R-016, **R-017** — see `docs/RISK_REGISTER.md`.
+R-002, R-003, **R-010 (PARTIAL)**, R-011, **R-012 (PARTIAL)**, R-013–R-016, **R-017 (OPEN)**.
 
-## Timeout alignment state
+## Production status (timeout alignment)
 
-| Tier | Constant | Value |
-|------|----------|-------|
-| FAST | `HEALTH_ROUTE_TIMEOUT_S` | 5s |
-| FAST | `DB_PING_TIMEOUT_S` | 2s |
-| PRO | `HTTP_CLIENT_TIMEOUT_S` / `EXPERT_CALL_TIMEOUT_S` | 12s |
-| DELIBERATE | `SYNTHESIS_TIMEOUT_S` | 10s |
-| DELIBERATE | `DB_OPERATION_TIMEOUT_S` | 5s (optional persist) |
+| Endpoint | HTTP | Wall-clock (session) |
+|----------|------|----------------------|
+| `GET /health` | 200 healthy | **0.76s** |
+| `GET /ready` | 200 ready | **0.23s** |
+| `POST /council` | 200, 3 experts, synthesis present | **7.24s** |
 
-**Remaining gaps:** no request-level DELIBERATE hard cap; `/chat` uses PRO 12s only; load isolation (R-010) and rate limits (R-015) not implemented.
+Provider-level `duration_ms` in Railway logs: **NOT VERIFIED** (CLI unauthorized).
 
-## Production Status
+## Timeout constants (prod code)
 
-Unchanged until branch merges and deploys.
+FAST 5s route / 2s DB ping · PRO 12s providers · synthesis 10s · persist 5s
+
+## Deployment Readiness
+
+**READY FOR OPERATION** — timeout tiers live. **PARTIAL** observability (R-012 prod JSON logs).
 
 ## Recommended Next Step
 
-1. Review and merge `feature/timeout-budget-alignment-v1` → `main`; prod smoke.
-2. **T-108 Phase 1** — secrets/repo hygiene.
-3. Optional: outer 25s council envelope (close R-017).
+1. **T-108 Phase 1** — secrets/repo hygiene (before auth).
+2. **R-017** — optional outer 25s `wait_for` on full council path.
+3. `railway login` — close R-012 prod JSON log sample.
 
 READY FOR CHATGPT REVIEW
