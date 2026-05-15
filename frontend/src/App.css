@@ -197,6 +197,47 @@
   color: #c9a227;
 }
 
+.synthesis-reasoning-extras {
+  margin-top: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.synthesis-detail {
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  background: #111;
+  font-size: 0.8rem;
+}
+
+.synthesis-detail > summary {
+  cursor: pointer;
+  padding: 0.35rem 0.5rem;
+  color: #aaa;
+  list-style: none;
+}
+
+.synthesis-detail > summary::-webkit-details-marker {
+  display: none;
+}
+
+.synthesis-detail > summary::before {
+  content: '▸ ';
+  color: #666;
+}
+
+.synthesis-detail[open] > summary::before {
+  content: '▾ ';
+}
+
+.synthesis-detail-body {
+  padding: 0 0.5rem 0.5rem;
+  color: #c8c8c8;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
 .composer {
   display: flex;
   gap: 0.5rem;

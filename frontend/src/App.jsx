@@ -24,6 +24,31 @@ function expertStatusLabel(outcome, response) {
   return `Degraded: ${outcome}`
 }
 
+const SYNTHESIS_REASONING_SECTIONS = [
+  ['shared_recommendation', 'Shared recommendation'],
+  ['disagreement_points', 'Disagreement & rationale'],
+  ['legal_reasoning', 'Legal reasoning'],
+  ['operational_reasoning', 'Operational reasoning'],
+  ['strategic_reasoning', 'Strategic reasoning'],
+  ['infrastructure_reasoning', 'Infrastructure reasoning'],
+  ['minority_or_unique_views', 'Minority or unique views'],
+]
+
+function SynthesisReasoningExtras({ synthesis }) {
+  const blocks = SYNTHESIS_REASONING_SECTIONS.map(([key, label]) => {
+    const v = synthesis[key]
+    if (v == null || String(v).trim() === '') return null
+    return (
+      <details key={key} className="synthesis-detail">
+        <summary>{label}</summary>
+        <div className="synthesis-detail-body">{String(v)}</div>
+      </details>
+    )
+  }).filter(Boolean)
+  if (blocks.length === 0) return null
+  return <div className="synthesis-reasoning-extras">{blocks}</div>
+}
+
 function councilSynthesisBubbleText(s, anyExpertFailed) {
   const disagree =
     s.main_disagreement != null && String(s.main_disagreement).trim() !== ''
@@ -242,6 +267,7 @@ function App() {
               {m.kind === 'council_synthesis' && m.synthesis ? (
                 <div className="bubble synthesis">
                   <div className="bubble-text">{m.content}</div>
+                  <SynthesisReasoningExtras synthesis={m.synthesis} />
                   {(m.model_used || m.cost_usd !== undefined) && (
                     <div className="meta">
                       {m.model_used && <span>{m.model_used}</span>}

@@ -1,100 +1,60 @@
-# BEN TASK REPORT — Gemini Strategy Advisor v1 (merge + production)
+# BEN TASK REPORT — Council Reasoning Preservation v1
 
 **Last updated:** 2026-05-15
 
 ## 1. Task Name
 
-Merge `feature/gemini-strategy-advisor-v1` and verify 3-provider council on Railway production.
+Preserve differentiated legal / operational / strategic reasoning in council synthesis (optional structured fields).
 
 ## 2. Branch
 
-`main` @ `d4e6c8e` (includes merge `8368d26` + post-merge Gemini model/API fixes)
+`feature/reasoning-preservation-v1` (not merged)
 
-## 3. Goal
+## 3. Before / after synthesis (conceptual)
 
-Deploy Legal=Anthropic, Business=OpenAI, Strategy=Google Gemini; verify production runtime with `GOOGLE_API_KEY` configured (value not inspected).
+**Before:** JSON `{ recommendation, consensus_points, main_disagreement, agreement_estimate }` tended to collapse nuance into one blurb.
 
-## 4. Production runtime matrix — VERIFIED
+**After:** Same core keys **plus** optional: `shared_recommendation`, `disagreement_points`, `legal_reasoning`, `operational_reasoning`, `strategic_reasoning`, `infrastructure_reasoning`, `minority_or_unique_views`. Omitted or absent when empty. `recommendation` always present for backward compatibility.
 
-| Advisor | Provider | Model (prod) | Outcome |
-|---------|----------|--------------|---------|
-| Legal Advisor | anthropic | (Claude runtime) | ok |
-| Business Advisor | openai | gpt-4o | ok |
-| Strategy Advisor | **google** | **gemini-2.5-flash** | **ok** |
-| Synthesis | openai | gpt-4o-mini (typical) | present |
+## 4. Runtime matrix
 
-## 5. Sample redacted council metadata (production)
+Unchanged: Legal → Anthropic, Business → OpenAI, Strategy → Gemini, Synthesis → OpenAI.
 
-```json
-{
-  "expert": "Strategy Advisor",
-  "provider": "google",
-  "model": "gemini-2.5-flash",
-  "outcome": "ok",
-  "response": "For production council decisions, BEN should favor **dynamic model routing**..."
-}
-```
-
-`synthesis.agreement_estimate`: `"3/3 available"`
-
-Strategy response differed in framing from Legal (compliance) and Business (market) — multi-provider diversity **observed**.
-
-## 6. Post-merge fixes (required for prod)
-
-| Commit | Change |
-|--------|--------|
-| `6f5fadb` | Default `gemini-2.0-flash` (1.5 retired) |
-| `ea5b25e` | Generative Language **v1beta** + `systemInstruction` |
-| `d4e6c8e` | Default **`gemini-2.5-flash`** (prod-verified) |
-
-**Ops note:** If Railway `GEMINI_MODEL` is set to `gemini-1.5-flash`, override to `gemini-2.5-flash` or unset.
-
-## 7. Verification Executed
+## 5. Verification
 
 ```bash
-git merge feature/gemini-strategy-advisor-v1   # 8368d26
-python -m pytest tests/test_council_gemini_strategy.py tests/test_council_degraded_honesty.py -v
+python -m pytest tests/test_reasoning_preservation.py tests/test_council_gemini_strategy.py tests/test_council_degraded_honesty.py -v
 cd frontend && npm run build
-# wait ~60s Railway deploy
-python scripts/verify_gemini_council_prod.py
 ```
 
-## 8. PASS / FAIL
+## 6. PASS / FAIL
 
 | Check | Result |
 |-------|--------|
-| Pre-merge pytest (6) | **PASS** |
-| Merge `8368d26` to main | **PASS** |
-| GET `/health` | **PASS** (200; brief 503 during deploy) |
-| GET `/ready` | **PASS** |
-| POST `/council` | **PASS** |
-| 3 experts, providers correct | **PASS** |
-| Strategy `google` + `outcome=ok` | **PASS** (after `gemini-2.5-flash`) |
-| `agreement_estimate` honest | **PASS** (`3/3 available`) |
-| No secrets / traceback in body | **PASS** |
-| Initial prod (`gemini-1.5-flash` / `2.0-flash`) | **FAIL** — config_error degraded |
+| Extended synthesis fields (mocked) | **PASS** |
+| Degraded expert honesty (`2/2 available`) | **PASS** |
+| Backward compat minimal JSON | **PASS** |
+| Existing council tests | **PASS** |
+| Frontend build | **PASS** |
+| Production | **NOT VERIFIED** |
 
-## 9. VERIFIED vs INFERRED
+## 7. VERIFIED vs INFERRED
 
 | Finding | Class |
 |---------|--------|
-| 3-provider council on prod with Strategy ok | **VERIFIED** |
-| `gemini-1.5-flash` retired on Google API | **VERIFIED** (runtime behavior) |
-| `gemini-2.5-flash` works with v1beta | **VERIFIED** |
-| Vercel UI shows google model label | **INFERRED** (API fields present) |
+| Parser + honest agreement_post-process | **VERIFIED** (code + pytest) |
+| LLM follows preservation prompt in prod | **INFERRED** |
 
-## 10. Risks
+## 8. Risks
 
 | ID | Status |
 |----|--------|
-| R-022 | **PARTIAL** — 3-provider prod path verified; divergence monitoring ongoing |
-| R-023 | **PARTIAL** — prod Strategy ok with `gemini-2.5-flash`; model retirement/alias risk remains |
+| R-022 | **PARTIAL** |
+| R-024 | **OPEN** — compression risk until prod validated |
 
-## 11. Production readiness
+## 9. Readiness
 
-**READY FOR PRODUCTION USE** with default model **`gemini-2.5-flash`** and v1beta API.
-
-**Remaining:** Pin `GEMINI_MODEL` on Railway; monitor Google model deprecations; optional Vercel redeploy (UI uses API `provider`/`model` already).
+**READY FOR REVIEW** — merge + prod spot-check on nuanced prompts.
 
 ---
 

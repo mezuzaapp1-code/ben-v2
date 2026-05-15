@@ -49,11 +49,30 @@ SYNTHESIS_SYSTEM = """You are BEN, a Cognitive Operating System.
 Your job is to synthesize expert opinions into structured organizational reasoning.
 Return ONLY valid JSON. No markdown. No explanations outside the JSON.
 
-Rules:
+Rules — honesty (must always hold):
 - Only count experts with outcome=ok as agreeing experts.
-- Do not claim 2/3 or 3/3 agreement if any expert timed out or was unavailable.
-- If any expert failed, state in consensus_points that synthesis is based only on available responses.
-- agreement_estimate must reflect available experts only (e.g. "2/2 available", "1/2 available", "unknown")."""
+- Do not claim 3/3 or 2/3 style agreement if any expert timed out or was unavailable.
+- If any expert failed, say in consensus_points that synthesis uses only available experts.
+- agreement_estimate must reflect available experts only (e.g. "2/2 available", "3/3 available", "unknown").
+
+Rules — reasoning preservation (must always hold):
+- Preserve distinct expert lenses. Do NOT collapse Legal, Business/operational, and Strategy into one generic voice.
+- If experts agree on a conclusion but differ on WHY, capture those WHY differences in disagreement_points and/or domain sections.
+- agreement vs rationale: consensus_points = what aligns; disagreement_points = where they diverge (including rationale), without fabricating conflict.
+- Use domain sections to hold domain-specific priorities and risk framing (legal vs operational vs strategic vs infrastructure where relevant).
+- Be faithful: do not invent unanimous consensus when experts emphasized different risks or tradeoffs.
+- minority_or_unique_views: views articulated by one expert or clearly not shared by others (or null).
+- Omit optional keys or set them to null if not applicable."""
+
+SYNTHESIS_OPTIONAL_STRING_KEYS = (
+    "shared_recommendation",
+    "disagreement_points",
+    "legal_reasoning",
+    "operational_reasoning",
+    "strategic_reasoning",
+    "infrastructure_reasoning",
+    "minority_or_unique_views",
+)
 
 
 @dataclass
@@ -399,18 +418,30 @@ Question: {question}
 {lines}
 
 Tasks:
-1. Write ONE clear synthesized recommendation in 2-3 sentences.
-2. Identify consensus only among experts with outcome=ok.
-3. Identify primary disagreement among available experts if any (or null).
-4. Set agreement_estimate using available experts only (e.g. "{ok_count}/{ok_count} available" or "unknown").
-   Never use "3/3" or "2/3" when any expert above is not outcome=ok.
-5. If any expert is unavailable, note in consensus_points that synthesis uses only available responses.
+1. recommendation: one short cross-cutting summary (2-4 sentences) — backward compatible.
+2. shared_recommendation: optional; if present, should align with recommendation (may be slightly fuller). Omit or null if redundant.
+3. consensus_points: what experts with outcome=ok agree on (facts, actions, constraints) — not forced unanimity.
+4. main_disagreement: primary tension or null (string).
+5. disagreement_points: optional string — rationale differences, priority clashes, or "agree on outcome, disagree on why" (null if N/A).
+6. legal_reasoning: optional — distilled legal/compliance lens from Legal Advisor (null if unavailable or not outcome=ok).
+7. operational_reasoning: optional — business/operations lens from Business Advisor (same rule).
+8. strategic_reasoning: optional — long-horizon / positioning lens from Strategy Advisor (same rule).
+9. infrastructure_reasoning: optional — only if an expert addressed infra/tech debt/serving (often null).
+10. minority_or_unique_views: optional — non-majority or single-expert emphasis (null if none).
+11. agreement_estimate: use available experts only (e.g. "{ok_count}/{ok_count} available" or "unknown"). Never claim full panel when any expert is not outcome=ok.
 
-Return ONLY this JSON format:
+Return ONLY this JSON (optional keys may be null or omitted):
 {{
   "recommendation": "...",
+  "shared_recommendation": null,
   "consensus_points": "...",
   "main_disagreement": null,
+  "disagreement_points": null,
+  "legal_reasoning": null,
+  "operational_reasoning": null,
+  "strategic_reasoning": null,
+  "infrastructure_reasoning": null,
+  "minority_or_unique_views": null,
   "agreement_estimate": "{ok_count}/{ok_count} available"
 }}"""
 
@@ -426,6 +457,18 @@ def _honest_agreement_estimate(experts: list[ExpertResult], synthesis: dict[str,
     if misleading and int(misleading.group(1)) > ok_count:
         synthesis["agreement_estimate"] = f"{ok_count}/{ok_count} available" if ok_count else "unknown"
     return synthesis
+
+
+def _norm_synth_optional_str(val: Any) -> str | None:
+    if val is None:
+        return None
+    if isinstance(val, (dict, list)):
+        if not val:
+            return None
+        s = json.dumps(val)
+        return s if s.strip() else None
+    s = str(val).strip()
+    return s or None
 
 
 def _parse_synthesis_json(raw: str, experts: list[ExpertResult]) -> dict[str, Any]:
@@ -449,22 +492,35 @@ def _parse_synthesis_json(raw: str, experts: list[ExpertResult]) -> dict[str, An
     def pick(key: str) -> Any:
         return data.get(key)
 
-    reco = pick("recommendation")
-    cp = pick("consensus_points")
+    shared = _norm_synth_optional_str(pick("shared_recommendation"))
+    reco = _norm_synth_optional_str(pick("recommendation")) or shared
+    if not reco:
+        reco = raw if isinstance(raw, str) else str(raw)
+    cp = _norm_synth_optional_str(pick("consensus_points"))
     md = pick("main_disagreement")
-    ae = pick("agreement_estimate")
-
-    if cp is not None and not isinstance(cp, str):
-        cp = str(cp)
     if md is not None and not isinstance(md, str):
         md = json.dumps(md) if isinstance(md, (dict, list)) else str(md)
+    else:
+        md = _norm_synth_optional_str(md)
+    ae = pick("agreement_estimate")
 
-    parsed = {
-        "recommendation": str(reco).strip() if reco is not None else raw,
+    parsed: dict[str, Any] = {
+        "recommendation": reco,
         "consensus_points": cp,
         "main_disagreement": md,
         "agreement_estimate": str(ae) if ae is not None else "unknown",
     }
+
+    if shared:
+        parsed["shared_recommendation"] = shared
+
+    for key in SYNTHESIS_OPTIONAL_STRING_KEYS:
+        if key == "shared_recommendation":
+            continue
+        v = _norm_synth_optional_str(pick(key))
+        if v:
+            parsed[key] = v
+
     return _honest_agreement_estimate(experts, parsed)
 
 
