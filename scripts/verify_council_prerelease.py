@@ -162,6 +162,8 @@ async def _main() -> None:
 
     assert len(out["council"]) == 3, "three experts"
     assert all("response" in m and m["response"] for m in out["council"]), "expert bodies"
+    assert all(m.get("outcome") == "ok" for m in out["council"]), "outcomes"
+    assert all("provider" in m and "model" in m for m in out["council"]), "metadata"
     syn = out.get("synthesis")
     assert syn is not None and isinstance(syn, dict), "synthesis should be present"
     assert syn.get("recommendation")

@@ -1,120 +1,80 @@
-# BEN TASK REPORT — Close R-019 Production Auth Log Verification
+# BEN TASK REPORT — Council Degraded Expert Honesty v1
 
 **Last updated:** 2026-05-15
 
 ## 1. Task Name
 
-R-019 production `shadow_auth_check` log verification (verification + documentation only).
+Council degraded expert honesty — expose expert outcomes and honest synthesis agreement.
 
 ## 2. Branch
 
-`main` (docs commit pending)
+`feature/council-degraded-honesty-v1`
 
 ## 3. Goal
 
-Verify production logs emit `operation=shadow_auth_check` with `auth_missing`, `auth_invalid`, `auth_valid`, `request_id`, and no JWT/token leakage. Close **R-019** only if all criteria **VERIFIED** in pulled Railway logs.
-
-**Not changed:** `ENFORCE_AUTH`, council shape, tenant binding, rate limiting.
+When experts timeout/fail, council output must not imply full 3/3 agreement. Add `provider`, `model`, `outcome` per expert; honest synthesis prompt + post-processing; minimal UI status labels.
 
 ## 4. Files Changed
 
 | File | Change type |
 |------|-------------|
-| `docs/STATUS_REPORT.md` | modified |
+| `services/council_service.py` | modified |
+| `frontend/src/App.jsx` | modified |
+| `frontend/src/App.css` | modified |
+| `tests/test_council_degraded_honesty.py` | added |
+| `scripts/verify_council_prerelease.py` | modified |
 | `docs/RISK_REGISTER.md` | modified |
-| `scripts/verify_r019_production_logs.py` | added |
-| `scripts/generate_auth_shadow_traffic.py` | modified |
-| `scripts/clerk_session_bearer.py` | added |
 
 ## 5. Code Changes
 
-Verification scripts only. No runtime auth policy changes.
+- Each council member: `expert`, `provider`, `model`, `outcome` (`ok` \| `degraded` \| `timeout` \| `error`), `response`.
+- Synthesis prompt marks unavailable experts; system rules forbid false `2/3` / `3/3`.
+- `_honest_agreement_estimate()` corrects LLM agreement when any expert not `ok`.
+- Frontend: expert status label + synthesis prefix when any expert failed.
 
-## 6. Verification Executed
+## 6. Before / After
 
-```bash
-railway whoami
-railway login                    # FAIL: non-interactive terminal
-python scripts/generate_auth_shadow_traffic.py
-# Intended after login:
-railway logs --lines 300 > railway_shadow_logs.txt
-python scripts/verify_r019_production_logs.py railway_shadow_logs.txt
-```
+**Before:** Legal timeout → response `Expert unavailable (timeout)` but `model: "claude"` and synthesis could show `agreement_estimate: "2/3"`.
 
-### Traffic generation (production API) — **VERIFIED**
+**After:** Legal → `outcome: "timeout"`, `provider: "anthropic"`, actual model; synthesis → `"2/2 available"`; UI → `Unavailable: timeout` + `Based on available expert responses.`
 
-| Traffic type | Endpoints | HTTP |
-|--------------|-----------|------|
-| Unsigned | POST `/chat`, POST `/council` | 200 |
-| Invalid Bearer | POST `/chat`, POST `/council` | 200 |
-| Valid Clerk session JWT | POST `/chat`, POST `/council` | 200 |
-
-Valid session obtained via Clerk Backend API (local `CLERK_SECRET_KEY` from `.env`); token **not** logged in scripts output.
-
-## 7. Verification Results
-
-| Check | Result | Notes |
-|-------|--------|-------|
-| Railway CLI authenticated | **FAIL** | `Unauthorized`; `railway login` blocked in non-interactive mode |
-| `railway logs --lines 300` | **NOT EXECUTED** | Requires `railway login` or `RAILWAY_TOKEN` |
-| `shadow_auth_check` in logs | **NOT VERIFIED** | No log file pulled |
-| `auth_missing` in logs | **NOT VERIFIED** | — |
-| `auth_invalid` in logs | **NOT VERIFIED** | — |
-| `auth_valid` in logs | **NOT VERIFIED** | Traffic sent; logs not sampled |
-| `request_id` in shadow lines | **NOT VERIFIED** | — |
-| No JWT/Bearer/sk leakage in logs | **NOT VERIFIED** | — |
-| **R-019** | **OPEN** | Close criteria not met (logs not pulled) |
-
-### VERIFIED vs INFERRED
-
-| Finding | Class |
-|---------|--------|
-| Prod API accepts unsigned / invalid / valid Bearer while enforcement off | **VERIFIED** |
-| Valid JWT produces HTTP 200 on `/chat` and `/council` | **VERIFIED** (API) |
-| Prod logs contain required shadow outcomes | **NOT VERIFIED** |
-| No leakage in prod logs | **NOT VERIFIED** |
-
-## 8. Sample redacted log lines (expected format)
-
-From `BenOpsJsonFormatter` + `log_shadow_auth_check` (illustrative — **not** from pulled prod logs):
-
-```json
-{"level":"INFO","subsystem":"auth","operation":"shadow_auth_check","outcome":"auth_missing","request_id":"<uuid>","message":"shadow auth check for POST /chat"}
-{"level":"INFO","subsystem":"auth","operation":"shadow_auth_check","outcome":"auth_invalid","request_id":"<uuid>","message":"shadow auth check for POST /council"}
-{"level":"INFO","subsystem":"auth","operation":"shadow_auth_check","outcome":"auth_valid","request_id":"<uuid>","message":"shadow auth check for POST /council"}
-```
-
-## 9. Leakage verification (design + API)
-
-| Surface | Result |
-|---------|--------|
-| `shadow_auth.py` | Does not log Authorization or token — **VERIFIED** (code) |
-| API JSON bodies | No JWT in responses — **VERIFIED** (`verify_auth_phase_a.py`) |
-| Railway log file | **NOT VERIFIED** |
-
-## 10. Operator unblock (run locally)
+## 7. Verification Executed
 
 ```bash
-railway login
-cd C:\BEN-V2
-python scripts/generate_auth_shadow_traffic.py
-railway logs --lines 300 > railway_shadow_logs.txt
-python scripts/verify_r019_production_logs.py railway_shadow_logs.txt
+python -m pytest tests/test_council_degraded_honesty.py -v
+cd frontend && npm run build
 ```
 
-If exit code `0` and `r019_log_verification=PASS`, update R-019 to **FIXED** in `RISK_REGISTER.md`.
+## 8. Verification Results
 
-## 11. Risks
+| Check | Result |
+|-------|--------|
+| Happy path all `outcome=ok` | **PASS** |
+| Legal timeout → `outcome=timeout`, not `ok` | **PASS** |
+| Invalid Anthropic model → degraded/error | **PASS** |
+| Synthesis not `2/3` when legal failed | **PASS** |
+| No `HTTPStatusError` in responses | **PASS** |
+| Top-level keys unchanged | **PASS** (`cost_usd`, `council`, `question`, `synthesis`, `request_id`) |
+| `cost_usd` numeric | **PASS** |
+| Prod deploy | **NOT VERIFIED** |
+
+## 9. Runtime matrix (unchanged routing)
+
+| Advisor | Provider | Model |
+|---------|----------|-------|
+| Legal | anthropic | `ANTHROPIC_MODEL` / default |
+| Business | openai | `gpt-4o` |
+| Strategy | openai | `gpt-4o-mini` |
+
+## 10. Risks
 
 | ID | Status |
 |----|--------|
-| **R-019** | **OPEN** — log pull blocked on Railway CLI auth in agent session |
-| R-013 | **PARTIAL** |
-| R-014 | **OPEN** |
+| **R-021** | **FIXED** (local tests) — synthesis overstatement when experts degrade |
 
-## 12. Ready Status
+## 11. Ready Status
 
-**NOT READY** to close R-019 — complete Railway log pull + `verify_r019_production_logs.py` locally.
+**READY TO MERGE** (after review) — not merged per request.
 
 ---
 

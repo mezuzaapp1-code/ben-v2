@@ -15,7 +15,16 @@ const COUNCIL_LABEL = {
   'Strategy Advisor': '🎯 Strategy Advisor',
 }
 
-function councilSynthesisBubbleText(s) {
+function expertStatusLabel(outcome, response) {
+  if (!outcome || outcome === 'ok') return null
+  if (outcome === 'timeout') return 'Unavailable: timeout'
+  const m = /Expert unavailable \(([^)]+)\)/.exec(response || '')
+  if (outcome === 'degraded' && m) return `Degraded: ${m[1]}`
+  if (outcome === 'error') return 'Degraded: error'
+  return `Degraded: ${outcome}`
+}
+
+function councilSynthesisBubbleText(s, anyExpertFailed) {
   const disagree =
     s.main_disagreement != null && String(s.main_disagreement).trim() !== ''
       ? String(s.main_disagreement)
@@ -23,7 +32,8 @@ function councilSynthesisBubbleText(s) {
   const ae = s.agreement_estimate ?? 'unknown'
   const rec = s.recommendation ?? ''
   const cons = s.consensus_points ?? ''
-  return `🧠 BEN Synthesis (${ae})
+  const prefix = anyExpertFailed ? 'Based on available expert responses.\n\n' : ''
+  return `${prefix}🧠 BEN Synthesis (${ae})
 ${rec}
 
 ✅ Consensus: ${cons}
@@ -156,14 +166,18 @@ function App() {
       const data = await res.json().catch(() => ({}))
       const members = Array.isArray(data.council) ? data.council : []
       const syn = data.synthesis && typeof data.synthesis === 'object' ? data.synthesis : null
+      const anyExpertFailed = members.some((c) => c.outcome && c.outcome !== 'ok')
       const extras = members.map((c, i) => {
         const name = c.expert || 'Advisor'
         const head = COUNCIL_LABEL[name] || name
         const lastExpert = i === members.length - 1 && !syn
+        const statusLabel = expertStatusLabel(c.outcome, c.response)
         return {
           role: 'assistant',
           content: `${head}: ${c.response ?? ''}`,
           model_used: c.model ?? '',
+          expert_outcome: c.outcome ?? 'ok',
+          expert_status: statusLabel,
           cost_usd: lastExpert ? data.cost_usd ?? 0 : 0,
         }
       })
@@ -172,7 +186,7 @@ function App() {
           role: 'assistant',
           kind: 'council_synthesis',
           synthesis: syn,
-          content: councilSynthesisBubbleText(syn),
+          content: councilSynthesisBubbleText(syn, anyExpertFailed),
           model_used: 'synthesis',
           cost_usd: data.cost_usd ?? 0,
         })
@@ -239,8 +253,10 @@ function App() {
               ) : (
                 <div className={`bubble ${m.role}`}>
                   <div className="bubble-text">{m.content}</div>
-                  {m.role === 'assistant' && (m.model_used || m.cost_usd !== undefined) && (
+                  {m.role === 'assistant' && (m.model_used || m.cost_usd !== undefined || m.expert_status) && (
                     <div className="meta">
+                      {m.expert_status && <span className="expert-status">{m.expert_status}</span>}
+                      {m.expert_status && m.model_used && <span className="dot">·</span>}
                       {m.model_used && <span>{m.model_used}</span>}
                       {m.model_used && <span className="dot">·</span>}
                       <span>${Number(m.cost_usd).toFixed(6)}</span>

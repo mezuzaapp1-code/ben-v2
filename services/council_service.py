@@ -7,16 +7,22 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 import uuid
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 import httpx
 from sqlalchemy import text
 
 from database.connection import get_db_session
 from database.models import KnowledgeObject
-from services.ops.failure_classification import FAILURE_CONFIG_ERROR, classify_failure
+from services.ops.failure_classification import (
+    FAILURE_CONFIG_ERROR,
+    FAILURE_TIMEOUT,
+    classify_failure,
+)
 from services.ops.request_context import attach_request_id, get_request_id
 from services.ops.structured_log import log_warning
 from services.ops.timing import log_timing, measure
@@ -28,16 +34,45 @@ from services.ops.timeouts import (
     SYNTHESIS_TIMEOUT_S,
 )
 
+ExpertOutcome = Literal["ok", "degraded", "timeout", "error"]
+
 S_LEGAL = "You are a sharp legal advisor.\nAnalyze risks, contracts, compliance.\nBe direct. Max 3 sentences."
 S_BIZ = "You are a senior business strategist.\nAnalyze market, revenue, growth.\nBe direct. Max 3 sentences."
 S_STRAT = "You are a strategic thinker.\nAnalyze long-term implications and risks.\nBe direct. Max 3 sentences."
 
 ANTHROPIC_MODEL_DEFAULT = "claude-sonnet-4-6"
 SYNTHESIS_MODEL_DEFAULT = "gpt-4o-mini"
+BUSINESS_MODEL = "gpt-4o"
+STRATEGY_MODEL = "gpt-4o-mini"
 
 SYNTHESIS_SYSTEM = """You are BEN, a Cognitive Operating System.
 Your job is to synthesize expert opinions into structured organizational reasoning.
-Return ONLY valid JSON. No markdown. No explanations outside the JSON."""
+Return ONLY valid JSON. No markdown. No explanations outside the JSON.
+
+Rules:
+- Only count experts with outcome=ok as agreeing experts.
+- Do not claim 2/3 or 3/3 agreement if any expert timed out or was unavailable.
+- If any expert failed, state in consensus_points that synthesis is based only on available responses.
+- agreement_estimate must reflect available experts only (e.g. "2/2 available", "1/2 available", "unknown")."""
+
+
+@dataclass
+class ExpertResult:
+    expert: str
+    provider: str
+    model: str
+    outcome: ExpertOutcome
+    response: str
+    cost: float
+
+    def to_member(self) -> dict[str, Any]:
+        return {
+            "expert": self.expert,
+            "provider": self.provider,
+            "model": self.model,
+            "outcome": self.outcome,
+            "response": self.response,
+        }
 
 
 def _hdr(tenant_id: str) -> dict[str, str]:
@@ -57,12 +92,22 @@ def _degraded_expert_response(category: str) -> str:
     return f"Expert unavailable ({category}). Please retry or check configuration."
 
 
+def _category_to_outcome(category: str) -> ExpertOutcome:
+    if category == FAILURE_TIMEOUT:
+        return "timeout"
+    if category == FAILURE_CONFIG_ERROR:
+        return "degraded"
+    return "error"
+
+
 def _log_provider_failure(*, provider: str, subsystem: str, exc: BaseException | None = None, message: str) -> None:
     category = classify_failure(exc) if exc else FAILURE_CONFIG_ERROR
     log_warning(message, subsystem=subsystem, provider=provider, category=category, exc=exc)
 
 
-async def _openai(cx: httpx.AsyncClient, model: str, system: str, q: str, tenant_id: str) -> tuple[str, float]:
+async def _openai_completion(
+    cx: httpx.AsyncClient, model: str, system: str, q: str, tenant_id: str
+) -> tuple[str, float]:
     k = os.getenv("OPENAI_API_KEY", "").strip()
     if not k:
         _log_provider_failure(provider="openai", subsystem="council", message="missing OPENAI_API_KEY")
@@ -103,12 +148,45 @@ async def _openai(cx: httpx.AsyncClient, model: str, system: str, q: str, tenant
         raise
 
 
-async def _legal(cx: httpx.AsyncClient, q: str, tenant_id: str) -> tuple[str, float]:
+async def _openai_expert(
+    cx: httpx.AsyncClient,
+    model: str,
+    system: str,
+    q: str,
+    tenant_id: str,
+    *,
+    expert: str,
+) -> ExpertResult:
+    k = os.getenv("OPENAI_API_KEY", "").strip()
+    if not k:
+        _log_provider_failure(provider="openai", subsystem="council", message="missing OPENAI_API_KEY")
+        return ExpertResult(
+            expert=expert,
+            provider="openai",
+            model=model,
+            outcome="degraded",
+            response="missing OPENAI_API_KEY",
+            cost=0.0,
+        )
+    text, cost = await _openai_completion(cx, model, system, q, tenant_id)
+    if text.startswith("missing "):
+        return ExpertResult(expert=expert, provider="openai", model=model, outcome="degraded", response=text, cost=cost)
+    return ExpertResult(expert=expert, provider="openai", model=model, outcome="ok", response=text, cost=cost)
+
+
+async def _legal(cx: httpx.AsyncClient, q: str, tenant_id: str) -> ExpertResult:
     k = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    model = os.getenv("ANTHROPIC_MODEL", ANTHROPIC_MODEL_DEFAULT).strip() or ANTHROPIC_MODEL_DEFAULT
     if not k:
         _log_provider_failure(provider="anthropic", subsystem="council", message="missing ANTHROPIC_API_KEY")
-        return "missing ANTHROPIC_API_KEY", 0.0
-    model = os.getenv("ANTHROPIC_MODEL", ANTHROPIC_MODEL_DEFAULT).strip() or ANTHROPIC_MODEL_DEFAULT
+        return ExpertResult(
+            expert="Legal Advisor",
+            provider="anthropic",
+            model=model,
+            outcome="degraded",
+            response="missing ANTHROPIC_API_KEY",
+            cost=0.0,
+        )
     t0 = time.perf_counter()
     try:
         r = await cx.post(
@@ -140,7 +218,14 @@ async def _legal(cx: httpx.AsyncClient, q: str, tenant_id: str) -> tuple[str, fl
             outcome="ok",
             model=model,
         )
-        return txt, _cost_claude(pi, po)
+        return ExpertResult(
+            expert="Legal Advisor",
+            provider="anthropic",
+            model=model,
+            outcome="ok",
+            response=txt,
+            cost=_cost_claude(pi, po),
+        )
     except Exception as e:
         log_timing(
             "anthropic call failed",
@@ -160,13 +245,17 @@ async def _safe_expert(
     *,
     provider: str,
     label: str,
-) -> tuple[str, float]:
+    expert: str,
+    model: str,
+) -> ExpertResult:
     t0 = time.perf_counter()
     op = f"expert_{label.lower()}"
     try:
-        text, cost = await asyncio.wait_for(coro_factory(), timeout=EXPERT_CALL_TIMEOUT_S)
+        result = await asyncio.wait_for(coro_factory(), timeout=EXPERT_CALL_TIMEOUT_S)
+        if not isinstance(result, ExpertResult):
+            raise TypeError("expert coroutine must return ExpertResult")
         duration_ms = int((time.perf_counter() - t0) * 1000)
-        if text.startswith("Expert unavailable") or text.startswith("missing "):
+        if result.outcome != "ok":
             log_timing(
                 f"{label} expert degraded",
                 subsystem="council",
@@ -175,9 +264,10 @@ async def _safe_expert(
                 duration_ms=duration_ms,
                 outcome="degraded",
             )
-        return text, cost
+        return result
     except Exception as e:
         category = classify_failure(e)
+        outcome = _category_to_outcome(category)
         duration_ms = int((time.perf_counter() - t0) * 1000)
         _log_provider_failure(
             provider=provider,
@@ -194,44 +284,76 @@ async def _safe_expert(
             outcome="degraded",
             category=category,
         )
-        return _degraded_expert_response(category), 0.0
+        return ExpertResult(
+            expert=expert,
+            provider=provider,
+            model=model,
+            outcome=outcome,
+            response=_degraded_expert_response(category),
+            cost=0.0,
+        )
 
 
-def _synthesis_user_prompt(question: str, legal: str, business: str, strategy: str) -> str:
-    return f"""Three experts answered this question:
+def _expert_line_for_synthesis(member: ExpertResult) -> str:
+    icon = {"Legal Advisor": "⚖️", "Business Advisor": "💼", "Strategy Advisor": "🎯"}.get(member.expert, "•")
+    if member.outcome == "ok":
+        return f"{icon} {member.expert} (outcome=ok): {member.response}"
+    return (
+        f"{icon} {member.expert} (outcome={member.outcome}, UNAVAILABLE — do not count in agreement): "
+        f"{member.response}"
+    )
+
+
+def _synthesis_user_prompt(question: str, experts: list[ExpertResult]) -> str:
+    lines = "\n".join(_expert_line_for_synthesis(e) for e in experts)
+    ok_count = sum(1 for e in experts if e.outcome == "ok")
+    return f"""Experts responded to this question ({ok_count} of {len(experts)} with outcome=ok):
 Question: {question}
 
-⚖️ Legal Advisor: {legal}
-💼 Business Advisor: {business}
-🎯 Strategy Advisor: {strategy}
+{lines}
 
 Tasks:
 1. Write ONE clear synthesized recommendation in 2-3 sentences.
-2. Identify the strongest consensus points between experts.
-3. Identify the primary disagreement if one exists (or null).
-4. Estimate agreement level between experts.
+2. Identify consensus only among experts with outcome=ok.
+3. Identify primary disagreement among available experts if any (or null).
+4. Set agreement_estimate using available experts only (e.g. "{ok_count}/{ok_count} available" or "unknown").
+   Never use "3/3" or "2/3" when any expert above is not outcome=ok.
+5. If any expert is unavailable, note in consensus_points that synthesis uses only available responses.
 
 Return ONLY this JSON format:
 {{
   "recommendation": "...",
   "consensus_points": "...",
   "main_disagreement": null,
-  "agreement_estimate": "3/3"
+  "agreement_estimate": "{ok_count}/{ok_count} available"
 }}"""
 
 
-def _parse_synthesis_json(raw: str) -> dict[str, Any]:
+def _honest_agreement_estimate(experts: list[ExpertResult], synthesis: dict[str, Any]) -> dict[str, Any]:
+    ok_count = sum(1 for e in experts if e.outcome == "ok")
+    total = len(experts)
+    ae = str(synthesis.get("agreement_estimate") or "unknown")
+    if ok_count < total:
+        synthesis["agreement_estimate"] = f"{ok_count}/{ok_count} available" if ok_count else "unknown"
+        return synthesis
+    misleading = re.search(r"(\d+)\s*/\s*3\b", ae)
+    if misleading and int(misleading.group(1)) > ok_count:
+        synthesis["agreement_estimate"] = f"{ok_count}/{ok_count} available" if ok_count else "unknown"
+    return synthesis
+
+
+def _parse_synthesis_json(raw: str, experts: list[ExpertResult]) -> dict[str, Any]:
     try:
         data = json.loads(raw.strip())
     except json.JSONDecodeError:
-        return {
+        data = {
             "recommendation": raw,
             "consensus_points": None,
             "main_disagreement": None,
             "agreement_estimate": "unknown",
         }
     if not isinstance(data, dict):
-        return {
+        data = {
             "recommendation": raw,
             "consensus_points": None,
             "main_disagreement": None,
@@ -251,12 +373,13 @@ def _parse_synthesis_json(raw: str) -> dict[str, Any]:
     if md is not None and not isinstance(md, str):
         md = json.dumps(md) if isinstance(md, (dict, list)) else str(md)
 
-    return {
+    parsed = {
         "recommendation": str(reco).strip() if reco is not None else raw,
         "consensus_points": cp,
         "main_disagreement": md,
         "agreement_estimate": str(ae) if ae is not None else "unknown",
     }
+    return _honest_agreement_estimate(experts, parsed)
 
 
 async def _persist_synthesis_ko(tenant_id: str, question: str, synthesis: dict[str, Any]) -> None:
@@ -296,65 +419,70 @@ async def _persist_synthesis_ko(tenant_id: str, question: str, synthesis: dict[s
 def _build_council_payload(
     question: str,
     *,
-    ra: str,
-    rb: str,
-    rc: str,
-    ca: float,
-    cb: float,
-    cc: float,
+    experts: list[ExpertResult],
     synthesis: dict[str, Any] | None,
     synth_cost: float,
 ) -> dict[str, Any]:
     payload = {
         "question": question,
-        "council": [
-            {"expert": "Legal Advisor", "model": "claude", "response": ra},
-            {"expert": "Business Advisor", "model": "gpt-4o", "response": rb},
-            {"expert": "Strategy Advisor", "model": "gpt-4o-mini", "response": rc},
-        ],
+        "council": [e.to_member() for e in experts],
         "synthesis": synthesis,
-        "cost_usd": round(ca + cb + cc + synth_cost, 6),
+        "cost_usd": round(sum(e.cost for e in experts) + synth_cost, 6),
     }
     if get_request_id():
         return attach_request_id(payload)
     return payload
 
 
-def _timeout_degraded_experts() -> tuple[str, str, str]:
+def _timeout_degraded_experts() -> list[ExpertResult]:
     msg = _degraded_expert_response("timeout")
-    return msg, msg, msg
+    return [
+        ExpertResult("Legal Advisor", "anthropic", ANTHROPIC_MODEL_DEFAULT, "timeout", msg, 0.0),
+        ExpertResult("Business Advisor", "openai", BUSINESS_MODEL, "timeout", msg, 0.0),
+        ExpertResult("Strategy Advisor", "openai", STRATEGY_MODEL, "timeout", msg, 0.0),
+    ]
 
 
 async def _run_council_inner(
     question: str,
     tenant_id: str,
     *,
-    experts_out: list[Any],
+    experts_out: list[list[ExpertResult]],
     synthesis_out: list[dict[str, Any] | None],
     synth_cost_out: list[float],
 ) -> dict[str, Any]:
     """Council body; writes partial state for outer-timeout fallback."""
+    legal_model = os.getenv("ANTHROPIC_MODEL", ANTHROPIC_MODEL_DEFAULT).strip() or ANTHROPIC_MODEL_DEFAULT
     timeout = httpx.Timeout(HTTP_CLIENT_TIMEOUT_S)
     async with httpx.AsyncClient(timeout=timeout) as cx:
-        expert_results = await asyncio.gather(
-            _safe_expert(
-                lambda: _legal(cx, question, tenant_id),
-                provider="anthropic",
-                label="Legal",
-            ),
-            _safe_expert(
-                lambda: _openai(cx, "gpt-4o", S_BIZ, question, tenant_id),
-                provider="openai",
-                label="Business",
-            ),
-            _safe_expert(
-                lambda: _openai(cx, "gpt-4o-mini", S_STRAT, question, tenant_id),
-                provider="openai",
-                label="Strategy",
-            ),
+        expert_results: list[ExpertResult] = list(
+            await asyncio.gather(
+                _safe_expert(
+                    lambda: _legal(cx, question, tenant_id),
+                    provider="anthropic",
+                    label="Legal",
+                    expert="Legal Advisor",
+                    model=legal_model,
+                ),
+                _safe_expert(
+                    lambda: _openai_expert(cx, BUSINESS_MODEL, S_BIZ, question, tenant_id, expert="Business Advisor"),
+                    provider="openai",
+                    label="Business",
+                    expert="Business Advisor",
+                    model=BUSINESS_MODEL,
+                ),
+                _safe_expert(
+                    lambda: _openai_expert(
+                        cx, STRATEGY_MODEL, S_STRAT, question, tenant_id, expert="Strategy Advisor"
+                    ),
+                    provider="openai",
+                    label="Strategy",
+                    expert="Strategy Advisor",
+                    model=STRATEGY_MODEL,
+                ),
+            )
         )
         experts_out.append(expert_results)
-        (ra, ca), (rb, cb), (rc, cc) = expert_results
 
         synthesis: dict[str, Any] | None = None
         synth_cost = 0.0
@@ -363,16 +491,16 @@ async def _run_council_inner(
         try:
             async with measure(subsystem="council", operation="synthesis", provider="openai"):
                 raw_syn, synth_cost = await asyncio.wait_for(
-                    _openai(
+                    _openai_completion(
                         cx,
                         model_syn,
                         SYNTHESIS_SYSTEM,
-                        _synthesis_user_prompt(question, ra, rb, rc),
+                        _synthesis_user_prompt(question, expert_results),
                         tenant_id,
                     ),
                     timeout=SYNTHESIS_TIMEOUT_S,
                 )
-            synthesis = _parse_synthesis_json(raw_syn)
+            synthesis = _parse_synthesis_json(raw_syn, expert_results)
         except (TimeoutError, asyncio.TimeoutError) as e:
             log_warning(
                 "council synthesis timed out",
@@ -402,19 +530,14 @@ async def _run_council_inner(
 
     return _build_council_payload(
         question,
-        ra=ra,
-        rb=rb,
-        rc=rc,
-        ca=ca,
-        cb=cb,
-        cc=cc,
+        experts=expert_results,
         synthesis=synthesis,
         synth_cost=synth_cost,
     )
 
 
 async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
-    experts_out: list[Any] = []
+    experts_out: list[list[ExpertResult]] = []
     synthesis_out: list[dict[str, Any] | None] = []
     synth_cost_out: list[float] = []
 
@@ -440,22 +563,16 @@ async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
             outcome="timeout",
         )
         if experts_out:
-            (ra, ca), (rb, cb), (rc, cc) = experts_out[0]
+            experts = experts_out[0]
             synthesis = synthesis_out[0] if synthesis_out else None
             synth_cost = synth_cost_out[0] if synth_cost_out else 0.0
         else:
-            ra, rb, rc = _timeout_degraded_experts()
-            ca = cb = cc = 0.0
+            experts = _timeout_degraded_experts()
             synthesis = None
             synth_cost = 0.0
         return _build_council_payload(
             question,
-            ra=ra,
-            rb=rb,
-            rc=rc,
-            ca=ca,
-            cb=cb,
-            cc=cc,
+            experts=experts,
             synthesis=synthesis,
             synth_cost=synth_cost,
         )
