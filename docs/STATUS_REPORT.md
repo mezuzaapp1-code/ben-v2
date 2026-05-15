@@ -4,59 +4,55 @@
 
 ## Current Phase
 
-Timing & load governance **documentation merged to `main`** (commit `ac89049`, merge on `main`). JSON logging live in prod (`82739c2`). **No runtime enforcement** deployed with this merge.
+**Security Baseline v1 (docs)** on `feature/security-baseline-v1`. Timing governance and JSON logging on `main`. Production APIs remain **unauthenticated** until T-108 Phase 2.
 
 ## Current Active Branch
 
-`main` (includes `ac89049` governance docs + `82739c2` JSON logging)
+`feature/security-baseline-v1`
 
 ## Current Active Task
 
-**Next implementation layer:** timeout budget alignment (`services/ops/timeouts.py` vs `TIMING_GOVERNANCE.md` FAST/PRO/DELIBERATE tiers).
-
-**Upcoming priority:** security baseline (auth, secrets handling, request hardening) — not yet implemented.
+Security Baseline foundation — `SECURITY_BASELINE.md`, `SECRETS_GOVERNANCE.md`, risk register R-013–R-016.
 
 ## Recently Completed Tasks
 
 | Task | Outcome |
 |------|---------|
-| Timing governance docs merge | `TIMING_GOVERNANCE.md`, `INSTRUMENTATION_PLAN.md`, `COST_GOVERNANCE.md`, `TASK_QUEUE.md` on `main` |
-| JSON logging v1 | Merged + prod API smoke **PASS** |
-| Runtime instrumentation v1 | On `main`; R-012 **PARTIAL** (prod log sample pending) |
+| Timing governance docs | On `main` (`ac89049`) |
+| JSON logging v1 | On `main` (`82739c2`); prod API smoke **PASS** |
+| Runtime instrumentation v1 | On `main`; R-012 **PARTIAL** |
 
 ## Blocked Tasks
 
-Runtime timeout tier **enforcement** — docs merged; code alignment not started (by design).
+Auth enforcement blocked on product decision + Clerk prod config + frontend Bearer (T-108 Phase 2).
 
 ## Open Risks
 
-R-002, R-003, **R-010**, **R-011**, **R-012 (PARTIAL)** — see `docs/RISK_REGISTER.md`. **R-009 FIXED**.
+R-002, R-003, R-010, R-011, **R-012 (PARTIAL)**, **R-013 (HIGH)**, **R-014 (HIGH)**, **R-015**, **R-016** — see `docs/RISK_REGISTER.md`.
 
 ## Production Status
 
 | Item | Status |
 |------|--------|
-| Deploy (API) | Unchanged by docs-only merge — last verified `82739c2` |
-| `GET /health` / `ready` / `council` | **PASS** (prior session) |
+| `/health`, `/ready`, `/council` | Last smoke **PASS** (`82739c2`) |
+| Auth on council/chat | **Not enforced** (R-013) |
 | JSON `ben.ops` in Railway | **NOT VERIFIED** |
 
-## Governance artifacts (on main)
+## Security artifacts (this branch)
 
 | Doc | Purpose |
 |-----|---------|
-| `docs/TIMING_GOVERNANCE.md` | Tiers, subsystem matrix, isolation rules |
-| `docs/INSTRUMENTATION_PLAN.md` | Metrics, alerts, SLO examples |
-| `docs/COST_GOVERNANCE.md` | Cost policy and ceilings |
-| `docs/TASK_QUEUE.md` | Execution queue |
+| `docs/SECURITY_BASELINE.md` | Auth, tenant, routes, hardening, phased implementation |
+| `docs/SECRETS_GOVERNANCE.md` | Env classes, rotation, logging redaction |
 
 ## Deployment Readiness
 
-**READY** — docs-only merge; no new runtime features or deploy required for governance docs.
+**READY** to merge security docs (no runtime change). **NOT READY** for production hardening until T-108 Phases 2–4.
 
 ## Recommended Next Step
 
-1. **Timeout budget alignment** — align `timeouts.py` with `TIMING_GOVERNANCE.md` (no council shape changes).
-2. **Security baseline** — define and implement minimum auth/secrets/request controls.
-3. `railway login` → close R-012 prod JSON log verification.
+1. Review and merge `feature/security-baseline-v1` → `main`.
+2. **Timeout budget alignment** (`timeouts.py` vs `TIMING_GOVERNANCE.md`).
+3. **T-108 Phase 2** — wire Clerk auth with `ENFORCE_AUTH` feature flag.
 
 READY FOR CHATGPT REVIEW
