@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 import uuid
 from typing import Any
 
@@ -18,6 +19,7 @@ from database.models import KnowledgeObject
 from services.ops.failure_classification import FAILURE_CONFIG_ERROR, classify_failure
 from services.ops.request_context import attach_request_id, get_request_id
 from services.ops.structured_log import log_warning
+from services.ops.timing import log_timing, measure
 from services.ops.timeouts import (
     DB_OPERATION_TIMEOUT_S,
     HTTP_CLIENT_TIMEOUT_S,
@@ -63,17 +65,40 @@ async def _openai(cx: httpx.AsyncClient, model: str, system: str, q: str, tenant
     if not k:
         _log_provider_failure(provider="openai", subsystem="council", message="missing OPENAI_API_KEY")
         return "missing OPENAI_API_KEY", 0.0
-    r = await cx.post(
-        "https://api.openai.com/v1/chat/completions",
-        headers={"Authorization": f"Bearer {k}", **_hdr(tenant_id)},
-        json={"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": q}]},
-    )
-    r.raise_for_status()
-    d = r.json()
-    txt = str(d["choices"][0]["message"]["content"])
-    u = d.get("usage") or {}
-    pi, po = int(u.get("prompt_tokens", 0)), int(u.get("completion_tokens", 0))
-    return txt, _cost_oai(model, pi, po)
+    t0 = time.perf_counter()
+    try:
+        r = await cx.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {k}", **_hdr(tenant_id)},
+            json={"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": q}]},
+        )
+        r.raise_for_status()
+        d = r.json()
+        txt = str(d["choices"][0]["message"]["content"])
+        u = d.get("usage") or {}
+        pi, po = int(u.get("prompt_tokens", 0)), int(u.get("completion_tokens", 0))
+        log_timing(
+            "openai call completed",
+            subsystem="council",
+            operation="provider_openai",
+            provider="openai",
+            duration_ms=int((time.perf_counter() - t0) * 1000),
+            outcome="ok",
+            model=model,
+        )
+        return txt, _cost_oai(model, pi, po)
+    except Exception as e:
+        log_timing(
+            "openai call failed",
+            subsystem="council",
+            operation="provider_openai",
+            provider="openai",
+            duration_ms=int((time.perf_counter() - t0) * 1000),
+            outcome="error",
+            category=classify_failure(e),
+            model=model,
+        )
+        raise
 
 
 async def _legal(cx: httpx.AsyncClient, q: str, tenant_id: str) -> tuple[str, float]:
@@ -82,27 +107,50 @@ async def _legal(cx: httpx.AsyncClient, q: str, tenant_id: str) -> tuple[str, fl
         _log_provider_failure(provider="anthropic", subsystem="council", message="missing ANTHROPIC_API_KEY")
         return "missing ANTHROPIC_API_KEY", 0.0
     model = os.getenv("ANTHROPIC_MODEL", ANTHROPIC_MODEL_DEFAULT).strip() or ANTHROPIC_MODEL_DEFAULT
-    r = await cx.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={
-            "x-api-key": k,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-            **_hdr(tenant_id),
-        },
-        json={
-            "model": model,
-            "max_tokens": 512,
-            "system": S_LEGAL,
-            "messages": [{"role": "user", "content": q}],
-        },
-    )
-    r.raise_for_status()
-    d = r.json()
-    txt = "".join(b.get("text", "") for b in d.get("content", []) if b.get("type") == "text")
-    u = d.get("usage") or {}
-    pi, po = int(u.get("input_tokens", 0)), int(u.get("output_tokens", 0))
-    return txt, _cost_claude(pi, po)
+    t0 = time.perf_counter()
+    try:
+        r = await cx.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": k,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+                **_hdr(tenant_id),
+            },
+            json={
+                "model": model,
+                "max_tokens": 512,
+                "system": S_LEGAL,
+                "messages": [{"role": "user", "content": q}],
+            },
+        )
+        r.raise_for_status()
+        d = r.json()
+        txt = "".join(b.get("text", "") for b in d.get("content", []) if b.get("type") == "text")
+        u = d.get("usage") or {}
+        pi, po = int(u.get("input_tokens", 0)), int(u.get("output_tokens", 0))
+        log_timing(
+            "anthropic call completed",
+            subsystem="council",
+            operation="provider_anthropic",
+            provider="anthropic",
+            duration_ms=int((time.perf_counter() - t0) * 1000),
+            outcome="ok",
+            model=model,
+        )
+        return txt, _cost_claude(pi, po)
+    except Exception as e:
+        log_timing(
+            "anthropic call failed",
+            subsystem="council",
+            operation="provider_anthropic",
+            provider="anthropic",
+            duration_ms=int((time.perf_counter() - t0) * 1000),
+            outcome="error",
+            category=classify_failure(e),
+            model=model,
+        )
+        raise
 
 
 async def _safe_expert(
@@ -111,15 +159,38 @@ async def _safe_expert(
     provider: str,
     label: str,
 ) -> tuple[str, float]:
+    t0 = time.perf_counter()
+    op = f"expert_{label.lower()}"
     try:
-        return await coro_factory()
+        text, cost = await coro_factory()
+        duration_ms = int((time.perf_counter() - t0) * 1000)
+        if text.startswith("Expert unavailable") or text.startswith("missing "):
+            log_timing(
+                f"{label} expert degraded",
+                subsystem="council",
+                operation=op,
+                provider=provider,
+                duration_ms=duration_ms,
+                outcome="degraded",
+            )
+        return text, cost
     except Exception as e:
         category = classify_failure(e)
+        duration_ms = int((time.perf_counter() - t0) * 1000)
         _log_provider_failure(
             provider=provider,
             subsystem="council",
             exc=e,
             message=f"{label} expert failed",
+        )
+        log_timing(
+            f"{label} expert degraded",
+            subsystem="council",
+            operation=op,
+            provider=provider,
+            duration_ms=duration_ms,
+            outcome="degraded",
+            category=category,
         )
         return _degraded_expert_response(category), 0.0
 
@@ -206,7 +277,8 @@ async def _persist_synthesis_ko(tenant_id: str, question: str, synthesis: dict[s
             await session.commit()
 
     try:
-        await asyncio.wait_for(_do(), timeout=DB_OPERATION_TIMEOUT_S)
+        async with measure(subsystem="council", operation="db_persist_synthesis", provider="database"):
+            await asyncio.wait_for(_do(), timeout=DB_OPERATION_TIMEOUT_S)
     except Exception as e:
         log_warning(
             "council synthesis persist failed",
@@ -214,6 +286,8 @@ async def _persist_synthesis_ko(tenant_id: str, question: str, synthesis: dict[s
             provider="database",
             category=classify_failure(e),
             exc=e,
+            operation="db_persist_synthesis",
+            outcome="error",
         )
 
 
@@ -241,16 +315,17 @@ async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
         model_syn = os.getenv("SYNTHESIS_MODEL", SYNTHESIS_MODEL_DEFAULT).strip() or SYNTHESIS_MODEL_DEFAULT
 
         try:
-            raw_syn, synth_cost = await asyncio.wait_for(
-                _openai(
-                    cx,
-                    model_syn,
-                    SYNTHESIS_SYSTEM,
-                    _synthesis_user_prompt(question, ra, rb, rc),
-                    tenant_id,
-                ),
-                timeout=SYNTHESIS_TIMEOUT_S,
-            )
+            async with measure(subsystem="council", operation="synthesis", provider="openai"):
+                raw_syn, synth_cost = await asyncio.wait_for(
+                    _openai(
+                        cx,
+                        model_syn,
+                        SYNTHESIS_SYSTEM,
+                        _synthesis_user_prompt(question, ra, rb, rc),
+                        tenant_id,
+                    ),
+                    timeout=SYNTHESIS_TIMEOUT_S,
+                )
             synthesis = _parse_synthesis_json(raw_syn)
         except TimeoutError as e:
             log_warning(
@@ -259,6 +334,8 @@ async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
                 provider="openai",
                 category="timeout",
                 exc=e,
+                operation="synthesis",
+                outcome="timeout",
             )
         except Exception as e:
             log_warning(
@@ -267,6 +344,8 @@ async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
                 provider="openai",
                 category=classify_failure(e),
                 exc=e,
+                operation="synthesis",
+                outcome="error",
             )
 
     if synthesis is not None:

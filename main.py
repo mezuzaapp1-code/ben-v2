@@ -17,6 +17,7 @@ from services.council_service import run_council
 from services.health_service import build_health_payload, build_ready_payload
 from services.ops.request_context import set_request_id
 from services.ops.startup import validate_startup
+from services.ops.timing import measure
 
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
@@ -54,13 +55,15 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    payload, status_code = await build_health_payload()
+    async with measure(subsystem="health", operation="GET /health"):
+        payload, status_code = await build_health_payload()
     return JSONResponse(content=payload, status_code=status_code)
 
 
 @app.get("/ready")
 async def ready():
-    payload, status_code = await build_ready_payload()
+    async with measure(subsystem="ready", operation="GET /ready"):
+        payload, status_code = await build_ready_payload()
     return JSONResponse(content=payload, status_code=status_code)
 
 
@@ -82,4 +85,5 @@ class CouncilBody(BaseModel):
 
 @app.post("/council")
 async def council(body: CouncilBody):
-    return await run_council(body.question, body.tenant_id)
+    async with measure(subsystem="council", operation="POST /council"):
+        return await run_council(body.question, body.tenant_id)
