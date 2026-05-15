@@ -4,23 +4,23 @@
 
 ## Current Phase
 
-JSON structured logging v1 **complete on branch** — local verification **PASS**; merge to `main` + prod deploy pending.
+JSON structured logging v1 **merged to `main` and live in production** (`82739c2`). API smoke **PASS**; Railway JSON log sample **NOT VERIFIED**.
 
 ## Current Active Branch
 
-`feature/json-logging-v1` — ready to merge
+`main` @ `82739c2`
 
 ## Current Active Task
 
-Merge JSON logging branch and confirm Railway JSON log lines (closes R-012 prod gap).
+Close R-012 prod log gap via Railway dashboard or `railway login`.
 
 ## Recently Completed Tasks
 
 | Task | Outcome |
 |------|---------|
-| JSON logging v1 | Local **PASS**: `ben.ops` one-JSON-line-per-record; required fields; safety checks **PASS** |
-| Runtime Instrumentation v1 | On `main`; prod API smoke **PASS** |
-| Hardening v1 | `/health`, `/ready`, `request_id` live in prod |
+| JSON logging v1 merge + deploy | Fast-forward `feature/json-logging-v1` → `main`; Railway version `82739c2` |
+| Production API smoke | **PASS** — health/ready/council 200, shape unchanged |
+| JSON logging local verify | **PASS** (prior session) |
 
 ## Blocked Tasks
 
@@ -28,23 +28,22 @@ None.
 
 ## Open Risks
 
-R-002, R-003, R-009, **R-012 (PARTIAL)** — see `docs/RISK_REGISTER.md`. **R-008 FIXED** (formatter; local verify only).
+R-002, R-003, R-009, **R-012 (PARTIAL)** — prod logs not CLI-verified. **R-008 FIXED**.
 
 ## Production Status
 
 | Item | Status |
 |------|--------|
-| JSON `ben.ops` on Railway | **NOT VERIFIED** (branch not on `main` yet) |
-| Last prod API smoke (`main`) | **PASS** (prior session) |
+| Deploy version | `82739c25733afceae77e14b11e15e79e383fc53d` |
+| `GET /health` | **200** — `healthy`, `database=ok`, `request_id` |
+| `GET /ready` | **200** — `ready=true`, `migration_head=002_ko_synthesis_jsonb` |
+| `POST /council` | **200** — 3 experts, synthesis present, `cost_usd` float |
+| JSON `ben.ops` in Railway UI | **NOT VERIFIED** — `railway logs` unauthorized |
 
-## Deployment Readiness
+## Recommended Next Layer
 
-**READY TO MERGE** `feature/json-logging-v1`. **READY WITH WARNINGS** for full observability until prod log sample.
-
-## Recommended Next Step
-
-1. Merge `feature/json-logging-v1` → `main` and redeploy.
-2. Sample Railway logs for `operation` + `duration_ms` JSON fields.
-3. Re-run `/ready` against DB-up environment to verify `db_migration_lookup` log line.
+1. `railway login` → confirm JSON lines with `operation` + `duration_ms` in production logs.
+2. Merge `feature/timing-load-governance-v1` (R-009).
+3. Optional: commit `scripts/prod_smoke_json_logging.py` and `verify_json_logging_v1.py` housekeeping (R-003).
 
 READY FOR CHATGPT REVIEW
