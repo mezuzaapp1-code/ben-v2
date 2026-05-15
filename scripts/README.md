@@ -20,6 +20,7 @@ Set-Location c:\BEN-V2
 | `prod_smoke_timeout_v1.py` | Production smoke + timing | `python scripts/prod_smoke_timeout_v1.py` |
 | `verify_council_prerelease.py` | Council + synthesis with **HTTP mocks**; needs Postgres | `$env:DATABASE_URL='...'; python scripts/verify_council_prerelease.py` |
 | `run_council_merge_checks.ps1` | Docker Postgres + alembic + prerelease verifier | `.\scripts\run_council_merge_checks.ps1` |
+| `verify_auth_shadow_v1.py` | Auth shadow mode (no/enforce flags via server env) | `python scripts/verify_auth_shadow_v1.py http://127.0.0.1:8004` |
 
 ## Local test payloads
 

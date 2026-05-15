@@ -4,47 +4,35 @@
 
 ## Current Phase
 
-**R-017 outer council 25s cap live in production** (`0213d6d`). Prod smoke **PASS** (council **6.70s**). Auth **not** enforced.
+**T-108 Phase 2 — auth shadow mode v1** on `feature/auth-shadow-mode-v1`. Observe auth first; **ENFORCE_AUTH=false** (default).
 
 ## Current Active Branch
 
-`main` @ `0213d6d`
+`feature/auth-shadow-mode-v1`
 
 ## Current Active Task
 
-**T-108 Phase 2** — auth shadow mode (`ENFORCE_AUTH=false` default, Clerk wiring).
+Verify shadow mode locally; merge when ready. **Do not** set `ENFORCE_AUTH=true` in production yet.
 
-## Recently Completed Tasks
+## Auth shadow mode status
 
-| Task | Outcome |
-|------|---------|
-| R-017 merge + prod verify | Outer `wait_for` 25s; prod council 6.70s; shape unchanged |
-| Secrets hygiene v1 | On `main` |
-| Timeout alignment v1 | On `main` |
+| Flag | Default | Production intent |
+|------|---------|-------------------|
+| `ENFORCE_AUTH` | `false` | Keep false until frontend sends Bearer |
+| `AUTH_SHADOW_MODE` | `true` | Log `auth_missing` / `auth_valid` / `auth_invalid` on `/chat`, `/council` |
 
-## R-017 production verification
+## Enforcement status
 
-| Check | Result |
-|-------|--------|
-| Deploy version `0213d6d` | **VERIFIED** |
-| Council wall-clock ≤ 26s | **VERIFIED** (6.70s) |
-| HTTP 200, 3 experts, synthesis | **VERIFIED** |
-| Forced outer timeout (local only) | **VERIFIED** |
-
-## Open Risks
-
-R-002, R-010 (**PARTIAL**), R-011, R-012 (**PARTIAL**), R-013–R-016, R-018 — see `docs/RISK_REGISTER.md`.
-
-## Production status
-
-| Endpoint | Status | Wall-clock (session) |
-|----------|--------|----------------------|
-| `GET /health` | 200 healthy | 0.74s |
-| `GET /ready` | 200 ready | 0.25s |
-| `POST /council` | 200, synthesis present | **6.70s** |
+**Disabled** — unauthenticated requests still **HTTP 200** on council/chat when `ENFORCE_AUTH=false`.
 
 ## Recommended Next Step
 
-**T-108 Phase 2** — wire Clerk `get_current_user` on `/chat` and `/council` with `ENFORCE_AUTH=false` until frontend sends Bearer.
+1. Merge shadow mode → `main`; deploy with **ENFORCE_AUTH=false**.
+2. Sample `ben.ops` logs for auth outcome distribution (R-019).
+3. **Phase 3** tenant binding **or** frontend Clerk Bearer wiring before `ENFORCE_AUTH=true`.
+
+## Open Risks
+
+R-013 **PARTIAL**, R-014 **OPEN**, R-019 **OPEN** — see `docs/RISK_REGISTER.md`.
 
 READY FOR CHATGPT REVIEW

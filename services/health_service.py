@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from auth.config import auth_config_for_health
 from database.connection import get_db_session
 from services.ops.request_context import attach_request_id
 from services.ops.structured_log import log_warning
@@ -135,6 +136,7 @@ async def build_health_payload() -> tuple[dict[str, Any], int]:
             "checks": {
                 "database": "ok" if db_ok else "fail",
                 **checks_env,
+                **auth_config_for_health(),
             },
         }
     )
@@ -172,6 +174,7 @@ async def build_ready_payload() -> tuple[dict[str, Any], int]:
             "status": "ready" if ready else "not_ready",
             "migration_head": head,
             "ready": ready,
+            "auth": auth_config_for_health(),
         }
     )
     return payload, 200 if ready else 503

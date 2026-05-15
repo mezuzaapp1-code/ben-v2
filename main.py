@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from auth.shadow_auth import apply_auth_policy
 from services.chat_service import handle_chat
 from services.council_service import run_council
 from services.health_service import build_health_payload, build_ready_payload
@@ -24,7 +25,7 @@ from services.ops.timing import measure
 class RequestIdMiddleware(BaseHTTPMiddleware):
     """Assign request_id for traced routes."""
 
-    _TRACED = frozenset({"/council", "/health", "/ready"})
+    _TRACED = frozenset({"/chat", "/council", "/health", "/ready"})
 
     async def dispatch(self, request: Request, call_next):
         if request.url.path in self._TRACED:
@@ -76,7 +77,8 @@ class ChatBody(BaseModel):
 
 
 @app.post("/chat")
-async def chat(body: ChatBody):
+async def chat(request: Request, body: ChatBody):
+    await apply_auth_policy(request, route_operation="POST /chat")
     return await handle_chat(body.message, "anonymous", body.tenant_id, body.tier)
 
 
@@ -86,6 +88,7 @@ class CouncilBody(BaseModel):
 
 
 @app.post("/council")
-async def council(body: CouncilBody):
+async def council(request: Request, body: CouncilBody):
+    await apply_auth_policy(request, route_operation="POST /council")
     async with measure(subsystem="council", operation="POST /council"):
         return await run_council(body.question, body.tenant_id)
