@@ -34,6 +34,7 @@ Operational timing policy for BEN-V2. **Measure first, automate later.** This do
 - Targets are **design goals**, not yet enforced SLOs.
 - Runtime constants: `services/ops/timeouts.py` — FAST 5s route, PRO 12s provider, synthesis 10s, DB ping 2s / persist 5s; experts run in parallel within DELIBERATE envelope.
 - User-facing responses must return within **DELIBERATE** hard timeout even if synthesis or persist is skipped.
+- **R-017:** `run_council` wrapped in `asyncio.wait_for(..., COUNCIL_TOTAL_TIMEOUT_S)` (25s); partial expert results preserved on outer timeout; persist skipped if envelope exceeded.
 
 ---
 

@@ -21,6 +21,7 @@ from services.ops.request_context import attach_request_id, get_request_id
 from services.ops.structured_log import log_warning
 from services.ops.timing import log_timing, measure
 from services.ops.timeouts import (
+    COUNCIL_TOTAL_TIMEOUT_S,
     DB_OPERATION_TIMEOUT_S,
     EXPERT_CALL_TIMEOUT_S,
     HTTP_CLIENT_TIMEOUT_S,
@@ -292,10 +293,50 @@ async def _persist_synthesis_ko(tenant_id: str, question: str, synthesis: dict[s
         )
 
 
-async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
+def _build_council_payload(
+    question: str,
+    *,
+    ra: str,
+    rb: str,
+    rc: str,
+    ca: float,
+    cb: float,
+    cc: float,
+    synthesis: dict[str, Any] | None,
+    synth_cost: float,
+) -> dict[str, Any]:
+    payload = {
+        "question": question,
+        "council": [
+            {"expert": "Legal Advisor", "model": "claude", "response": ra},
+            {"expert": "Business Advisor", "model": "gpt-4o", "response": rb},
+            {"expert": "Strategy Advisor", "model": "gpt-4o-mini", "response": rc},
+        ],
+        "synthesis": synthesis,
+        "cost_usd": round(ca + cb + cc + synth_cost, 6),
+    }
+    if get_request_id():
+        return attach_request_id(payload)
+    return payload
+
+
+def _timeout_degraded_experts() -> tuple[str, str, str]:
+    msg = _degraded_expert_response("timeout")
+    return msg, msg, msg
+
+
+async def _run_council_inner(
+    question: str,
+    tenant_id: str,
+    *,
+    experts_out: list[Any],
+    synthesis_out: list[dict[str, Any] | None],
+    synth_cost_out: list[float],
+) -> dict[str, Any]:
+    """Council body; writes partial state for outer-timeout fallback."""
     timeout = httpx.Timeout(HTTP_CLIENT_TIMEOUT_S)
     async with httpx.AsyncClient(timeout=timeout) as cx:
-        (ra, ca), (rb, cb), (rc, cc) = await asyncio.gather(
+        expert_results = await asyncio.gather(
             _safe_expert(
                 lambda: _legal(cx, question, tenant_id),
                 provider="anthropic",
@@ -312,6 +353,8 @@ async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
                 label="Strategy",
             ),
         )
+        experts_out.append(expert_results)
+        (ra, ca), (rb, cb), (rc, cc) = expert_results
 
         synthesis: dict[str, Any] | None = None
         synth_cost = 0.0
@@ -351,19 +394,68 @@ async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
                 outcome="error",
             )
 
+        synthesis_out.append(synthesis)
+        synth_cost_out.append(synth_cost)
+
     if synthesis is not None:
         await _persist_synthesis_ko(tenant_id, question, synthesis)
 
-    payload = {
-        "question": question,
-        "council": [
-            {"expert": "Legal Advisor", "model": "claude", "response": ra},
-            {"expert": "Business Advisor", "model": "gpt-4o", "response": rb},
-            {"expert": "Strategy Advisor", "model": "gpt-4o-mini", "response": rc},
-        ],
-        "synthesis": synthesis,
-        "cost_usd": round(ca + cb + cc + synth_cost, 6),
-    }
-    if get_request_id():
-        return attach_request_id(payload)
-    return payload
+    return _build_council_payload(
+        question,
+        ra=ra,
+        rb=rb,
+        rc=rc,
+        ca=ca,
+        cb=cb,
+        cc=cc,
+        synthesis=synthesis,
+        synth_cost=synth_cost,
+    )
+
+
+async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
+    experts_out: list[Any] = []
+    synthesis_out: list[dict[str, Any] | None] = []
+    synth_cost_out: list[float] = []
+
+    try:
+        return await asyncio.wait_for(
+            _run_council_inner(
+                question,
+                tenant_id,
+                experts_out=experts_out,
+                synthesis_out=synthesis_out,
+                synth_cost_out=synth_cost_out,
+            ),
+            timeout=COUNCIL_TOTAL_TIMEOUT_S,
+        )
+    except (TimeoutError, asyncio.TimeoutError) as e:
+        log_warning(
+            "council total timed out",
+            subsystem="council",
+            provider="openai",
+            category="timeout",
+            exc=e,
+            operation="council_total",
+            outcome="timeout",
+        )
+        if experts_out:
+            (ra, ca), (rb, cb), (rc, cc) = experts_out[0]
+            synthesis = synthesis_out[0] if synthesis_out else None
+            synth_cost = synth_cost_out[0] if synth_cost_out else 0.0
+        else:
+            ra, rb, rc = _timeout_degraded_experts()
+            ca = cb = cc = 0.0
+            synthesis = None
+            synth_cost = 0.0
+        return _build_council_payload(
+            question,
+            ra=ra,
+            rb=rb,
+            rc=rc,
+            ca=ca,
+            cb=cb,
+            cc=cc,
+            synthesis=synthesis,
+            synth_cost=synth_cost,
+        )

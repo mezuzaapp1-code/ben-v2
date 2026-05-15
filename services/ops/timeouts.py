@@ -24,3 +24,4 @@ EXPERT_CALL_TIMEOUT_S = PRO_HARD_TIMEOUT_S  # asyncio.wait_for per expert call
 # --- DELIBERATE: synthesis + optional persistence ---
 SYNTHESIS_TIMEOUT_S = 10.0  # governance matrix; leaves ~15s for parallel experts within 25s total
 DB_OPERATION_TIMEOUT_S = 5.0  # optional KO persist; degrades without failing council HTTP 200
+COUNCIL_TOTAL_TIMEOUT_S = DELIBERATE_HARD_TIMEOUT_S  # outer envelope for POST /council (R-017)
