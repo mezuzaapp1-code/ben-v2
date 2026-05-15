@@ -4,50 +4,45 @@
 
 ## Current Phase
 
-**T-108 Phase 1 — secrets hygiene** on `feature/secrets-hygiene-v1`. No runtime, auth, or schema changes.
+**T-108 Phase 1 secrets hygiene merged to `main`** (`0bbc449`). Repo/gitignore/scripts only — **no runtime or auth changes**.
 
 ## Current Active Branch
 
-`feature/secrets-hygiene-v1`
+`main` @ `0bbc449`
 
 ## Current Active Task
 
-Repo cleanup + rotation checklist; merge after review.
+Choose next layer: **R-017** outer 25s council cap **or** **T-108 Phase 2** auth shadow mode (`ENFORCE_AUTH=false`).
 
 ## Recently Completed Tasks
 
 | Task | Outcome |
 |------|---------|
-| Timeout alignment v1 | On `main` (`b798e05`); prod smoke **PASS** |
-| Security Baseline v1 docs | On `main` |
-| T-108 Phase 1 (branch) | `.gitignore` expanded; verification scripts committed; `SECRETS_ROTATION_CHECKLIST.md` |
+| Secrets hygiene v1 merge | `.gitignore`, rotation checklist, verification scripts on `main` |
+| Timeout alignment v1 | Prod `b798e05` |
+| Security Baseline docs | On `main` |
 
 ## Secrets hygiene status
 
 | Item | Status |
 |------|--------|
-| `.env` gitignored | **YES** |
-| Local council test JSON gitignored | **YES** |
-| Verification scripts in `scripts/` | **COMMITTED** (no live secrets) |
-| Rotation checklist | `docs/SECRETS_ROTATION_CHECKLIST.md` |
-| Shell junk files | **Gitignored** — manual delete still recommended (R-018) |
-
-## Repo cleanup status
-
-- **R-003 FIXED** on branch (scripts + ignore rules)
-- Stray PowerShell artifacts: ignored, not deleted (documented)
-
-## Open Risks
-
-R-002, R-010–R-015, R-016, R-017, **R-018** — see `docs/RISK_REGISTER.md`.
+| `.env` gitignored | **VERIFIED** |
+| `scripts/` on `main` | **VERIFIED** (6 scripts + README) |
+| `SECRETS_ROTATION_CHECKLIST.md` | On `main` |
+| Local junk files | **Gitignored** — manual delete optional (R-018) |
 
 ## Production Status
 
-Unchanged until this branch merges (docs/gitignore/scripts only).
+Unchanged by hygiene merge (no deploy required for gitignore/docs/scripts).
+
+## Open Risks
+
+R-002, R-010–R-015, R-016, R-017, **R-018** — see `docs/RISK_REGISTER.md`. **R-003 FIXED**.
 
 ## Recommended Next Step
 
-1. Merge `feature/secrets-hygiene-v1` → `main`.
-2. Choose: **R-017** outer 25s council cap **or** **T-108 Phase 2** auth shadow mode (`ENFORCE_AUTH=false` default).
+1. **T-108 Phase 2** — wire Clerk with `ENFORCE_AUTH=false` until frontend ready, **or**
+2. **R-017** — optional outer 25s `wait_for` on full council path.
+3. Delete local shell junk files when convenient (R-018).
 
 READY FOR CHATGPT REVIEW

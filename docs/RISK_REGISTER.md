@@ -1,6 +1,6 @@
 # BEN Risk Register
 
-**Last register review:** 2026-05-15 (T-108 Phase 1 secrets hygiene branch)
+**Last register review:** 2026-05-15 (secrets hygiene merged to main)
 
 **RISK_REGISTER.md changed:** YES
 
