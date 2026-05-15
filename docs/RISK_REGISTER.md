@@ -1,6 +1,6 @@
 # BEN Risk Register
 
-**Last register review:** 2026-05-15 (council honesty v1 merged + prod verified)
+**Last register review:** 2026-05-15 (Gemini Strategy Advisor v1 — branch, not merged)
 
 **RISK_REGISTER.md changed:** YES
 
@@ -19,6 +19,8 @@
 | R-015 | No rate limiting on expensive routes | Medium | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | T-108 Phase 4 | No | No |
 | R-018 | Accidental shell artifact files in repo root | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Manual delete locally | No | No |
 | R-019 | Auth shadow without production log baseline | Low | OPEN | 2026-05-15 | 2026-05-15 | **CHANGED** — prod traffic for all shadow outcomes **SENT** (unsigned, invalid, valid JWT); `railway logs` **NOT VERIFIED** (CLI unauthorized in agent env) | Local: `railway login` → `verify_r019_production_logs.py` | No | No |
+| R-022 | Multi-provider council response divergence | Medium | OPEN | 2026-05-15 | 2026-05-15 | **NEW** — Legal/Business/Strategy use Anthropic/OpenAI/Gemini; no cross-provider normalization | Monitor prod council quality post-merge | No | No |
+| R-023 | Gemini Strategy Advisor operational variability | Low–Medium | OPEN | 2026-05-15 | 2026-05-15 | **NEW** — Strategy depends on `GOOGLE_API_KEY`; pytest **VERIFIED** degrade path; prod **NOT VERIFIED** | Confirm Railway `GOOGLE_API_KEY`; prod smoke | No | No |
 
 ---
 

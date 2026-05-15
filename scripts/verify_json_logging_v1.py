@@ -19,6 +19,7 @@ REQUIRED_OPS = {
     "POST /council",
     "provider_openai",
     "provider_anthropic",
+    "provider_gemini",
     "synthesis",
     "db_ping",
 }

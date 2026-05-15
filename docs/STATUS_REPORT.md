@@ -1,111 +1,87 @@
-# BEN TASK REPORT — Council Degraded Expert Honesty v1 (merge + production)
+# BEN TASK REPORT — Council Gemini Strategy Advisor v1
 
 **Last updated:** 2026-05-15
 
 ## 1. Task Name
 
-Merge and production-verify council degraded expert honesty (`feature/council-degraded-honesty-v1`).
+Add Google Gemini as Strategy Advisor for true multi-provider council diversity.
 
 ## 2. Branch
 
-`main` @ `e0c056c` (fast-forward merge)
+`feature/gemini-strategy-advisor-v1` (not merged)
 
 ## 3. Goal
 
-Deploy honest expert metadata and synthesis agreement to production; verify API shape, degraded paths (local), and UI (Vercel).
+| Advisor | Provider | Model |
+|---------|----------|-------|
+| Legal | anthropic | `ANTHROPIC_MODEL` / `claude-sonnet-4-6` |
+| Business | openai | `gpt-4o` |
+| Strategy | **google** | **`gemini-1.5-flash`** (env: `GEMINI_MODEL` / `GOOGLE_MODEL`) |
+| Synthesis | openai | `SYNTHESIS_MODEL` / `gpt-4o-mini` |
 
-## 4. Files Changed (merge)
+No dynamic routing, fallback, or timeout budget changes.
+
+## 4. Runtime matrix — before / after
+
+| Advisor | Before | After |
+|---------|--------|-------|
+| Legal | Anthropic | Anthropic (unchanged) |
+| Business | OpenAI `gpt-4o` | OpenAI `gpt-4o` (unchanged) |
+| Strategy | OpenAI `gpt-4o-mini` | **Google `gemini-1.5-flash`** |
+| Synthesis | OpenAI | OpenAI (unchanged) |
+
+**Gemini model:** `gemini-1.5-flash` default (same as `/chat` fallback in `model_gateway`).
+
+## 5. Files Changed
 
 | File | Change |
 |------|--------|
-| `services/council_service.py` | Expert `provider`, `model`, `outcome`; honest synthesis |
-| `frontend/src/App.jsx`, `App.css` | Status labels + synthesis disclaimer |
-| `tests/test_council_degraded_honesty.py` | Unit tests |
-| `scripts/verify_council_honesty_prod.py` | Prod smoke helper |
-
-## 5. Before / After (production API)
-
-**Before:** `council[]` had only `expert`, `model`, `response`; synthesis could show misleading `2/3`.
-
-**After (prod sample, all experts ok):**
-```json
-{
-  "expert": "Legal Advisor",
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-6",
-  "outcome": "ok",
-  "response": "..."
-}
-```
-`synthesis.agreement_estimate`: `"3/3 available"`
-
-**After (local mocked Legal timeout):**
-- Legal: `outcome: "timeout"`, `provider: "anthropic"`
-- `agreement_estimate`: `"2/2 available"`
-- UI strings: `Unavailable: timeout`, `Based on available expert responses.`
+| `services/council_service.py` | `_gemini_expert`, `provider_gemini` logs |
+| `tests/test_council_gemini_strategy.py` | New |
+| `tests/test_council_degraded_honesty.py` | Gemini mocks |
+| `scripts/verify_json_logging_v1.py` | `provider_gemini` in required ops |
 
 ## 6. Verification Executed
 
 ```bash
-git fetch origin
-git rev-parse e0c056c origin/main
-python -m pytest tests/test_council_degraded_honesty.py -v
+python -m pytest tests/test_council_gemini_strategy.py tests/test_council_degraded_honesty.py -v
 cd frontend && npm run build
-git checkout main && git pull && git merge feature/council-degraded-honesty-v1
-git push -v origin HEAD
-python scripts/verify_council_honesty_prod.py
-python -m pytest tests/test_council_degraded_honesty.py::test_legal_timeout_degraded_honest_synthesis -v
-cd frontend && vercel --prod --yes
-python scripts/probe_vercel_honesty_ui.py
 ```
 
-## 7. Verification Results
+## 7. PASS / FAIL
 
-| Check | Result | Notes |
-|-------|--------|-------|
-| Branch + `e0c056c` on origin | **PASS** | |
-| pytest (3 tests) | **PASS** | |
-| Frontend build | **PASS** | |
-| Merge to `main` | **PASS** | `04bc370..e0c056c` |
-| GET `/health` | **PASS** | 200 |
-| GET `/ready` | **PASS** | 200 |
-| POST `/council` | **PASS** | 200 |
-| `request_id`, `cost_usd`, top-level keys | **PASS** | |
-| `provider`, `outcome` on each expert | **PASS** | Prod |
-| Local degraded Legal timeout | **PASS** | pytest |
-| Local invalid Anthropic model | **PASS** | pytest (suite) |
-| Prod forced Legal degraded | **NOT EXECUTED** | Intentionally local-only per task |
-| Vercel UI strings in bundle | **PASS** | After `vercel --prod` |
-| No HTTPStatusError in responses | **PASS** | Prod + tests |
+| Check | Result |
+|-------|--------|
+| Happy path 3 providers | **PASS** |
+| Gemini timeout → degraded + `2/2 available` | **PASS** |
+| Missing `GOOGLE_API_KEY` → degraded | **PASS** |
+| Honesty tests (Legal timeout) | **PASS** |
+| API top-level shape | **PASS** (unchanged) |
+| `provider` / `outcome` on Strategy | **PASS** |
+| No HTTPStatusError leak | **PASS** |
+| Frontend build | **PASS** |
+| Production deploy | **NOT VERIFIED** |
 
-### VERIFIED vs INFERRED
+## 8. VERIFIED vs INFERRED
 
 | Finding | Class |
 |---------|--------|
-| `origin/main` = `e0c056c` | **VERIFIED** |
-| Prod API new fields | **VERIFIED** |
-| Degraded honesty behavior | **VERIFIED** (local pytest) |
-| Prod UI labels on live browser | **INFERRED** from bundle probe post-deploy |
-
-## 8. Production smoke detail
-
-```
-GET /health -> 200
-GET /ready -> 200
-POST /council -> 200
-experts: [('Legal Advisor', 'ok', 'anthropic'), ('Business Advisor', 'ok', 'openai'), ('Strategy Advisor', 'ok', 'openai')]
-agreement_estimate: 3/3 available
-```
+| Strategy `provider=google`, model `gemini-1.5-flash` | **VERIFIED** (pytest) |
+| `provider_gemini` structured logs | **VERIFIED** (code) |
+| Prod multi-provider council | **INFERRED** until deploy |
 
 ## 9. Risks
 
 | ID | Status |
 |----|--------|
-| **R-021** | **FIXED** — pytest + prod API field verification |
+| R-022 | **OPEN** — multi-provider council divergence (new) |
+| R-023 | **OPEN** — Gemini operational variability (new) |
 
-## 10. Ready Status
+## 10. Production readiness
 
-**READY FOR PRODUCTION USE** — backend deployed; frontend redeployed to Vercel for UI labels.
+**READY FOR REVIEW** — merge after Railway `GOOGLE_API_KEY` confirmed and prod smoke.
+
+**Pre-merge ops:** Set `GOOGLE_API_KEY` on Railway if not present.
 
 ---
 

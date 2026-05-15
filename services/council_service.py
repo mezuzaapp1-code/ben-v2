@@ -43,7 +43,7 @@ S_STRAT = "You are a strategic thinker.\nAnalyze long-term implications and risk
 ANTHROPIC_MODEL_DEFAULT = "claude-sonnet-4-6"
 SYNTHESIS_MODEL_DEFAULT = "gpt-4o-mini"
 BUSINESS_MODEL = "gpt-4o"
-STRATEGY_MODEL = "gpt-4o-mini"
+GEMINI_MODEL_DEFAULT = "gemini-1.5-flash"
 
 SYNTHESIS_SYSTEM = """You are BEN, a Cognitive Operating System.
 Your job is to synthesize expert opinions into structured organizational reasoning.
@@ -86,6 +86,18 @@ def _cost_oai(model: str, pi: int, po: int) -> float:
 
 def _cost_claude(pi: int, po: int) -> float:
     return 3e-6 * pi + 15e-6 * po
+
+
+def _cost_gemini(pi: int, po: int) -> float:
+    return 0.1e-6 * pi + 0.4e-6 * po
+
+
+def _strategy_gemini_model() -> str:
+    return (
+        os.getenv("GEMINI_MODEL", "").strip()
+        or os.getenv("GOOGLE_MODEL", "").strip()
+        or GEMINI_MODEL_DEFAULT
+    )
 
 
 def _degraded_expert_response(category: str) -> str:
@@ -146,6 +158,78 @@ async def _openai_completion(
             model=model,
         )
         raise
+
+
+async def _gemini_completion(
+    cx: httpx.AsyncClient, model: str, system: str, q: str, tenant_id: str
+) -> tuple[str, float]:
+    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    if not api_key:
+        _log_provider_failure(provider="google", subsystem="council", message="missing GOOGLE_API_KEY")
+        return "missing GOOGLE_API_KEY", 0.0
+    t0 = time.perf_counter()
+    url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent"
+    prompt = f"{system}\n\n{q}"
+    try:
+        r = await cx.post(
+            url,
+            params={"key": api_key},
+            headers=_hdr(tenant_id),
+            json={"contents": [{"parts": [{"text": prompt}]}]},
+        )
+        r.raise_for_status()
+        d = r.json()
+        parts = ((d.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
+        txt = "".join(p.get("text", "") for p in parts)
+        m = d.get("usageMetadata") or {}
+        pi, po = int(m.get("promptTokenCount", 0)), int(m.get("candidatesTokenCount", 0))
+        log_timing(
+            "gemini call completed",
+            subsystem="council",
+            operation="provider_gemini",
+            provider="google",
+            duration_ms=int((time.perf_counter() - t0) * 1000),
+            outcome="ok",
+            model=model,
+        )
+        return txt, _cost_gemini(pi, po)
+    except Exception as e:
+        log_timing(
+            "gemini call failed",
+            subsystem="council",
+            operation="provider_gemini",
+            provider="google",
+            duration_ms=int((time.perf_counter() - t0) * 1000),
+            outcome="error",
+            category=classify_failure(e),
+            model=model,
+        )
+        raise
+
+
+async def _gemini_expert(
+    cx: httpx.AsyncClient,
+    model: str,
+    system: str,
+    q: str,
+    tenant_id: str,
+    *,
+    expert: str,
+) -> ExpertResult:
+    if not os.getenv("GOOGLE_API_KEY", "").strip():
+        _log_provider_failure(provider="google", subsystem="council", message="missing GOOGLE_API_KEY")
+        return ExpertResult(
+            expert=expert,
+            provider="google",
+            model=model,
+            outcome="degraded",
+            response="missing GOOGLE_API_KEY",
+            cost=0.0,
+        )
+    text, cost = await _gemini_completion(cx, model, system, q, tenant_id)
+    if text.startswith("missing "):
+        return ExpertResult(expert=expert, provider="google", model=model, outcome="degraded", response=text, cost=cost)
+    return ExpertResult(expert=expert, provider="google", model=model, outcome="ok", response=text, cost=cost)
 
 
 async def _openai_expert(
@@ -439,7 +523,7 @@ def _timeout_degraded_experts() -> list[ExpertResult]:
     return [
         ExpertResult("Legal Advisor", "anthropic", ANTHROPIC_MODEL_DEFAULT, "timeout", msg, 0.0),
         ExpertResult("Business Advisor", "openai", BUSINESS_MODEL, "timeout", msg, 0.0),
-        ExpertResult("Strategy Advisor", "openai", STRATEGY_MODEL, "timeout", msg, 0.0),
+        ExpertResult("Strategy Advisor", "google", _strategy_gemini_model(), "timeout", msg, 0.0),
     ]
 
 
@@ -453,6 +537,7 @@ async def _run_council_inner(
 ) -> dict[str, Any]:
     """Council body; writes partial state for outer-timeout fallback."""
     legal_model = os.getenv("ANTHROPIC_MODEL", ANTHROPIC_MODEL_DEFAULT).strip() or ANTHROPIC_MODEL_DEFAULT
+    strategy_model = _strategy_gemini_model()
     timeout = httpx.Timeout(HTTP_CLIENT_TIMEOUT_S)
     async with httpx.AsyncClient(timeout=timeout) as cx:
         expert_results: list[ExpertResult] = list(
@@ -472,13 +557,13 @@ async def _run_council_inner(
                     model=BUSINESS_MODEL,
                 ),
                 _safe_expert(
-                    lambda: _openai_expert(
-                        cx, STRATEGY_MODEL, S_STRAT, question, tenant_id, expert="Strategy Advisor"
+                    lambda: _gemini_expert(
+                        cx, strategy_model, S_STRAT, question, tenant_id, expert="Strategy Advisor"
                     ),
-                    provider="openai",
+                    provider="google",
                     label="Strategy",
                     expert="Strategy Advisor",
-                    model=STRATEGY_MODEL,
+                    model=strategy_model,
                 ),
             )
         )

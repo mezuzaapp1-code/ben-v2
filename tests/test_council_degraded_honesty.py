@@ -12,6 +12,7 @@ import pytest
 
 os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-anthropic-key")
+os.environ.setdefault("GOOGLE_API_KEY", "test-google-key")
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@127.0.0.1:5432/test")
 
 from services.council_service import (  # noqa: E402
@@ -82,10 +83,12 @@ def _make_post(*, legal_mode: str = "ok", synthesis_agreement: str = "3/3"):
                         "usage": {"prompt_tokens": 10, "completion_tokens": 8},
                     }
                 )
+            raise AssertionError(f"unexpected openai model: {model}")
+        if "generativelanguage.googleapis.com" in u:
             return _FakeResponse(
                 {
-                    "choices": [{"message": {"content": "Strategy: phased rollout."}}],
-                    "usage": {"prompt_tokens": 8, "completion_tokens": 7},
+                    "candidates": [{"content": {"parts": [{"text": "Strategy: phased rollout."}]}}],
+                    "usageMetadata": {"promptTokenCount": 8, "candidatesTokenCount": 7},
                 }
             )
         raise AssertionError(f"unexpected URL: {u}")
@@ -102,7 +105,7 @@ async def test_happy_path_all_experts_ok():
     assert len(out["council"]) == 3
     for m in out["council"]:
         assert m["outcome"] == "ok"
-        assert m["provider"] in ("anthropic", "openai")
+        assert m["provider"] in ("anthropic", "openai", "google")
         assert "model" in m and m["response"]
     syn = out["synthesis"]
     assert syn is not None
