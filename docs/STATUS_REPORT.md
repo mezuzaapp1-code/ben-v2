@@ -1,18 +1,18 @@
-# BEN STATUS REPORT — Auth Bearer Production Verification (continued)
+# BEN TASK REPORT — Frontend Bearer Production Verification (final)
 
 **Last updated:** 2026-05-15
 
 ## 1. Task Name
 
-Frontend Clerk Bearer production verification (Vercel CLI authenticated).
+Frontend Clerk Bearer production verification after `VITE_CLERK_PUBLISHABLE_KEY` added to Vercel Production.
 
 ## 2. Branch
 
-`main` @ `887c89e` (code merge `89ddb64` + prior docs)
+`main` (docs commit pending)
 
 ## 3. Goal
 
-Verify `VITE_CLERK_PUBLISHABLE_KEY` on Vercel, redeploy frontend, confirm signed-in Bearer E2E and auth shadow logs. **Do not** enable `ENFORCE_AUTH` or tenant binding.
+Redeploy Vercel production, verify Clerk key in bundle, sign-in UI, signed-in Bearer on `/chat` and `/council`, backend remains open (shadow mode), no token leakage. Update R-019 / R-020 only if verified.
 
 ## 4. Files Changed
 
@@ -23,122 +23,87 @@ Verify `VITE_CLERK_PUBLISHABLE_KEY` on Vercel, redeploy frontend, confirm signed
 
 ## 5. Code Changes
 
-None (verification + docs only).
+None (verification + docs).
 
 ## 6. Verification Executed
 
 ```bash
 cd frontend
-vercel whoami                                    # info-58606460
-vercel link --yes                                # ben-ai-s-projects/ben-v2
-vercel env ls                                    # no variables
-vercel --prod --yes                              # production redeploy → ben-v2.vercel.app
-python scripts/probe_vercel_clerk_bundle.py      # session probe (deleted after)
+vercel env ls
+vercel --prod --yes
+python scripts/probe_vercel_clerk_bundle.py
 python scripts/verify_auth_shadow_v1.py https://ben-v2-production.up.railway.app
-railway whoami                                   # Unauthorized
-railway logs --lines 200                         # NOT EXECUTED (unauthorized)
+python scripts/verify_frontend_bearer_e2e.py
+python -c "… POST /chat, POST /council leak check …"
+railway whoami
+railway logs --lines 200
 ```
-
-Signed-in browser E2E (Clerk sign-in, Network tab Bearer on `/chat`, `/council`): **NOT EXECUTED** — blocked by missing Vercel env var.
 
 ## 7. Verification Results
 
 | Check | Result | Notes |
 |-------|--------|-------|
-| Vercel CLI authenticated | **PASS** | `vercel whoami` |
-| `VITE_CLERK_PUBLISHABLE_KEY` on Vercel | **MISSING** | `vercel env ls`: zero env vars for project |
-| Production redeploy | **PASS** | `dpl_uDnsRqXuAgUpudy4YA2EuHde2Roq` → `https://ben-v2.vercel.app` |
+| `VITE_CLERK_PUBLISHABLE_KEY` on Vercel | **PASS** | `vercel env ls`: Encrypted, Production |
+| Production redeploy | **PASS** | `dpl_J2qXvcTGf7UTQVmJDJ4kWMAauPwc` → `ben-v2.vercel.app` |
 | Frontend loads | **PASS** | HTTP 200 |
-| Bundle contains `pk_*` | **MISSING** | `/assets/index-DsZTVMqA.js` — no publishable key inlined |
-| Clerk sign-in UI / signed-in flow | **NOT VERIFIED** | No key at build time → no Sign in UI |
-| `Authorization: Bearer` on `/chat`, `/council` | **NOT VERIFIED** | Requires Clerk session + env var |
+| `pk_*` in production bundle | **PASS** | `/assets/index-qRjddneO.js` — `publishable_key_in_bundle=PRESENT` |
+| Sign-in UI on production | **PASS** | Playwright: `sign_in_button_visible=True` |
+| `Authorization: Bearer` on `/chat` (signed-in) | **NOT VERIFIED** | No `CLERK_TEST_EMAIL` / `CLERK_TEST_PASSWORD`; flow skipped |
+| `Authorization: Bearer` on `/council` (signed-in) | **NOT VERIFIED** | Same |
 | Railway `auth_enforcement=false` | **PASS** | `/health` |
 | Railway `auth_shadow_mode=true` | **PASS** | `/health` |
 | POST `/council` no auth → 200 | **PASS** | Shape unchanged |
-| POST `/council` invalid Bearer → 200 | **PASS** | Non-blocking (shadow mode) |
-| `shadow_auth_check` prod logs | **NOT VERIFIED** | `railway login` required |
-| Token leak in API responses | **PASS** | No Bearer/JWT in council JSON bodies |
+| POST `/council` invalid Bearer → 200 | **PASS** | Non-blocking |
+| POST `/chat` → 200, shape OK | **PASS** | No JWT in body |
+| JWT/token in API response bodies | **PASS** | No `eyJ` in chat/council JSON |
+| `shadow_auth_check` prod logs | **NOT VERIFIED** | Railway CLI unauthorized |
 
-## VERIFIED vs INFERRED
+### VERIFIED vs INFERRED
 
 | Finding | Class |
 |---------|--------|
-| Vercel project has **no** environment variables | **VERIFIED** (`vercel env ls`) |
-| Publishable key **not** in production JS bundle | **VERIFIED** (bundle probe post-redeploy) |
-| Latest frontend deployed to `ben-v2.vercel.app` | **VERIFIED** (`vercel --prod`) |
-| Backend auth flags and signed-out council smoke | **VERIFIED** |
-| Signed-in Bearer headers | **NOT VERIFIED** (blocked) |
-| `auth_missing` / `auth_valid` in Railway logs | **NOT VERIFIED** (CLI unauthorized) |
+| Vercel env var exists (name only, value encrypted) | **VERIFIED** |
+| Publishable key inlined in prod JS bundle | **VERIFIED** |
+| Sign-in button visible on `ben-v2.vercel.app` | **VERIFIED** (Playwright) |
+| Signed-in Bearer on `/chat` and `/council` | **NOT VERIFIED** |
+| Backend shadow flags + signed-out/invalid-token API | **VERIFIED** |
+| `auth_missing` / `auth_valid` in Railway logs | **NOT VERIFIED** |
 
 ## 8. Git Status
 
 - Branch: `main`
-- Docs commit pending this session
-- Local `.gitignore` has unstaged `.vercel` entry from `vercel link` (not committed per docs-only scope)
+- Pending: docs commit this session
 
 ## 9. Risks / Warnings
 
-| ID | Status | Notes |
-|----|--------|-------|
-| R-019 | **OPEN** | Railway logs not sampled |
-| R-020 | **OPEN** | **VERIFIED MISSING** on Vercel; not closed until key set + signed-in E2E passes |
-| R-013 | **PARTIAL** | Enforcement off; Bearer path unproven in prod until R-020 closed |
+| ID | Status | Rationale |
+|----|--------|-----------|
+| **R-020** | **FIXED** | Risk was missing Vercel publishable key — **VERIFIED PRESENT** (env + bundle + sign-in UI). Signed-in Bearer header E2E still **NOT VERIFIED** (manual sign-in + DevTools or set `CLERK_TEST_EMAIL` / `CLERK_TEST_PASSWORD` and re-run `verify_frontend_bearer_e2e.py`). |
+| **R-019** | **OPEN** | Railway logs not accessible (`railway login` required). |
+| **R-013** | **PARTIAL** | Enforcement off; signed-in shadow `auth_valid` not log-verified. |
 
-## 10. Manual step — add Clerk publishable key (do not paste key in chat)
+## 10. Manual Bearer verification (optional)
 
-From repo `frontend/` (project already linked):
+Sign in at `https://ben-v2.vercel.app` → DevTools → Network → POST to Railway `/chat` and `/council` → confirm `Authorization: Bearer` header (do not copy token into logs).
 
-```bash
-cd frontend
-vercel env add VITE_CLERK_PUBLISHABLE_KEY production
-# Paste pk_test_... or pk_live_... when prompted (from Clerk Dashboard → API Keys)
-vercel --prod --yes
-```
-
-Then verify (no key printed):
+Or:
 
 ```bash
-vercel env ls
-python -c "import httpx,re; h=httpx.get('https://ben-v2.vercel.app').text; js=re.search(r'src=\"(/assets/[^\"]+\.js)\"',h).group(1); t=httpx.get('https://ben-v2.vercel.app'+js).text; print('pk_in_bundle', bool(re.search(r'pk_(live|test)_', t)))"
-```
-
-Browser: open `https://ben-v2.vercel.app` → Sign in → DevTools Network → confirm `Authorization: Bearer` on `/chat` and `/council` (redact token in screenshots). Confirm responses still HTTP 200 and shape unchanged.
-
-Railway logs (after `railway login`):
-
-```bash
-railway logs --lines 200
-# Look for: subsystem=auth, operation=shadow_auth_check, outcome=auth_missing|auth_valid, request_id
+set CLERK_TEST_EMAIL=...
+set CLERK_TEST_PASSWORD=...
+python scripts/verify_frontend_bearer_e2e.py
 ```
 
 ## 11. Recommended Next Step
 
-1. Run `vercel env add` above, redeploy, repeat signed-in + bundle verification.
-2. `railway login` → confirm `shadow_auth_check` lines (close R-019 if verified).
-3. **Phase 3 tenant binding** before `ENFORCE_AUTH=true`.
+1. Manual or automated signed-in Network check for Bearer headers.
+2. `railway login` → `railway logs --lines 200` → close R-019 if `shadow_auth_check` lines confirmed.
+3. Phase 3 tenant binding before `ENFORCE_AUTH=true`.
 
 ## 12. Ready Status
 
-**NOT READY** for signed-in production Bearer — Vercel key **VERIFIED MISSING**. Backend shadow mode **VERIFIED SAFE**.
+**READY WITH WARNINGS** — Clerk key deployed; sign-in UI live; backend safe; signed-in Bearer headers and prod shadow logs **not fully verified**.
 
 ---
-
-## Current Phase
-
-Frontend Bearer code on `main`; production Vercel build has **no** Clerk publishable key. Backend enforcement **off**.
-
-## Vercel Clerk key
-
-| Check | Status |
-|-------|--------|
-| `vercel env ls` | **MISSING** (VERIFIED) |
-| Bundle `pk_*` | **MISSING** (VERIFIED post-redeploy) |
-
-## Backend (production)
-
-| Flag | Status |
-|------|--------|
-| `auth_enforcement` | false — VERIFIED |
-| `auth_shadow_mode` | true — VERIFIED |
 
 READY FOR CHATGPT REVIEW

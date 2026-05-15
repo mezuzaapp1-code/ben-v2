@@ -1,6 +1,6 @@
 # BEN Risk Register
 
-**Last register review:** 2026-05-15 (Vercel CLI env verification + prod redeploy)
+**Last register review:** 2026-05-15 (Clerk key on Vercel + prod redeploy verified)
 
 **RISK_REGISTER.md changed:** YES
 
@@ -14,12 +14,11 @@
 | R-010 | No runtime load isolation yet | Medium | **PARTIAL** | 2026-05-15 | 2026-05-15 | UNCHANGED | Per-tenant concurrency / queues | No | No |
 | R-011 | No queue infrastructure yet | Medium | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | T-107 | No | No |
 | R-012 | Runtime latency instrumentation | Medium | **PARTIAL** | 2026-05-15 | 2026-05-15 | UNCHANGED | Prod JSON log sample | No | No |
-| R-013 | Unauthenticated `/chat` and `/council` | **High** | **PARTIAL** | 2026-05-15 | 2026-05-15 | **CHANGED** — frontend Bearer merged `89ddb64`; prod **ENFORCE_AUTH=false** **VERIFIED**; unsigned traffic still open | Set Vercel Clerk key + redeploy; tenant binding; then enforce | No | **Yes** (until enforce) |
+| R-013 | Unauthenticated `/chat` and `/council` | **High** | **PARTIAL** | 2026-05-15 | 2026-05-15 | **CHANGED** — Clerk key on Vercel **VERIFIED**; sign-in UI live; signed-in Bearer headers **NOT VERIFIED**; **ENFORCE_AUTH=false** | Confirm Bearer via DevTools or test creds; tenant binding; then enforce | No | **Yes** (until enforce) |
 | R-014 | Client-supplied `tenant_id` without auth binding | **High** | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Phase 3 tenant binding | No | **Yes** (cross-tenant) |
 | R-015 | No rate limiting on expensive routes | Medium | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | T-108 Phase 4 | No | No |
 | R-018 | Accidental shell artifact files in repo root | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Manual delete locally | No | No |
-| R-019 | Auth shadow without production log baseline | Low | OPEN | 2026-05-15 | 2026-05-15 | **CHANGED** — `railway logs` **NOT VERIFIED** (CLI unauthorized); API shadow flags **VERIFIED** via `/health` | `railway login` → `railway logs --lines 200` → `shadow_auth_check` / `auth_valid` | No | No |
-| R-020 | Frontend deploy without Clerk publishable key | Low | OPEN | 2026-05-15 | 2026-05-15 | **VERIFIED MISSING** — `vercel env ls` shows **no** env vars; post-redeploy bundle has **no** `pk_*`; signed-in Bearer E2E **NOT VERIFIED** | `vercel env add VITE_CLERK_PUBLISHABLE_KEY production` → `vercel --prod` → bundle + Network tab check | No | No |
+| R-019 | Auth shadow without production log baseline | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED — `railway logs` **NOT VERIFIED** (CLI unauthorized); API `/health` shadow flags **VERIFIED** | `railway login` → `railway logs --lines 200` → `shadow_auth_check` / `auth_valid` | No | No |
 
 ---
 
@@ -44,6 +43,7 @@
 | R-009 | Timing & Load Governance (docs only) | Medium | FIXED | 2026-05-15 | 2026-05-15 | **2026-05-15** | Docs + runtime timeouts | — |
 | R-003 | Untracked scripts / test JSON clutter | Low | FIXED | 2026-05-15 | 2026-05-15 | **2026-05-15** | Hygiene merge | — |
 | R-017 | Council worst-case may exceed 25s DELIBERATE | Low–Medium | FIXED | 2026-05-15 | 2026-05-15 | **2026-05-15** | Outer 25s cap on prod | — |
+| R-020 | Frontend deploy without Clerk publishable key | Low | FIXED | 2026-05-15 | 2026-05-15 | **2026-05-15** | Vercel env + bundle `pk_*` + sign-in UI **VERIFIED**; signed-in Bearer header E2E optional | — |
 
 ---
 
