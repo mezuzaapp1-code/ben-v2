@@ -1,6 +1,6 @@
 # BEN Risk Register
 
-**Last register review:** 2026-05-15 (Auth Verification Phase A — automated checks)
+**Last register review:** 2026-05-15 (R-019 log verification — traffic sent, logs not pulled)
 
 **RISK_REGISTER.md changed:** YES
 
@@ -18,7 +18,7 @@
 | R-014 | Client-supplied `tenant_id` without auth binding | **High** | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Phase 3 tenant binding | No | **Yes** (cross-tenant) |
 | R-015 | No rate limiting on expensive routes | Medium | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | T-108 Phase 4 | No | No |
 | R-018 | Accidental shell artifact files in repo root | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Manual delete locally | No | No |
-| R-019 | Auth shadow without production log baseline | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED — Phase A: `railway logs` **NOT VERIFIED** (CLI unauthorized); `auth_valid` **NOT VERIFIED**; API smoke + `request_id` **VERIFIED** | `railway login` → logs → confirm `auth_missing` / `auth_invalid` / `auth_valid` | No | No |
+| R-019 | Auth shadow without production log baseline | Low | OPEN | 2026-05-15 | 2026-05-15 | **CHANGED** — prod traffic for all shadow outcomes **SENT** (unsigned, invalid, valid JWT); `railway logs` **NOT VERIFIED** (CLI unauthorized in agent env) | Local: `railway login` → `verify_r019_production_logs.py` | No | No |
 
 ---
 

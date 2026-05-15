@@ -22,6 +22,7 @@ council_test_*.json
 # Logs and diagnostics
 *.log
 ben_ops_*.jsonl
+railway_shadow_logs.txt
 
 # Accidental PowerShell / shell redirect artifacts (repo root)
 e -ErrorAction SilentlyContinue
@@ -33,3 +34,4 @@ frontend/dist/
 
 # OS
 .DS_Store
+.vercel
