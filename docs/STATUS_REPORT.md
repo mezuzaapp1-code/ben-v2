@@ -4,7 +4,7 @@
 
 ## Current Phase
 
-Timing & load governance **documentation merged to `main`** (`ac89049`). JSON logging live in prod (`82739c2`). **No runtime enforcement** deployed with this merge.
+Timing & load governance **documentation merged to `main`** (commit `ac89049`, merge on `main`). JSON logging live in prod (`82739c2`). **No runtime enforcement** deployed with this merge.
 
 ## Current Active Branch
 
