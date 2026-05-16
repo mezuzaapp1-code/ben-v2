@@ -2,6 +2,13 @@
 
 export const CLERK_ORG_REQUIRED = 'clerk_org_required'
 
+export const COUNCIL_BUSY = 'council_busy'
+export const RUNTIME_SATURATED = 'runtime_saturated'
+export const RETRY_LATER = 'retry_later'
+export const DUPLICATE_REQUEST = 'duplicate_request'
+
+const OVERLOAD_CODES = new Set([COUNCIL_BUSY, RUNTIME_SATURATED, RETRY_LATER, DUPLICATE_REQUEST])
+
 const CLERK_ORG_MESSAGE =
   'Please select or create an organization in Clerk to continue.'
 
@@ -10,6 +17,17 @@ const CLERK_ORG_HINT =
 
 export function parseBenErrorResponse(status, data) {
   const detail = data?.detail
+  if (typeof detail === 'object' && detail !== null && OVERLOAD_CODES.has(detail.code)) {
+    const hint = detail.hint ? String(detail.hint) : null
+    const message = String(detail.message || 'Please try again shortly.')
+    return {
+      code: detail.code,
+      message: hint ? `${message} ${hint}` : message,
+      hint,
+      recoverable: detail.recoverable !== false,
+      retry_after_s: detail.retry_after_s,
+    }
+  }
   if (typeof detail === 'object' && detail !== null && detail.code === CLERK_ORG_REQUIRED) {
     return {
       code: CLERK_ORG_REQUIRED,

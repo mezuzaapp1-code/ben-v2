@@ -13,6 +13,9 @@ export function humanizeCouncilHttpError(status, data) {
   const parsed = parseBenErrorResponse(status, data)
   if (parsed) return parsed.message
   const detail = data?.detail
+  if (status === 429 || status === 503) {
+    if (typeof detail === 'object' && detail?.message) return String(detail.message)
+  }
   if (status === 401) {
     return typeof detail === 'string' ? detail : 'Sign in required to use Council.'
   }

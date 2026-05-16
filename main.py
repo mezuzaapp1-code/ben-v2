@@ -42,6 +42,8 @@ from services.ops.request_context import set_request_id
 
 from services.ops.startup import validate_startup
 
+from services.ops.load_governance import get_load_governor, locale_for_request
+
 from services.ops.timing import measure
 
 from services.thread_service import get_thread_detail, list_threads
@@ -226,19 +228,23 @@ async def chat(request: Request, body: ChatBody):
 
     tid = _parse_thread_id(body.thread_id)
 
-    return await handle_chat(
+    locale = locale_for_request(request, body.message)
 
-        body.message,
+    async with get_load_governor().govern_chat(locale=locale):
 
-        ctx.user_id or "anonymous",
+        return await handle_chat(
 
-        ctx.tenant_id,
+            body.message,
 
-        body.tier,
+            ctx.user_id or "anonymous",
 
-        thread_id=tid,
+            ctx.tenant_id,
 
-    )
+            body.tier,
+
+            thread_id=tid,
+
+        )
 
 
 
@@ -276,9 +282,21 @@ async def council(request: Request, body: CouncilBody):
 
     tid = _parse_thread_id(body.thread_id)
 
-    async with measure(subsystem="council", operation="POST /council"):
+    locale = locale_for_request(request, body.question)
 
-        return await run_council(body.question, ctx.tenant_id, thread_id=tid)
+    async with get_load_governor().govern_council(
+
+        tenant_id=ctx.tenant_id,
+
+        question=body.question,
+
+        locale=locale,
+
+    ):
+
+        async with measure(subsystem="council", operation="POST /council"):
+
+            return await run_council(body.question, ctx.tenant_id, thread_id=tid)
 
 
 

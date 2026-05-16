@@ -16,6 +16,11 @@ import {
 } from './api/council.js'
 import { fetchThreadDetail, fetchThreadList, mapApiMessage, mapThreadFromList } from './api/threads.js'
 import { logCouncilLifecycle } from './councilLifecycleLog.js'
+import {
+  canSubmitCouncil,
+  markCouncilSubmitFinished,
+  markCouncilSubmitStarted,
+} from './loadGovernance.js'
 import { useBenAuthContext } from './auth/BenAuthContext.jsx'
 import { BEN_API_BASE } from './config.js'
 import {
@@ -398,6 +403,28 @@ function App() {
     let tid = activeId
     if (!tid || !threads.some((x) => x.id === tid)) tid = newThread()
     const apiThreadId = serverThreadIdForApi(tid)
+    const guard = canSubmitCouncil(text, apiThreadId)
+    if (!guard.ok) {
+      const blocked =
+        guard.reason === 'duplicate'
+          ? 'This council request was just submitted. Please wait a moment.'
+          : 'Council is already in progress. Please wait for it to finish.'
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.id === tid
+            ? {
+                ...t,
+                messages: [
+                  ...t.messages,
+                  { role: 'assistant', kind: 'council_error', content: blocked, model_used: '', cost_usd: 0 },
+                ],
+              }
+            : t
+        )
+      )
+      return
+    }
+    markCouncilSubmitStarted(guard.fingerprint)
     const userMsg = { role: 'user', content: text }
     setInput('')
     setThreads((prev) =>
@@ -442,7 +469,10 @@ function App() {
           return
         }
         const errText = humanizeCouncilHttpError(res.status, data)
-        logCouncilLifecycle('council_submit_failed', { status: res.status, reason: 'http_error' })
+        logCouncilLifecycle('council_submit_failed', {
+          status: res.status,
+          reason: parsed?.code || 'http_error',
+        })
         setThreads((prev) =>
           prev.map((t) =>
             t.id === tid
@@ -508,6 +538,7 @@ function App() {
       clearCouncilPhaseTimers()
       setCouncilStatus(null)
       setLoading(false)
+      markCouncilSubmitFinished()
       logCouncilLifecycle('council_submit_finally')
     }
   }, [
