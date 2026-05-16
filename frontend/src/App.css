@@ -174,15 +174,73 @@
   padding: 1rem;
 }
 
-.council-progress {
-  align-self: center;
-  color: #9ab4e8;
-  font-size: 0.875rem;
-  padding: 0.5rem 0.75rem;
+.council-progress-panel {
+  align-self: stretch;
+  margin: 0 0 0.5rem;
+  padding: 0.75rem 1rem;
   border: 1px dashed #2e3a52;
   border-radius: 8px;
   background: #10141c;
   animation: in 0.2s ease-out;
+}
+
+.council-long-hint,
+.composer-long-hint {
+  color: #c9b07a;
+  font-size: 0.8125rem;
+  margin: 0 0 0.5rem;
+}
+
+.composer-long-hint {
+  flex: 1 1 100%;
+  width: 100%;
+}
+
+.council-progress-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.council-step {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: #6a7a94;
+}
+
+.council-step--active {
+  color: #9ab4e8;
+  font-weight: 500;
+}
+
+.council-step--done {
+  color: #7a9a6a;
+}
+
+.council-step-marker {
+  width: 1.25rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.bubble-text--rtl {
+  direction: rtl;
+  text-align: right;
+  unicode-bidi: plaintext;
+}
+
+.bubble.expert-degraded {
+  border-color: #5a4a2a;
+  background: #1a1810;
+}
+
+.bubble.expert-degraded .expert-status {
+  color: #c9b07a;
 }
 
 .bubble.council-error {
@@ -321,6 +379,7 @@
 .composer {
   flex-shrink: 0;
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   padding: 0.75rem 1rem 1rem;
   border-top: 1px solid #1f1f1f;

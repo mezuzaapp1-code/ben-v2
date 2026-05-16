@@ -14,6 +14,13 @@ import {
   humanizeCouncilHttpError,
   postCouncil,
 } from './api/council.js'
+import { CouncilProgressPanel } from './CouncilProgressPanel.jsx'
+import {
+  COUNCIL_PHASE_SCHEDULE_MS,
+  isLongCouncilPrompt,
+  isRtlPreferredText,
+  sanitizeCouncilErrorMessage,
+} from './councilProgress.js'
 import { fetchThreadDetail, fetchThreadList, mapApiMessage, mapThreadFromList } from './api/threads.js'
 import { logCouncilLifecycle } from './councilLifecycleLog.js'
 import { useBenAuthContext } from './auth/BenAuthContext.jsx'
@@ -30,16 +37,18 @@ import './App.css'
 const CHAT_URL = `${BEN_API_BASE}/chat`
 const HAS_CLERK_UI = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim())
 
-const COUNCIL_PHASE_TIMERS = [
-  { at: 0, phase: 'started', message: 'Council started…' },
-  { at: 300, phase: 'experts', message: 'Waiting for Legal, Business, and Strategy…' },
-  { at: 12_000, phase: 'synthesizing', message: 'Synthesizing…' },
-]
-
 const COUNCIL_LABEL = {
   'Legal Advisor': '⚖️ Legal Advisor',
   'Business Advisor': '💼 Business Advisor',
   'Strategy Advisor': '🎯 Strategy Advisor',
+}
+
+function bubbleTextProps(content) {
+  const rtl = isRtlPreferredText(content)
+  return {
+    className: `bubble-text${rtl ? ' bubble-text--rtl' : ''}`,
+    dir: rtl ? 'rtl' : 'auto',
+  }
 }
 
 function expertStatusLabel(outcome, response) {
@@ -143,7 +152,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [hydrating, setHydrating] = useState(true)
   const [orgBanner, setOrgBanner] = useState(null)
-  const [councilStatus, setCouncilStatus] = useState(null)
+  const [councilProgress, setCouncilProgress] = useState(null)
   const councilPhaseTimersRef = useRef([])
 
   const clearCouncilPhaseTimers = useCallback(() => {
@@ -151,16 +160,21 @@ function App() {
     councilPhaseTimersRef.current = []
   }, [])
 
-  const startCouncilPhaseTimers = useCallback(() => {
+  const startCouncilPhaseTimers = useCallback((longPrompt) => {
     clearCouncilPhaseTimers()
-    COUNCIL_PHASE_TIMERS.forEach(({ at, phase, message }) => {
+    setCouncilProgress({ activePhase: 'started', longPrompt })
+    logCouncilLifecycle('council_phase', { phase: 'started' })
+    COUNCIL_PHASE_SCHEDULE_MS.forEach(({ at, phase }) => {
+      if (phase === 'started') return
       const id = setTimeout(() => {
-        setCouncilStatus({ phase, message })
+        setCouncilProgress((prev) => (prev ? { ...prev, activePhase: phase } : null))
         logCouncilLifecycle('council_phase', { phase })
       }, at)
       councilPhaseTimersRef.current.push(id)
     })
   }, [clearCouncilPhaseTimers])
+
+  const inputLongPrompt = useMemo(() => isLongCouncilPrompt(input), [input])
 
   const active = useMemo(
     () => threads.find((t) => t.id === activeId) ?? null,
@@ -406,11 +420,12 @@ function App() {
       )
     )
 
+    const longPrompt = isLongCouncilPrompt(text)
     logCouncilLifecycle('council_submit_started', {
       hasThreadId: Boolean(apiThreadId),
+      longPrompt,
     })
-    setCouncilStatus({ phase: 'started', message: 'Council started…' })
-    startCouncilPhaseTimers()
+    startCouncilPhaseTimers(longPrompt)
 
     const controller = new AbortController()
     const abortTimer = setTimeout(() => controller.abort(), COUNCIL_CLIENT_TIMEOUT_MS)
@@ -461,8 +476,12 @@ function App() {
 
       setOrgBanner(null)
       const extras = councilResponseToMessages(data, councilSynthesisBubbleText)
+      const anyDegraded = extras.some((m) => m.expert_degraded)
       applyCouncilMessages(tid, extras, apiThreadId)
-      logCouncilLifecycle('council_render_completed', { messageCount: extras.length })
+      logCouncilLifecycle('council_render_completed', {
+        messageCount: extras.length,
+        anyDegraded,
+      })
 
       if (!apiThreadId) {
         void (async () => {
@@ -486,7 +505,7 @@ function App() {
         })()
       }
     } catch (e) {
-      const errText = humanizeCouncilFetchError(e)
+      const errText = sanitizeCouncilErrorMessage(humanizeCouncilFetchError(e))
       logCouncilLifecycle('council_submit_failed', {
         reason: e?.name || 'error',
       })
@@ -506,7 +525,7 @@ function App() {
     } finally {
       clearTimeout(abortTimer)
       clearCouncilPhaseTimers()
-      setCouncilStatus(null)
+      setCouncilProgress(null)
       setLoading(false)
       logCouncilLifecycle('council_submit_finally')
     }
@@ -550,11 +569,10 @@ function App() {
           {hydrating && threads.length === 0 ? (
             <div className="hydrate-hint">Loading conversations…</div>
           ) : null}
-          {councilStatus ? (
-            <div className="council-progress" role="status" aria-live="polite">
-              {councilStatus.message}
-            </div>
-          ) : null}
+          <CouncilProgressPanel
+            activePhase={councilProgress?.activePhase}
+            longPrompt={councilProgress?.longPrompt}
+          />
           {(active?.messages ?? []).map((m, i) => (
             <div
               key={i}
@@ -562,7 +580,7 @@ function App() {
             >
               {m.kind === 'council_synthesis' && m.synthesis ? (
                 <div className="bubble synthesis">
-                  <div className="bubble-text">{m.content}</div>
+                  <div {...bubbleTextProps(m.content)}>{m.content}</div>
                   <SynthesisReasoningExtras synthesis={m.synthesis} />
                   {(m.model_used || m.cost_usd !== undefined) && (
                     <div className="meta">
@@ -574,9 +592,9 @@ function App() {
                 </div>
               ) : (
                 <div
-                  className={`bubble ${m.role}${m.kind === 'council_error' ? ' council-error' : ''}${m.kind === 'api_error' ? ' api-error' : ''}`}
+                  className={`bubble ${m.role}${m.kind === 'council_error' ? ' council-error' : ''}${m.kind === 'api_error' ? ' api-error' : ''}${m.expert_degraded ? ' expert-degraded' : ''}`}
                 >
-                  <div className="bubble-text">{m.content}</div>
+                  <div {...bubbleTextProps(m.content)}>{m.content}</div>
                   {m.role === 'assistant' &&
                     m.kind !== 'council_error' &&
                     m.kind !== 'api_error' &&
@@ -595,6 +613,11 @@ function App() {
           ))}
         </div>
         <footer className="composer">
+          {inputLongPrompt && !loading ? (
+            <p className="composer-long-hint" role="status">
+              This is a complex request and may take longer.
+            </p>
+          ) : null}
           <select className="tier" value={tier} onChange={(e) => setTier(e.target.value)} aria-label="Tier">
             <option value="free">free</option>
             <option value="pro">pro</option>
@@ -606,6 +629,7 @@ function App() {
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), send())}
             placeholder="Message BEN…"
             disabled={loading}
+            dir={isRtlPreferredText(input) ? 'rtl' : 'auto'}
           />
           <button type="button" className="council" onClick={council} disabled={loading || !input.trim()}>
             Council

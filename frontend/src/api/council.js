@@ -1,4 +1,8 @@
 import { BEN_API_BASE } from '../config.js'
+import {
+  COUNCIL_TIMEOUT_USER_MESSAGE,
+  sanitizeCouncilErrorMessage,
+} from '../councilProgress.js'
 import { humanizeBenHttpError, parseBenErrorResponse } from './benErrors.js'
 
 export const COUNCIL_CLIENT_TIMEOUT_MS = 35_000
@@ -17,7 +21,7 @@ export function humanizeCouncilHttpError(status, data) {
     return typeof detail === 'string' ? detail : 'Sign in required to use Council.'
   }
   if (status === 400) {
-    if (typeof detail === 'string') return detail
+    if (typeof detail === 'string') return sanitizeCouncilErrorMessage(detail)
     return 'Organization context missing. Select an organization in Clerk and try again.'
   }
   if (status === 422) {
@@ -30,17 +34,24 @@ export function humanizeCouncilHttpError(status, data) {
   if (status === 0) {
     return 'Could not reach the server. Check your connection and try again.'
   }
-  return `Council request failed (${status}). You can retry.`
+  return sanitizeCouncilErrorMessage(`Council request failed (${status}). You can retry.`)
 }
 
 export function humanizeCouncilFetchError(err) {
   if (err?.name === 'AbortError') {
-    return 'Council timed out. You can retry.'
+    return COUNCIL_TIMEOUT_USER_MESSAGE
+  }
+  if (err?.name === 'TimeoutError') {
+    return COUNCIL_TIMEOUT_USER_MESSAGE
+  }
+  const msg = String(err?.message ?? err ?? '')
+  if (/ReadTimeout|ETIMEDOUT|timeout/i.test(msg)) {
+    return COUNCIL_TIMEOUT_USER_MESSAGE
   }
   if (err instanceof TypeError) {
     return 'Network error. Check your connection and try again.'
   }
-  return 'Council failed unexpectedly. You can retry.'
+  return sanitizeCouncilErrorMessage(msg) || 'Council failed unexpectedly. You can retry.'
 }
 
 /**
@@ -55,13 +66,14 @@ export function councilResponseToMessages(data, synthesisTextFn) {
     const name = c.expert || 'Advisor'
     const head = COUNCIL_LABEL[name] || name
     const lastExpert = i === members.length - 1 && !syn
+    const degraded = c.outcome && c.outcome !== 'ok'
     let statusLabel = null
-    if (c.outcome && c.outcome !== 'ok') {
-      if (c.outcome === 'timeout') statusLabel = 'Unavailable: timeout'
+    if (degraded) {
+      if (c.outcome === 'timeout') statusLabel = 'Unavailable (timeout)'
       else if (c.outcome === 'degraded') {
         const m = /Expert unavailable \(([^)]+)\)/.exec(c.response || '')
-        statusLabel = m ? `Degraded: ${m[1]}` : 'Degraded'
-      } else statusLabel = `Degraded: ${c.outcome}`
+        statusLabel = m ? `Partial: ${m[1]}` : 'Partial response'
+      } else statusLabel = `Partial: ${c.outcome}`
     }
     return {
       role: 'assistant',
@@ -69,6 +81,7 @@ export function councilResponseToMessages(data, synthesisTextFn) {
       model_used: c.model ?? '',
       expert_outcome: c.outcome ?? 'ok',
       expert_status: statusLabel,
+      expert_degraded: degraded,
       cost_usd: lastExpert ? data.cost_usd ?? 0 : 0,
     }
   })
