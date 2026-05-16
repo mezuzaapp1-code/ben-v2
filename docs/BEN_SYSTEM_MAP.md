@@ -11,7 +11,12 @@ Architecture reference for BEN v2. Use this document to keep future work structu
 | Database | PostgreSQL (Railway) |
 | Auth | Clerk |
 
-**Related docs:** `docs/RISK_REGISTER.md`, `docs/TIMING_GOVERNANCE.md`, `docs/TASK_REPORT_TENANT_MODE_V2_DEPLOY.md`
+**Related docs:**
+
+- [`docs/BEN_RUNTIME_CONTRACTS.md`](BEN_RUNTIME_CONTRACTS.md) — **required runtime guarantees** (identity, isolation, lifecycle, verification gates)
+- [`docs/RISK_REGISTER.md`](RISK_REGISTER.md)
+- [`docs/TIMING_GOVERNANCE.md`](TIMING_GOVERNANCE.md)
+- [`docs/TASK_REPORT_TENANT_MODE_V2_DEPLOY.md`](TASK_REPORT_TENANT_MODE_V2_DEPLOY.md)
 
 ---
 
@@ -334,6 +339,8 @@ Do not skip verification when adding layers.
 6. **Return fast, persist async** — Council responds before slow DB/KO paths complete.
 7. **Degrade, don’t lie** — Agreement and synthesis must reflect unavailable experts.
 8. **Feature flags over forks** — `ENFORCE_AUTH`, `REQUIRE_ORG_FOR_SIGNED_IN`, env-driven models.
+
+Before adding memory graph, agents, or integrations, see **Future Layers (blocked)** in [`BEN_RUNTIME_CONTRACTS.md`](BEN_RUNTIME_CONTRACTS.md).
 
 ---
 

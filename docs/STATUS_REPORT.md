@@ -4,6 +4,8 @@
 
 **Architecture map:** [`docs/BEN_SYSTEM_MAP.md`](BEN_SYSTEM_MAP.md) — on `main` @ `20d7b96`.
 
+**Runtime contracts:** [`docs/BEN_RUNTIME_CONTRACTS.md`](BEN_RUNTIME_CONTRACTS.md) — Tier-1 guarantees (identity, tenant isolation, council, persistence, verification gates). Future layers (memory, agents) blocked until contracts verified stable.
+
 **Verification:** [`docs/TASK_REPORT_STABILIZATION_VERIFICATION_MATRIX.md`](TASK_REPORT_STABILIZATION_VERIFICATION_MATRIX.md) — anonymous browser matrix **PASS** (Playwright); signed-in Clerk flows **pending manual**.
 
 ## Summary
