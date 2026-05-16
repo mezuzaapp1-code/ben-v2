@@ -97,7 +97,10 @@ def _make_post(*, gemini_mode: str = "ok"):
 @pytest.mark.asyncio
 async def test_happy_path_three_provider_diversity():
     with patch.object(httpx.AsyncClient, "post", new=_make_post()):
-        with patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
+        with patch(
+            "services.council_service._persist_council_thread_if_needed",
+            new=lambda *a, **k: asyncio.sleep(0),
+        ), patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
             out = await run_council("Gemini strategy smoke?", TENANT)
 
     providers = {m["expert"]: m["provider"] for m in out["council"]}
@@ -117,7 +120,10 @@ async def test_happy_path_three_provider_diversity():
 @pytest.mark.asyncio
 async def test_gemini_timeout_degraded_honest_synthesis():
     with patch.object(httpx.AsyncClient, "post", new=_make_post(gemini_mode="timeout")):
-        with patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
+        with patch(
+            "services.council_service._persist_council_thread_if_needed",
+            new=lambda *a, **k: asyncio.sleep(0),
+        ), patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
             out = await run_council("Strategy timeout?", TENANT)
 
     strat = next(m for m in out["council"] if m["expert"] == "Strategy Advisor")
@@ -134,7 +140,10 @@ async def test_gemini_timeout_degraded_honest_synthesis():
 async def test_missing_google_api_key_degraded():
     with patch.dict(os.environ, {"GOOGLE_API_KEY": ""}, clear=False):
         with patch.object(httpx.AsyncClient, "post", new=_make_post()):
-            with patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
+            with patch(
+            "services.council_service._persist_council_thread_if_needed",
+            new=lambda *a, **k: asyncio.sleep(0),
+        ), patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
                 out = await run_council("No google key?", TENANT)
 
     strat = next(m for m in out["council"] if m["expert"] == "Strategy Advisor")

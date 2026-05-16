@@ -1,8 +1,16 @@
 import { SignInButton, SignOutButton, useAuth } from '@clerk/clerk-react'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { buildBenHeaders } from './api/benHeaders.js'
+import { fetchThreadDetail, fetchThreadList, mapApiMessage, mapThreadFromList } from './api/threads.js'
 import { useBenAuthContext } from './auth/BenAuthContext.jsx'
 import { BEN_API_BASE } from './config.js'
+import {
+  DRAFT_PREFIX,
+  getStoredActiveThreadId,
+  isPersistedThreadId,
+  serverThreadIdForApi,
+  setStoredActiveThreadId,
+} from './threadStorage.js'
 import './App.css'
 
 const CHAT_URL = `${BEN_API_BASE}/chat`
@@ -96,17 +104,93 @@ function App() {
   const [input, setInput] = useState('')
   const [tier, setTier] = useState('free')
   const [loading, setLoading] = useState(false)
+  const [hydrating, setHydrating] = useState(true)
 
   const active = useMemo(
     () => threads.find((t) => t.id === activeId) ?? null,
     [threads, activeId]
   )
 
+  const loadThreadMessages = useCallback(
+    async (threadId) => {
+      if (!isPersistedThreadId(threadId)) return
+      const headers = await buildBenHeaders(getToken)
+      const data = await fetchThreadDetail(threadId, headers)
+      const messages = (data.messages || []).map(mapApiMessage)
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.id === threadId
+            ? { ...t, title: data.thread?.title || t.title, messages, loaded: true }
+            : t
+        )
+      )
+    },
+    [getToken]
+  )
+
+  const selectThread = useCallback(
+    async (threadId) => {
+      setActiveId(threadId)
+      if (isPersistedThreadId(threadId)) setStoredActiveThreadId(threadId)
+      const t = threads.find((x) => x.id === threadId)
+      if (t && isPersistedThreadId(threadId) && !t.loaded) {
+        try {
+          await loadThreadMessages(threadId)
+        } catch {
+          /* keep partial UI */
+        }
+      }
+    },
+    [threads, loadThreadMessages]
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setHydrating(true)
+      try {
+        const headers = await buildBenHeaders(getToken)
+        const data = await fetchThreadList(headers)
+        if (cancelled) return
+        const serverThreads = (data.threads || []).map(mapThreadFromList)
+        const stored = getStoredActiveThreadId()
+        const active =
+          stored && serverThreads.some((t) => t.id === stored)
+            ? stored
+            : serverThreads[0]?.id ?? null
+        setThreads(serverThreads)
+        setActiveId(active)
+        if (active && isPersistedThreadId(active)) {
+          await loadThreadMessages(active)
+        }
+      } catch {
+        if (!cancelled) {
+          const stored = getStoredActiveThreadId()
+          if (stored && isPersistedThreadId(stored)) {
+            setActiveId(stored)
+            setThreads([{ id: stored, title: 'Conversation', messages: [], loaded: false }])
+            try {
+              await loadThreadMessages(stored)
+            } catch {
+              /* empty */
+            }
+          }
+        }
+      } finally {
+        if (!cancelled) setHydrating(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [getToken, loadThreadMessages])
+
   const newThread = useCallback(() => {
-    const id = crypto.randomUUID()
-    const t = { id, title: 'New conversation', messages: [] }
+    const id = `${DRAFT_PREFIX}${crypto.randomUUID()}`
+    const t = { id, title: 'New conversation', messages: [], loaded: true, isDraft: true }
     setThreads((prev) => [t, ...prev])
     setActiveId(id)
+    setStoredActiveThreadId(null)
     return id
   }, [])
 
@@ -125,10 +209,15 @@ function App() {
     setLoading(true)
     try {
       const headers = await buildBenHeaders(getToken)
+      const apiThreadId = serverThreadIdForApi(tid)
       const res = await fetch(CHAT_URL, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ message: text, tier }),
+        body: JSON.stringify({
+          message: text,
+          tier,
+          ...(apiThreadId ? { thread_id: apiThreadId } : {}),
+        }),
       })
       const data = await res.json().catch(() => ({}))
       const assistant = {
@@ -138,17 +227,25 @@ function App() {
         cost_usd: data.cost_usd ?? 0,
       }
       const serverTid = data.thread_id
-      setThreads((prev) =>
-        prev.map((t) => {
+      setThreads((prev) => {
+        const nextList = prev.map((t) => {
           if (t.id !== tid) return t
-          const next = { ...t, messages: [...t.messages, assistant] }
+          const next = { ...t, messages: [...t.messages, assistant], loaded: true, isDraft: false }
           if (serverTid && serverTid !== tid) {
             next.id = serverTid
-            setActiveId(serverTid)
           }
           return next
         })
-      )
+        if (serverTid && !nextList.some((t) => t.id === serverTid)) {
+          const src = nextList.find((t) => t.id === tid)
+          if (src) nextList.unshift({ ...src, id: serverTid })
+        }
+        return nextList
+      })
+      if (serverTid) {
+        setActiveId(serverTid)
+        setStoredActiveThreadId(serverTid)
+      }
     } catch (e) {
       setThreads((prev) =>
         prev.map((t) =>
@@ -183,10 +280,14 @@ function App() {
     setLoading(true)
     try {
       const headers = await buildBenHeaders(getToken)
+      const apiThreadId = serverThreadIdForApi(tid)
       const res = await fetch(COUNCIL_URL, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ question: text }),
+        body: JSON.stringify({
+          question: text,
+          ...(apiThreadId ? { thread_id: apiThreadId } : {}),
+        }),
       })
       const data = await res.json().catch(() => ({}))
       const members = Array.isArray(data.council) ? data.council : []
@@ -216,9 +317,38 @@ function App() {
           cost_usd: data.cost_usd ?? 0,
         })
       }
-      setThreads((prev) =>
-        prev.map((t) => (t.id === tid ? { ...t, messages: [...t.messages, ...extras] } : t))
-      )
+      let resolvedId = apiThreadId
+      if (!resolvedId) {
+        try {
+          const listData = await fetchThreadList(headers)
+          const latest = listData.threads?.[0]
+          if (latest?.id) resolvedId = latest.id
+        } catch {
+          /* UI still has in-memory messages */
+        }
+      }
+      setThreads((prev) => {
+        let next = prev.map((t) =>
+          t.id === tid
+            ? {
+                ...t,
+                messages: [...t.messages, ...extras],
+                loaded: true,
+                isDraft: false,
+                ...(resolvedId ? { id: resolvedId } : {}),
+              }
+            : t
+        )
+        if (resolvedId && !next.some((t) => t.id === resolvedId)) {
+          const src = next.find((t) => t.id === tid || t.id === resolvedId)
+          if (src) next = [{ ...src, id: resolvedId }, ...next.filter((t) => t.id !== tid)]
+        }
+        return next
+      })
+      if (resolvedId) {
+        setActiveId(resolvedId)
+        setStoredActiveThreadId(resolvedId)
+      }
     } catch (e) {
       setThreads((prev) =>
         prev.map((t) =>
@@ -249,7 +379,7 @@ function App() {
               <button
                 type="button"
                 className={t.id === activeId ? 'thread active' : 'thread'}
-                onClick={() => setActiveId(t.id)}
+                onClick={() => selectThread(t.id)}
               >
                 {t.title}
               </button>
@@ -259,6 +389,9 @@ function App() {
       </aside>
       <main className="main">
         <div className="messages">
+          {hydrating && threads.length === 0 ? (
+            <div className="hydrate-hint">Loading conversations…</div>
+          ) : null}
           {(active?.messages ?? []).map((m, i) => (
             <div
               key={i}

@@ -195,7 +195,7 @@ def test_jwt_missing_org_returns_400(monkeypatch):
 async def test_council_passes_bound_org(monkeypatch):
     captured: dict[str, str] = {}
 
-    async def capture_run(question, tenant_id):
+    async def capture_run(question, tenant_id, *, thread_id=None):
         captured["org"] = tenant_id
         return {
             "question": question,

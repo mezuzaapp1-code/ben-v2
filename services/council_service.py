@@ -25,7 +25,9 @@ from services.ops.failure_classification import (
 )
 from services.ops.request_context import attach_request_id, get_request_id
 from services.ops.structured_log import log_warning
+from services.message_format import build_synthesis_display_text
 from services.ops.timing import log_timing, measure
+from services.thread_service import persist_council_transcript, resolve_thread_id
 from services.ops.timeouts import (
     COUNCIL_TOTAL_TIMEOUT_S,
     DB_OPERATION_TIMEOUT_S,
@@ -585,10 +587,49 @@ def _timeout_degraded_experts() -> list[ExpertResult]:
     ]
 
 
+async def _persist_council_thread_if_needed(
+    tenant_id: str,
+    thread_id: uuid.UUID | None,
+    question: str,
+    payload: dict[str, Any],
+) -> uuid.UUID | None:
+    org_uuid = uuid.UUID(tenant_id)
+    tid = thread_id
+    if tid is None:
+        tid = await resolve_thread_id(org_uuid, None, title=(question[:100] or "Council")[:512])
+    members = payload.get("council") or []
+    synthesis = payload.get("synthesis") if isinstance(payload.get("synthesis"), dict) else None
+    any_failed = any((m.get("outcome") or "ok") != "ok" for m in members)
+    display = build_synthesis_display_text(synthesis, any_expert_failed=any_failed) if synthesis else ""
+    try:
+        await persist_council_transcript(
+            org_uuid,
+            tid,
+            question,
+            council_members=members,
+            synthesis=synthesis,
+            total_cost_usd=float(payload.get("cost_usd") or 0),
+            synthesis_display_text=display,
+        )
+        return tid
+    except Exception as e:
+        log_warning(
+            "council thread persist failed",
+            subsystem="council",
+            provider="database",
+            category=classify_failure(e),
+            exc=e,
+            operation="persist_council_thread",
+            outcome="error",
+        )
+    return None
+
+
 async def _run_council_inner(
     question: str,
     tenant_id: str,
     *,
+    thread_id: uuid.UUID | None = None,
     experts_out: list[list[ExpertResult]],
     synthesis_out: list[dict[str, Any] | None],
     synth_cost_out: list[float],
@@ -671,15 +712,17 @@ async def _run_council_inner(
     if synthesis is not None:
         await _persist_synthesis_ko(tenant_id, question, synthesis)
 
-    return _build_council_payload(
+    payload = _build_council_payload(
         question,
         experts=expert_results,
         synthesis=synthesis,
         synth_cost=synth_cost,
     )
+    await _persist_council_thread_if_needed(tenant_id, thread_id, question, payload)
+    return payload
 
 
-async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
+async def run_council(question: str, tenant_id: str, *, thread_id: uuid.UUID | None = None) -> dict[str, Any]:
     experts_out: list[list[ExpertResult]] = []
     synthesis_out: list[dict[str, Any] | None] = []
     synth_cost_out: list[float] = []
@@ -689,6 +732,7 @@ async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
             _run_council_inner(
                 question,
                 tenant_id,
+                thread_id=thread_id,
                 experts_out=experts_out,
                 synthesis_out=synthesis_out,
                 synth_cost_out=synth_cost_out,
@@ -713,9 +757,11 @@ async def run_council(question: str, tenant_id: str) -> dict[str, Any]:
             experts = _timeout_degraded_experts()
             synthesis = None
             synth_cost = 0.0
-        return _build_council_payload(
+        payload = _build_council_payload(
             question,
             experts=experts,
             synthesis=synthesis,
             synth_cost=synth_cost,
         )
+        await _persist_council_thread_if_needed(tenant_id, thread_id, question, payload)
+        return payload

@@ -99,7 +99,10 @@ def _make_post(*, legal_mode: str = "ok", synthesis_agreement: str = "3/3"):
 @pytest.mark.asyncio
 async def test_happy_path_all_experts_ok():
     with patch.object(httpx.AsyncClient, "post", new=_make_post()):
-        with patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
+        with patch(
+            "services.council_service._persist_council_thread_if_needed",
+            new=lambda *a, **k: asyncio.sleep(0),
+        ), patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
             out = await run_council("Launch Q2?", TENANT)
 
     assert len(out["council"]) == 3
@@ -117,7 +120,10 @@ async def test_happy_path_all_experts_ok():
 @pytest.mark.asyncio
 async def test_legal_timeout_degraded_honest_synthesis():
     with patch.object(httpx.AsyncClient, "post", new=_make_post(legal_mode="timeout", synthesis_agreement="2/3")):
-        with patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
+        with patch(
+            "services.council_service._persist_council_thread_if_needed",
+            new=lambda *a, **k: asyncio.sleep(0),
+        ), patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
             out = await run_council("Launch with legal risk?", TENANT)
 
     legal = next(m for m in out["council"] if m["expert"] == "Legal Advisor")
@@ -140,7 +146,10 @@ async def test_legal_timeout_degraded_honest_synthesis():
 @pytest.mark.asyncio
 async def test_invalid_anthropic_model_degraded():
     with patch.object(httpx.AsyncClient, "post", new=_make_post(legal_mode="bad_model")):
-        with patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
+        with patch(
+            "services.council_service._persist_council_thread_if_needed",
+            new=lambda *a, **k: asyncio.sleep(0),
+        ), patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
             out = await run_council("Bad model path?", TENANT)
 
     legal = next(m for m in out["council"] if m["expert"] == "Legal Advisor")

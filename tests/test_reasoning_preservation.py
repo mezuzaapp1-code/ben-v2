@@ -111,7 +111,10 @@ def _make_post(*, with_domains: bool, gemini_fail: bool = False):
 @pytest.mark.asyncio
 async def test_three_provider_synthesis_preserves_domain_reasoning():
     with patch.object(httpx.AsyncClient, "post", new=_make_post(with_domains=True)):
-        with patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
+        with patch(
+            "services.council_service._persist_council_thread_if_needed",
+            new=lambda *a, **k: asyncio.sleep(0),
+        ), patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
             out = await run_council(
                 "Should we open-source our governance layer vs keep it proprietary?",
                 TENANT,
@@ -130,7 +133,10 @@ async def test_three_provider_synthesis_preserves_domain_reasoning():
 @pytest.mark.asyncio
 async def test_degraded_gemini_honest_no_fake_three_panel_consensus():
     with patch.object(httpx.AsyncClient, "post", new=_make_post(with_domains=True, gemini_fail=True)):
-        with patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
+        with patch(
+            "services.council_service._persist_council_thread_if_needed",
+            new=lambda *a, **k: asyncio.sleep(0),
+        ), patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
             out = await run_council("Open vs closed governance?", TENANT)
 
     strat = next(m for m in out["council"] if m["expert"] == "Strategy Advisor")
@@ -178,7 +184,10 @@ async def test_backward_compat_minimal_synthesis_json():
         raise AssertionError(u)
 
     with patch.object(httpx.AsyncClient, "post", new=fake_post):
-        with patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
+        with patch(
+            "services.council_service._persist_council_thread_if_needed",
+            new=lambda *a, **k: asyncio.sleep(0),
+        ), patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
             out = await run_council("Q?", TENANT)
 
     syn = out["synthesis"]
