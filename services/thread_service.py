@@ -14,7 +14,13 @@ from services.message_format import (
     encode_council_expert,
     encode_council_synthesis,
 )
+from services.ops.persistence_integrity import (
+    audit_thread_messages_for_org,
+    findings_to_safe_codes,
+    validate_council_member,
+)
 from services.ops.request_context import attach_request_id
+from services.ops.structured_log import log_warning
 
 LIST_THREADS_LIMIT = 50
 
@@ -82,6 +88,17 @@ async def get_thread_detail(org_id: uuid.UUID, thread_id: uuid.UUID) -> dict[str
             .order_by(Message.created_at.asc())
         )
         messages = (await session.execute(msg_q)).scalars().all()
+        integrity_findings = audit_thread_messages_for_org(org_id, thread_id, messages)
+        integrity_codes = findings_to_safe_codes(integrity_findings)
+        if integrity_codes:
+            log_warning(
+                "thread rehydrate integrity findings",
+                subsystem="persistence_integrity",
+                operation="thread_rehydrate",
+                outcome="warning",
+                integrity_codes=integrity_codes,
+                finding_count=len(integrity_findings),
+            )
         payload = {
             "thread": {
                 "id": str(row.id),
@@ -99,6 +116,8 @@ async def get_thread_detail(org_id: uuid.UUID, thread_id: uuid.UUID) -> dict[str
                 for m in messages
             ],
         }
+        if integrity_codes:
+            payload["integrity_warnings"] = integrity_codes
     return attach_request_id(payload)
 
 
@@ -118,6 +137,16 @@ async def persist_council_transcript(
         row = await session.get(Thread, thread_id)
         if row is None or row.org_id != org_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Thread not found")
+
+        for m in council_members:
+            for finding in validate_council_member(m):
+                log_warning(
+                    "council member validation finding",
+                    subsystem="persistence_integrity",
+                    operation="persist_council_transcript",
+                    outcome="warning",
+                    integrity_code=finding.code,
+                )
 
         to_add: list[Message] = [
             Message(org_id=org_id, thread_id=thread_id, role="user", content=question),

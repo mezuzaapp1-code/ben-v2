@@ -235,6 +235,30 @@ sequenceDiagram
 - Background: `persist_council_transcript()` appends user question + expert bubbles + synthesis.
 - Parallel: synthesis may also write `knowledge_objects` (dual store — see R-027).
 
+### Persistence integrity (v1)
+
+- **Ownership:** threads/messages = conversation truth; `knowledge_objects` = optional synthesis archive; cognitive_events unused at runtime.
+- **Invariants:** `services/ops/persistence_integrity.py` — tenant/thread checks, council envelope validation, duplicate synthesis detection.
+- **Rehydrate:** `GET /api/threads/{id}` audits rows; may include `integrity_warnings` (codes only).
+- **Governance doc:** `docs/DATA_GOVERNANCE.md`.
+
+```mermaid
+flowchart TB
+  subgraph durable [Durable PostgreSQL]
+    T[threads]
+    M[messages]
+    KO[knowledge_objects]
+  end
+  subgraph ephemeral [Ephemeral runtime]
+    IDEM[idempotency registry]
+    MET[runtime metrics]
+  end
+  Council -->|background| M
+  Council -->|background optional| KO
+  Council --> IDEM
+  UI -->|GET thread| M
+```
+
 ---
 
 ## 5. Council lifecycle

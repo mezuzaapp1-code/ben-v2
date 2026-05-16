@@ -168,4 +168,55 @@ Do not mark **R-019** / observability risks **FIXED** until browser verification
 
 ---
 
+## 10. Persistence Integrity & Data Governance (v1)
+
+### 10.1 Ownership boundaries
+
+See `docs/DATA_GOVERNANCE.md` for the full ownership map. Summary:
+
+- **Durable conversation state:** `threads` + `messages` only.
+- **Council synthesis artifact:** optional `knowledge_objects` (parallel, not FK-linked to thread).
+- **Runtime/idempotency/diagnostics:** non-durable, per-process.
+
+### 10.2 Persistence integrity guarantees
+
+| Invariant | Guarantee |
+|-----------|-----------|
+| Message tenant scope | Every message `org_id` matches bound tenant; cross-tenant rows flagged |
+| Thread membership | Message `thread_id` must match requested thread |
+| Council envelope | Expert rows require `expert`, `provider`, `model`, `outcome` |
+| Synthesis optional | HTTP 200 even if KO/transcript background persist fails |
+| Persist observability | Failures emit `persistence_failed`; deduped success emits `persistence_recovery` |
+| Retry dedupe | Same `client_request_id` does not double-append transcript/KO (in-process marker) |
+| Rehydrate partial | Legacy plain assistant text tolerated; integrity codes returned when unsafe patterns detected |
+
+### 10.3 Background persistence semantics
+
+- Council returns before `_persist_council_thread_if_needed` and `_persist_synthesis_ko` complete.
+- Failures are logged and counted; they **do not** change HTTP status after experts/synthesis are built.
+- Client may see `persistence_pending` until reload; refresh uses `GET /api/threads/{id}`.
+
+### 10.4 Partial persistence recovery
+
+- **Transcript failed, response ok:** User sees council JSON; thread may lack new rows until a new council with new `client_request_id`.
+- **KO failed, transcript ok:** Thread rehydrates; KO may be missing (dual-store drift — R-027).
+- **Replay:** Idempotent response without re-execution; persist markers prevent duplicate append on same process.
+
+### 10.5 Rehydration integrity
+
+- `audit_thread_messages_for_org()` runs on thread read; safe `integrity_warnings` codes may be attached (no message bodies in warnings).
+- Duplicate `council_synthesis` rows in one thread are flagged (`duplicate_council_synthesis`).
+
+### 10.6 Verification gates
+
+| Gate | Automated | Browser |
+|------|-----------|---------|
+| Chat/council roundtrip encode | pytest | NOT VERIFIED |
+| Duplicate retry persist | pytest | NOT VERIFIED |
+| Background fail non-blocking | pytest | NOT VERIFIED |
+| Tenant isolation | pytest | NOT VERIFIED |
+| Refresh partial transcript | — | NOT VERIFIED |
+
+---
+
 READY FOR CHATGPT REVIEW
