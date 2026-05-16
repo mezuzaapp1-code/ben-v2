@@ -28,11 +28,15 @@ def get_anonymous_org_id() -> str:
 
 def auth_config_for_health() -> dict[str, bool]:
     """Safe booleans for /health and /ready (no secrets)."""
+    from auth.tenant_policy import require_org_for_signed_in, tenant_modes_enabled
+
     en = is_enforce_auth()
     return {
         "auth_enforcement": en,
         "enforce_auth": en,
         "tenant_binding_enabled": True,
+        "tenant_modes_enabled": tenant_modes_enabled(),
+        "require_org_for_signed_in": require_org_for_signed_in(),
         "auth_shadow_mode": is_auth_shadow_mode(),
         "clerk_secret_configured": bool(os.getenv("CLERK_SECRET_KEY", "").strip()),
     }

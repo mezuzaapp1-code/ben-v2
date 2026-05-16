@@ -26,7 +26,7 @@ def clerk_org_required_detail() -> dict[str, Any]:
 
 
 def raise_clerk_org_required() -> None:
-    """Signed-in JWT valid but missing org claim — never fall back to anonymous org."""
+    """Signed-in JWT valid but org required by policy (REQUIRE_ORG_FOR_SIGNED_IN)."""
     raise HTTPException(status_code=403, detail=clerk_org_required_detail())
 
 
