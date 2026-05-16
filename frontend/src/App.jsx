@@ -1,7 +1,15 @@
 import { SignInButton, SignOutButton, useAuth } from '@clerk/clerk-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { buildBenHeaders } from './api/benHeaders.js'
+import {
+  COUNCIL_CLIENT_TIMEOUT_MS,
+  councilResponseToMessages,
+  humanizeCouncilFetchError,
+  humanizeCouncilHttpError,
+  postCouncil,
+} from './api/council.js'
 import { fetchThreadDetail, fetchThreadList, mapApiMessage, mapThreadFromList } from './api/threads.js'
+import { logCouncilLifecycle } from './councilLifecycleLog.js'
 import { useBenAuthContext } from './auth/BenAuthContext.jsx'
 import { BEN_API_BASE } from './config.js'
 import {
@@ -14,8 +22,13 @@ import {
 import './App.css'
 
 const CHAT_URL = `${BEN_API_BASE}/chat`
-const COUNCIL_URL = `${BEN_API_BASE}/council`
 const HAS_CLERK_UI = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim())
+
+const COUNCIL_PHASE_TIMERS = [
+  { at: 0, phase: 'started', message: 'Council started…' },
+  { at: 300, phase: 'experts', message: 'Waiting for Legal, Business, and Strategy…' },
+  { at: 12_000, phase: 'synthesizing', message: 'Synthesizing…' },
+]
 
 const COUNCIL_LABEL = {
   'Legal Advisor': '⚖️ Legal Advisor',
@@ -105,6 +118,24 @@ function App() {
   const [tier, setTier] = useState('free')
   const [loading, setLoading] = useState(false)
   const [hydrating, setHydrating] = useState(true)
+  const [councilStatus, setCouncilStatus] = useState(null)
+  const councilPhaseTimersRef = useRef([])
+
+  const clearCouncilPhaseTimers = useCallback(() => {
+    councilPhaseTimersRef.current.forEach((id) => clearTimeout(id))
+    councilPhaseTimersRef.current = []
+  }, [])
+
+  const startCouncilPhaseTimers = useCallback(() => {
+    clearCouncilPhaseTimers()
+    COUNCIL_PHASE_TIMERS.forEach(({ at, phase, message }) => {
+      const id = setTimeout(() => {
+        setCouncilStatus({ phase, message })
+        logCouncilLifecycle('council_phase', { phase })
+      }, at)
+      councilPhaseTimersRef.current.push(id)
+    })
+  }, [clearCouncilPhaseTimers])
 
   const active = useMemo(
     () => threads.find((t) => t.id === activeId) ?? null,
@@ -265,11 +296,37 @@ function App() {
     }
   }, [input, loading, activeId, threads, tier, newThread, getToken])
 
+  const applyCouncilMessages = useCallback((tid, extras, resolvedId) => {
+    setThreads((prev) => {
+      let next = prev.map((t) =>
+        t.id === tid
+          ? {
+              ...t,
+              messages: [...t.messages, ...extras],
+              loaded: true,
+              isDraft: false,
+              ...(resolvedId ? { id: resolvedId } : {}),
+            }
+          : t
+      )
+      if (resolvedId && !next.some((t) => t.id === resolvedId)) {
+        const src = next.find((t) => t.id === tid || t.id === resolvedId)
+        if (src) next = [{ ...src, id: resolvedId }, ...next.filter((t) => t.id !== tid)]
+      }
+      return next
+    })
+    if (resolvedId) {
+      setActiveId(resolvedId)
+      setStoredActiveThreadId(resolvedId)
+    }
+  }, [])
+
   const council = useCallback(async () => {
     const text = input.trim()
     if (!text || loading) return
     let tid = activeId
     if (!tid || !threads.some((x) => x.id === tid)) tid = newThread()
+    const apiThreadId = serverThreadIdForApi(tid)
     const userMsg = { role: 'user', content: text }
     setInput('')
     setThreads((prev) =>
@@ -277,93 +334,110 @@ function App() {
         t.id === tid ? { ...t, title: text.slice(0, 48) || t.title, messages: [...t.messages, userMsg] } : t
       )
     )
+
+    logCouncilLifecycle('council_submit_started', {
+      hasThreadId: Boolean(apiThreadId),
+    })
+    setCouncilStatus({ phase: 'started', message: 'Council started…' })
+    startCouncilPhaseTimers()
+
+    const controller = new AbortController()
+    const abortTimer = setTimeout(() => controller.abort(), COUNCIL_CLIENT_TIMEOUT_MS)
     setLoading(true)
+
     try {
       const headers = await buildBenHeaders(getToken)
-      const apiThreadId = serverThreadIdForApi(tid)
-      const res = await fetch(COUNCIL_URL, {
-        method: 'POST',
+      logCouncilLifecycle('council_request_sent', {
+        hasAuth: Boolean(headers.Authorization),
+        hasThreadId: Boolean(apiThreadId),
+      })
+
+      const { res, data } = await postCouncil({
+        question: text,
+        threadId: apiThreadId,
         headers,
-        body: JSON.stringify({
-          question: text,
-          ...(apiThreadId ? { thread_id: apiThreadId } : {}),
-        }),
+        signal: controller.signal,
       })
-      const data = await res.json().catch(() => ({}))
-      const members = Array.isArray(data.council) ? data.council : []
-      const syn = data.synthesis && typeof data.synthesis === 'object' ? data.synthesis : null
-      const anyExpertFailed = members.some((c) => c.outcome && c.outcome !== 'ok')
-      const extras = members.map((c, i) => {
-        const name = c.expert || 'Advisor'
-        const head = COUNCIL_LABEL[name] || name
-        const lastExpert = i === members.length - 1 && !syn
-        const statusLabel = expertStatusLabel(c.outcome, c.response)
-        return {
-          role: 'assistant',
-          content: `${head}: ${c.response ?? ''}`,
-          model_used: c.model ?? '',
-          expert_outcome: c.outcome ?? 'ok',
-          expert_status: statusLabel,
-          cost_usd: lastExpert ? data.cost_usd ?? 0 : 0,
-        }
-      })
-      if (syn) {
-        extras.push({
-          role: 'assistant',
-          kind: 'council_synthesis',
-          synthesis: syn,
-          content: councilSynthesisBubbleText(syn, anyExpertFailed),
-          model_used: 'synthesis',
-          cost_usd: data.cost_usd ?? 0,
-        })
-      }
-      let resolvedId = apiThreadId
-      if (!resolvedId) {
-        try {
-          const listData = await fetchThreadList(headers)
-          const latest = listData.threads?.[0]
-          if (latest?.id) resolvedId = latest.id
-        } catch {
-          /* UI still has in-memory messages */
-        }
-      }
-      setThreads((prev) => {
-        let next = prev.map((t) =>
-          t.id === tid
-            ? {
-                ...t,
-                messages: [...t.messages, ...extras],
-                loaded: true,
-                isDraft: false,
-                ...(resolvedId ? { id: resolvedId } : {}),
-              }
-            : t
+      logCouncilLifecycle('council_response_received', { status: res.status })
+
+      if (!res.ok) {
+        const errText = humanizeCouncilHttpError(res.status, data)
+        logCouncilLifecycle('council_submit_failed', { status: res.status, reason: 'http_error' })
+        setThreads((prev) =>
+          prev.map((t) =>
+            t.id === tid
+              ? {
+                  ...t,
+                  messages: [
+                    ...t.messages,
+                    { role: 'assistant', kind: 'council_error', content: errText, model_used: '', cost_usd: 0 },
+                  ],
+                }
+              : t
+          )
         )
-        if (resolvedId && !next.some((t) => t.id === resolvedId)) {
-          const src = next.find((t) => t.id === tid || t.id === resolvedId)
-          if (src) next = [{ ...src, id: resolvedId }, ...next.filter((t) => t.id !== tid)]
-        }
-        return next
-      })
-      if (resolvedId) {
-        setActiveId(resolvedId)
-        setStoredActiveThreadId(resolvedId)
+        return
+      }
+
+      const extras = councilResponseToMessages(data, councilSynthesisBubbleText)
+      applyCouncilMessages(tid, extras, apiThreadId)
+      logCouncilLifecycle('council_render_completed', { messageCount: extras.length })
+
+      if (!apiThreadId) {
+        void (async () => {
+          try {
+            const listData = await fetchThreadList(headers)
+            const latest = listData.threads?.[0]
+            if (latest?.id) {
+              setThreads((prev) =>
+                prev.map((t) =>
+                  t.id === tid ? { ...t, id: latest.id, isDraft: false, loaded: true } : t
+                )
+              )
+              setActiveId(latest.id)
+              setStoredActiveThreadId(latest.id)
+            }
+          } catch {
+            /* in-memory transcript already shown */
+          }
+        })()
       }
     } catch (e) {
+      const errText = humanizeCouncilFetchError(e)
+      logCouncilLifecycle('council_submit_failed', {
+        reason: e?.name || 'error',
+      })
       setThreads((prev) =>
         prev.map((t) =>
           t.id === tid
             ? {
                 ...t,
-                messages: [...t.messages, { role: 'assistant', content: String(e), model_used: '', cost_usd: 0 }],
+                messages: [
+                  ...t.messages,
+                  { role: 'assistant', kind: 'council_error', content: errText, model_used: '', cost_usd: 0 },
+                ],
               }
             : t
         )
       )
     } finally {
+      clearTimeout(abortTimer)
+      clearCouncilPhaseTimers()
+      setCouncilStatus(null)
       setLoading(false)
+      logCouncilLifecycle('council_submit_finally')
     }
-  }, [input, loading, activeId, threads, newThread, getToken])
+  }, [
+    input,
+    loading,
+    activeId,
+    threads,
+    newThread,
+    getToken,
+    startCouncilPhaseTimers,
+    clearCouncilPhaseTimers,
+    applyCouncilMessages,
+  ])
 
   return (
     <div className="app">
@@ -392,6 +466,11 @@ function App() {
           {hydrating && threads.length === 0 ? (
             <div className="hydrate-hint">Loading conversations…</div>
           ) : null}
+          {councilStatus ? (
+            <div className="council-progress" role="status" aria-live="polite">
+              {councilStatus.message}
+            </div>
+          ) : null}
           {(active?.messages ?? []).map((m, i) => (
             <div
               key={i}
@@ -410,9 +489,11 @@ function App() {
                   )}
                 </div>
               ) : (
-                <div className={`bubble ${m.role}`}>
+                <div className={`bubble ${m.role}${m.kind === 'council_error' ? ' council-error' : ''}`}>
                   <div className="bubble-text">{m.content}</div>
-                  {m.role === 'assistant' && (m.model_used || m.cost_usd !== undefined || m.expert_status) && (
+                  {m.role === 'assistant' &&
+                    m.kind !== 'council_error' &&
+                    (m.model_used || m.cost_usd !== undefined || m.expert_status) && (
                     <div className="meta">
                       {m.expert_status && <span className="expert-status">{m.expert_status}</span>}
                       {m.expert_status && m.model_used && <span className="dot">·</span>}

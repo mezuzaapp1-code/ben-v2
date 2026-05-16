@@ -120,6 +120,23 @@
   padding: 1rem;
 }
 
+.council-progress {
+  align-self: center;
+  color: #9ab4e8;
+  font-size: 0.875rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed #2e3a52;
+  border-radius: 8px;
+  background: #10141c;
+  animation: in 0.2s ease-out;
+}
+
+.bubble.council-error {
+  border-color: #6b3030;
+  background: #1a1212;
+  color: #f0d0d0;
+}
+
 .messages {
   flex: 1;
   min-height: 0;
