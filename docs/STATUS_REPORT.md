@@ -2,7 +2,9 @@
 
 **Last updated:** 2026-05-16
 
-**Architecture map:** [`docs/BEN_SYSTEM_MAP.md`](BEN_SYSTEM_MAP.md) — system overview, request/tenant/council lifecycles, ops controls, and build-order rules for future work.
+**Architecture map:** [`docs/BEN_SYSTEM_MAP.md`](BEN_SYSTEM_MAP.md) — on `main` @ `20d7b96`.
+
+**Verification:** [`docs/TASK_REPORT_STABILIZATION_VERIFICATION_MATRIX.md`](TASK_REPORT_STABILIZATION_VERIFICATION_MATRIX.md) — anonymous browser matrix **PASS** (Playwright); signed-in Clerk flows **pending manual**.
 
 ## Summary
 
