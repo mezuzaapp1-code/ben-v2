@@ -587,6 +587,38 @@ def _timeout_degraded_experts() -> list[ExpertResult]:
     ]
 
 
+def _schedule_background_task(coro) -> None:
+    """Run persistence after HTTP response; log failures without blocking the client."""
+
+    async def _wrapper() -> None:
+        try:
+            await coro
+        except Exception as e:
+            log_warning(
+                "council background task failed",
+                subsystem="council",
+                provider="database",
+                category=classify_failure(e),
+                exc=e,
+                operation="council_background",
+                outcome="error",
+            )
+
+    task = asyncio.create_task(_wrapper())
+    task.add_done_callback(
+        lambda t: None
+        if t.cancelled() or t.exception() is None
+        else log_warning(
+            "council background task failed",
+            subsystem="council",
+            category="unknown_error",
+            exc=t.exception(),
+            operation="council_background",
+            outcome="error",
+        )
+    )
+
+
 async def _persist_council_thread_if_needed(
     tenant_id: str,
     thread_id: uuid.UUID | None,
@@ -709,16 +741,15 @@ async def _run_council_inner(
         synthesis_out.append(synthesis)
         synth_cost_out.append(synth_cost)
 
-    if synthesis is not None:
-        await _persist_synthesis_ko(tenant_id, question, synthesis)
-
     payload = _build_council_payload(
         question,
         experts=expert_results,
         synthesis=synthesis,
         synth_cost=synth_cost,
     )
-    await _persist_council_thread_if_needed(tenant_id, thread_id, question, payload)
+    if synthesis is not None:
+        _schedule_background_task(_persist_synthesis_ko(tenant_id, question, synthesis))
+    _schedule_background_task(_persist_council_thread_if_needed(tenant_id, thread_id, question, payload))
     return payload
 
 
@@ -763,5 +794,5 @@ async def run_council(question: str, tenant_id: str, *, thread_id: uuid.UUID | N
             synthesis=synthesis,
             synth_cost=synth_cost,
         )
-        await _persist_council_thread_if_needed(tenant_id, thread_id, question, payload)
+        _schedule_background_task(_persist_council_thread_if_needed(tenant_id, thread_id, question, payload))
         return payload
