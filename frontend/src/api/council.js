@@ -100,9 +100,10 @@ export function councilResponseToMessages(data, synthesisTextFn) {
 /**
  * POST /council with AbortController timeout.
  */
-export async function postCouncil({ question, threadId, headers, signal }) {
+export async function postCouncil({ question, threadId, clientRequestId, headers, signal }) {
   const body = { question }
   if (threadId) body.thread_id = threadId
+  if (clientRequestId) body.client_request_id = clientRequestId
   const url = `${BEN_API_BASE}/council`
   const res = await fetch(url, {
     method: 'POST',

@@ -21,6 +21,12 @@ import {
   markCouncilSubmitFinished,
   markCouncilSubmitStarted,
 } from './loadGovernance.js'
+import {
+  clearCouncilPending,
+  createClientRequestId,
+  markCouncilPending,
+  recoverStaleCouncilUi,
+} from './runtimeRecovery.js'
 import { useBenAuthContext } from './auth/BenAuthContext.jsx'
 import { BEN_API_BASE } from './config.js'
 import {
@@ -206,6 +212,14 @@ function App() {
   )
 
   useEffect(() => {
+    if (recoverStaleCouncilUi()) {
+      setLoading(false)
+      setCouncilStatus(null)
+      logCouncilLifecycle('stale_runtime_state_recovered')
+    }
+  }, [])
+
+  useEffect(() => {
     let cancelled = false
     ;(async () => {
       setHydrating(true)
@@ -288,12 +302,14 @@ function App() {
     try {
       const headers = await buildBenHeaders(getToken)
       const apiThreadId = serverThreadIdForApi(tid)
+      const clientRequestId = createClientRequestId()
       const res = await fetch(CHAT_URL, {
         method: 'POST',
         headers,
         body: JSON.stringify({
           message: text,
           tier,
+          client_request_id: clientRequestId,
           ...(apiThreadId ? { thread_id: apiThreadId } : {}),
         }),
       })
@@ -425,6 +441,8 @@ function App() {
       return
     }
     markCouncilSubmitStarted(guard.fingerprint)
+    const clientRequestId = createClientRequestId()
+    markCouncilPending({ clientRequestId, threadId: apiThreadId || tid })
     const userMsg = { role: 'user', content: text }
     setInput('')
     setThreads((prev) =>
@@ -453,6 +471,7 @@ function App() {
       const { res, data } = await postCouncil({
         question: text,
         threadId: apiThreadId,
+        clientRequestId,
         headers,
         signal: controller.signal,
       })
@@ -490,9 +509,14 @@ function App() {
       }
 
       setOrgBanner(null)
+      clearCouncilPending()
       const extras = councilResponseToMessages(data, councilSynthesisBubbleText)
       applyCouncilMessages(tid, extras, apiThreadId)
-      logCouncilLifecycle('council_render_completed', { messageCount: extras.length })
+      logCouncilLifecycle('council_render_completed', {
+        messageCount: extras.length,
+        runtimeState: data.runtime_state,
+        idempotentReplay: data.idempotent_replay,
+      })
 
       if (!apiThreadId) {
         void (async () => {
@@ -539,6 +563,7 @@ function App() {
       setCouncilStatus(null)
       setLoading(false)
       markCouncilSubmitFinished()
+      clearCouncilPending()
       logCouncilLifecycle('council_submit_finally')
     }
   }, [

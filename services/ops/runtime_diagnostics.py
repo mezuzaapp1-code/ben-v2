@@ -13,6 +13,8 @@ from auth.tenant_binding import TenantContext
 from services.ops.request_context import get_request_id
 from services.ops.runtime_events import (
     COUNCIL_COMPLETED,
+    COUNCIL_PENDING,
+    COUNCIL_RUNNING,
     COUNCIL_STARTED,
     OVERLOAD_REJECTED,
     PERSISTENCE_FAILED,
@@ -21,6 +23,10 @@ from services.ops.runtime_events import (
     REQUEST_FAILED,
     REQUEST_STARTED,
     RUNTIME_SNAPSHOT,
+    IDEMPOTENCY_REJECTED,
+    REPLAY_DETECTED,
+    STALE_RUNTIME_STATE_RECOVERED,
+    PERSISTENCE_RECOVERY,
 )
 from services.ops.structured_log import log_info, log_warning
 
@@ -90,12 +96,18 @@ def emit_runtime_event(event: str, *, level: str = "info", **fields: Any) -> Non
         REQUEST_STARTED,
         REQUEST_COMPLETED,
         REQUEST_FAILED,
+        COUNCIL_PENDING,
+        COUNCIL_RUNNING,
         COUNCIL_STARTED,
         COUNCIL_COMPLETED,
         PROVIDER_TIMEOUT,
         OVERLOAD_REJECTED,
         PERSISTENCE_FAILED,
         RUNTIME_SNAPSHOT,
+        IDEMPOTENCY_REJECTED,
+        REPLAY_DETECTED,
+        STALE_RUNTIME_STATE_RECOVERED,
+        PERSISTENCE_RECOVERY,
     ):
         return
     payload = _sanitize_fields(fields)

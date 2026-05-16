@@ -26,11 +26,14 @@ from services.ops.failure_classification import (
 from services.ops.request_context import attach_request_id, get_request_id
 from services.ops.structured_log import log_warning
 from services.message_format import build_synthesis_display_text
+from services.ops.idempotency import get_idempotency_registry, get_idempotency_store_key
 from services.ops.runtime_diagnostics import (
     emit_council_started,
+    emit_runtime_event,
     get_runtime_metrics,
     record_provider_call,
 )
+from services.ops.runtime_events import COUNCIL_RUNNING
 from services.ops.timing import log_timing, measure
 from services.thread_service import persist_council_transcript, resolve_thread_id
 from services.ops.timeouts import (
@@ -545,6 +548,11 @@ def _parse_synthesis_json(raw: str, experts: list[ExpertResult]) -> dict[str, An
 
 
 async def _persist_synthesis_ko(tenant_id: str, question: str, synthesis: dict[str, Any]) -> None:
+    store_key = get_idempotency_store_key()
+    reg = get_idempotency_registry()
+    if not await reg.should_persist(store_key, "synthesis_ko"):
+        return
+
     org = uuid.UUID(tenant_id)
     title = (question[:100] if question else "Council synthesis")[:512]
 
@@ -566,6 +574,7 @@ async def _persist_synthesis_ko(tenant_id: str, question: str, synthesis: dict[s
     try:
         async with measure(subsystem="council", operation="db_persist_synthesis", provider="database"):
             await asyncio.wait_for(_do(), timeout=DB_OPERATION_TIMEOUT_S)
+        await reg.mark_persisted(store_key, "synthesis_ko")
     except Exception as e:
         cat = classify_failure(e)
         log_warning(
@@ -648,6 +657,14 @@ async def _persist_council_thread_if_needed(
     question: str,
     payload: dict[str, Any],
 ) -> uuid.UUID | None:
+    store_key = get_idempotency_store_key()
+    reg = get_idempotency_registry()
+    if not await reg.should_persist(store_key, "council_transcript"):
+        org_uuid = uuid.UUID(tenant_id)
+        if thread_id is not None:
+            return thread_id
+        return None
+
     org_uuid = uuid.UUID(tenant_id)
     tid = thread_id
     if tid is None:
@@ -666,6 +683,7 @@ async def _persist_council_thread_if_needed(
             total_cost_usd=float(payload.get("cost_usd") or 0),
             synthesis_display_text=display,
         )
+        await reg.mark_persisted(store_key, "council_transcript")
         return tid
     except Exception as e:
         cat = classify_failure(e)
@@ -817,6 +835,7 @@ async def _record_council_metrics(
 
 async def run_council(question: str, tenant_id: str, *, thread_id: uuid.UUID | None = None) -> dict[str, Any]:
     emit_council_started()
+    emit_runtime_event(COUNCIL_RUNNING, route="/council", outcome="running")
     council_t0 = time.perf_counter()
     experts_out: list[list[ExpertResult]] = []
     synthesis_out: list[dict[str, Any] | None] = []

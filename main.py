@@ -44,12 +44,18 @@ from services.ops.startup import validate_startup
 
 from services.ops.load_governance import get_load_governor, locale_for_request
 
+from services.ops.idempotency import (
+    CLIENT_REQUEST_ID_HEADER,
+    get_idempotency_registry,
+    resolve_client_request_id,
+)
 from services.ops.runtime_diagnostics import (
     begin_request_diagnostics,
     build_runtime_snapshot,
     complete_request_diagnostics,
     fail_request_diagnostics,
 )
+from services.ops.runtime_state import finalize_chat_payload, finalize_council_payload
 
 from services.ops.timing import measure
 
@@ -164,7 +170,13 @@ def _parse_thread_id(raw: str | None) -> uuid.UUID | None:
 def _fail_request_from_http(exc: HTTPException, *, route: str) -> None:
     detail = exc.detail if isinstance(exc.detail, dict) else {}
     code = detail.get("code") if isinstance(detail, dict) else None
-    if code in ("council_busy", "runtime_saturated", "retry_later", "duplicate_request"):
+    if code in (
+        "council_busy",
+        "runtime_saturated",
+        "retry_later",
+        "duplicate_request",
+        "idempotency_rejected",
+    ):
         fail_request_diagnostics(outcome="rejected", category=str(code), route=route)
     else:
         fail_request_diagnostics(outcome="error", category=str(code) if code else None, route=route)
@@ -232,6 +244,12 @@ class ChatBody(BaseModel):
 
     tier: str = "free"
 
+    client_request_id: str | None = Field(
+        None,
+        max_length=128,
+        description="Client-generated idempotency token for safe retries",
+    )
+
 
 
 
@@ -248,13 +266,33 @@ async def chat(request: Request, body: ChatBody):
 
     locale = locale_for_request(request, body.message)
 
+    client_rid = resolve_client_request_id(
+        body_value=body.client_request_id,
+        header_value=request.headers.get(CLIENT_REQUEST_ID_HEADER),
+    )
+
     begin_request_diagnostics(route="/chat", ctx=ctx, text_hint=body.message)
+
+    idem = await get_idempotency_registry().begin(
+        route="/chat",
+        tenant_id=ctx.tenant_id,
+        client_request_id=client_rid,
+    )
+
+    if not idem.active and idem.replay_response is not None:
+        result = await finalize_chat_payload(
+            idem.replay_response,
+            client_request_id=client_rid,
+            idempotent_replay=True,
+        )
+        complete_request_diagnostics(outcome="replay")
+        return result
 
     try:
 
         async with get_load_governor().govern_chat(locale=locale):
 
-            result = await handle_chat(
+            raw = await handle_chat(
 
                 body.message,
 
@@ -268,17 +306,25 @@ async def chat(request: Request, body: ChatBody):
 
             )
 
+        result = await finalize_chat_payload(raw, client_request_id=client_rid)
+
+        await get_idempotency_registry().complete(idem.store_key, result)
+
         complete_request_diagnostics(outcome="ok")
 
         return result
 
     except HTTPException as exc:
 
+        await get_idempotency_registry().fail(idem.store_key)
+
         _fail_request_from_http(exc, route="/chat")
 
         raise
 
     except Exception:
+
+        await get_idempotency_registry().fail(idem.store_key)
 
         fail_request_diagnostics(outcome="error")
 
@@ -306,6 +352,12 @@ class CouncilBody(BaseModel):
 
     )
 
+    client_request_id: str | None = Field(
+        None,
+        max_length=128,
+        description="Client-generated idempotency token for safe retries",
+    )
+
 
 
 
@@ -322,7 +374,27 @@ async def council(request: Request, body: CouncilBody):
 
     locale = locale_for_request(request, body.question)
 
+    client_rid = resolve_client_request_id(
+        body_value=body.client_request_id,
+        header_value=request.headers.get(CLIENT_REQUEST_ID_HEADER),
+    )
+
     begin_request_diagnostics(route="/council", ctx=ctx, text_hint=body.question)
+
+    idem = await get_idempotency_registry().begin(
+        route="/council",
+        tenant_id=ctx.tenant_id,
+        client_request_id=client_rid,
+    )
+
+    if not idem.active and idem.replay_response is not None:
+        result = await finalize_council_payload(
+            idem.replay_response,
+            client_request_id=client_rid,
+            idempotent_replay=True,
+        )
+        complete_request_diagnostics(outcome="replay")
+        return result
 
     try:
 
@@ -338,7 +410,11 @@ async def council(request: Request, body: CouncilBody):
 
             async with measure(subsystem="council", operation="POST /council"):
 
-                result = await run_council(body.question, ctx.tenant_id, thread_id=tid)
+                raw = await run_council(body.question, ctx.tenant_id, thread_id=tid)
+
+        result = await finalize_council_payload(raw, client_request_id=client_rid)
+
+        await get_idempotency_registry().complete(idem.store_key, result)
 
         complete_request_diagnostics(outcome="ok")
 
@@ -346,11 +422,15 @@ async def council(request: Request, body: CouncilBody):
 
     except HTTPException as exc:
 
+        await get_idempotency_registry().fail(idem.store_key)
+
         _fail_request_from_http(exc, route="/council")
 
         raise
 
     except Exception:
+
+        await get_idempotency_registry().fail(idem.store_key)
 
         fail_request_diagnostics(outcome="error")
 

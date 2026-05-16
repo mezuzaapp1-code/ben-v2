@@ -110,4 +110,62 @@ Do not mark **R-019** / observability risks **FIXED** until browser verification
 
 ---
 
+## 9. Runtime Recovery & Idempotency (v1)
+
+### 9.1 Idempotency guarantees
+
+- Clients may send `client_request_id` (body) or `X-BEN-Client-Request-Id` (header), max 128 chars.
+- Key: `{route}:{tenant_hash}:{client_request_id}` — in-process registry only (not distributed).
+- **Pending:** duplicate submit with same id → **409** `idempotency_rejected` (no second council execution).
+- **Completed (TTL default 300s):** same id returns cached JSON response with `idempotent_replay: true` (`replay_detected` event).
+- **Failed / released:** pending slot cleared on HTTP error so deterministic retry with same id is allowed.
+- No full prompt storage for replay — only last response envelope.
+
+### 9.2 Retry semantics
+
+| Situation | Behavior |
+|-----------|----------|
+| Retry after success (same `client_request_id`) | Deterministic replay of response |
+| Retry while pending | 409 rejected |
+| Retry after server error | Allowed (pending released) |
+| No `client_request_id` | Idempotency bypassed (load governance dedup may still apply) |
+
+### 9.3 Normalized runtime states
+
+| State | Meaning |
+|-------|---------|
+| `council_pending` | Idempotency slot acquired |
+| `council_running` | Council execution in progress |
+| `council_completed` | All experts ok + synthesis |
+| `council_degraded` | Partial expert/synthesis degradation |
+| `council_failed` | No usable expert/synthesis outcome |
+| `persistence_pending` | Background transcript/KO persist scheduled |
+| `persistence_completed` | Transcript persist marker recorded |
+| `persistence_failed` | Persist logged; may retry on new council |
+
+### 9.4 Persistence recovery
+
+- `council_transcript` and `synthesis_ko` persist markers per idempotency key prevent duplicate rows on retry/replay.
+- Background persist failures emit `persistence_failed`; successful deduped persist emits `persistence_recovery`.
+
+### 9.5 Refresh / stale client recovery
+
+- Frontend stores pending council submit in `sessionStorage`; after **40s** refresh clears stale loading (`stale_runtime_state_recovered` on server when pending TTL expires).
+- `finally` always clears loading, council status, and pending marker.
+
+### 9.6 Diagnostics events
+
+`idempotency_rejected`, `replay_detected`, `stale_runtime_state_recovered`, `persistence_recovery`.
+
+### 9.7 Verification gates
+
+| Gate | Automated | Browser |
+|------|-----------|---------|
+| Idempotency replay | pytest | NOT VERIFIED |
+| Duplicate pending reject | pytest | NOT VERIFIED |
+| Persist dedupe | pytest | NOT VERIFIED |
+| Refresh stale UI | `test-runtime-recovery.mjs` | NOT VERIFIED |
+
+---
+
 READY FOR CHATGPT REVIEW

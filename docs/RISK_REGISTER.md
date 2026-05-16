@@ -1,6 +1,6 @@
 # BEN Risk Register
 
-**Last register review:** 2026-05-16 (Observability & runtime diagnostics v1 — automated pytest only)
+**Last register review:** 2026-05-16 (Runtime recovery & idempotency v1 — automated pytest only)
 
 **RISK_REGISTER.md changed:** YES
 
@@ -24,7 +24,7 @@
 | R-024 | Council synthesis compresses distinct expert reasoning | Medium | OPEN | 2026-05-15 | 2026-05-15 | **NEW** — optional `legal_reasoning`/`strategic_reasoning`/etc.; pytest **NOT PROD VERIFIED** until merge | Merge `feature/reasoning-preservation-v1` + prod spot-check | No | No |
 | R-025 | Legal Advisor (Anthropic) timeout variability under heavier prompts | Medium | OPEN | 2026-05-15 | 2026-05-15 | **NEW** — prod short prompt 0/5 Legal timeout; ~3.4k char prompt 1/2 Legal `timeout`; `claude-sonnet-4-6` **VERIFIED** ok when fast enough | Tail logs (`provider_anthropic` duration); optional Haiku eval; prompt bounding; **not FIXED** | No | No |
 | R-026 | Conversation continuity / refresh rehydration | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **CHANGED** — anonymous refresh Playwright **VERIFIED** (bubbles persist); personal/org refresh **NOT VERIFIED** | Manual B+C refresh; then **FIXED** | No | No |
-| R-027 | Council transcript persistence incomplete vs KO | Low–Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **NEW** — council rows in `messages` with expert metadata; `knowledge_objects` synthesis still parallel; draft thread links via list heuristic | Document dual-store; optional unify later | No | No |
+| R-027 | Council transcript persistence incomplete vs KO | Low–Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **CHANGED** — idempotency persist markers dedupe transcript + KO on retry; dual-store remains | Browser refresh + retry matrix | No | No |
 | R-028 | Council submit can hang or block UI | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **CHANGED** — anonymous council Playwright completes, UI recovers; signed/long-prompt matrix **NOT VERIFIED** | Manual D + fail-path | No | No |
 | R-031 | Clerk org context UX failure (signed-in, no org in JWT) | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **CHANGED** — anonymous: no org banner **VERIFIED**; personal no-org sign-in **NOT VERIFIED** | Manual B; then **FIXED** | No | No |
 | R-032 | Personal vs organization tenant mode ambiguity | Medium | **OPEN** | 2026-05-16 | 2026-05-16 | **NEW** — personal uses deterministic UUID v5 (`user:{sub}`); org uses Clerk `org_id`; plan-based `REQUIRE_ORG` not wired to billing; cross-mode data migration undefined | Document operator playbook; browser matrix post-merge | No | No |
@@ -32,6 +32,9 @@
 | R-037 | Bounded execution vs horizontal scale (multi-worker) | Low–Medium | **OPEN** | 2026-05-16 | 2026-05-16 | **NEW** — governance is per-process; Railway replicas multiply effective concurrency | Redis/distributed semaphores (future) | No | No |
 | R-038 | Provider timing / degradation visibility under stress | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **NEW** — per-provider duration_ms + timeout/degraded counters in snapshot; Claude timeout path logged; prod tail **NOT VERIFIED** | Degraded council browser + Railway logs | No | No |
 | R-039 | Runtime snapshot vs multi-instance truth | Low | **OPEN** | 2026-05-16 | 2026-05-16 | **NEW** — `/runtime/snapshot` is per-process only; no cross-replica aggregation | Central metrics store (future) | No | No |
+| R-040 | Persistence duplication on council retry | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **NEW** — in-process idempotency markers for transcript/KO; pytest **VERIFIED**; multi-worker **NOT VERIFIED** | Prod retry + refresh browser | No | No |
+| R-041 | Retry / replay ambiguity (client vs server) | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **NEW** — `client_request_id` + 409/ replay contract; without client id behavior unchanged | Document client obligation; browser | No | No |
+| R-042 | Stale runtime UI state after refresh | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **NEW** — sessionStorage stale recovery + server pending TTL; browser matrix **NOT VERIFIED** | Manual refresh during council | No | No |
 
 ---
 

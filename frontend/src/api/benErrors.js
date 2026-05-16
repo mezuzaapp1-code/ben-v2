@@ -6,8 +6,15 @@ export const COUNCIL_BUSY = 'council_busy'
 export const RUNTIME_SATURATED = 'runtime_saturated'
 export const RETRY_LATER = 'retry_later'
 export const DUPLICATE_REQUEST = 'duplicate_request'
+export const IDEMPOTENCY_REJECTED = 'idempotency_rejected'
 
-const OVERLOAD_CODES = new Set([COUNCIL_BUSY, RUNTIME_SATURATED, RETRY_LATER, DUPLICATE_REQUEST])
+const OVERLOAD_CODES = new Set([
+  COUNCIL_BUSY,
+  RUNTIME_SATURATED,
+  RETRY_LATER,
+  DUPLICATE_REQUEST,
+  IDEMPOTENCY_REJECTED,
+])
 
 const CLERK_ORG_MESSAGE =
   'Please select or create an organization in Clerk to continue.'
