@@ -11,7 +11,8 @@ from clerk_backend_api.security.types import TokenVerificationError
 from fastapi import HTTPException, Request, status
 
 from auth.config import get_anonymous_org_id
-from services.ops.structured_log import log_info
+from auth.org_errors import raise_clerk_org_required
+from services.ops.structured_log import log_info, log_warning
 
 AuthOutcome = Literal["auth_missing", "auth_valid", "auth_invalid", "auth_error"]
 
@@ -81,14 +82,18 @@ def build_tenant_context(
     claims: dict[str, Any] | None,
     auth_present: bool,
 ) -> TenantContext:
-    """Map auth outcome + claims to TenantContext. Raises 400 when JWT valid but org missing."""
+    """Map auth outcome + claims to TenantContext. Raises 403 clerk_org_required when JWT valid but org missing."""
     if outcome == "auth_valid":
         oid = (claims or {}).get("org_id")
         if not oid or not str(oid).strip():
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                detail="Organization context missing from token; select an organization in Clerk.",
+            log_warning(
+                "signed-in user missing Clerk organization in token",
+                subsystem="auth",
+                operation="clerk_org_required",
+                category="config_error",
+                outcome="error",
             )
+            raise_clerk_org_required()
         oid_str = str(oid).strip()
         try:
             uuid.UUID(oid_str)

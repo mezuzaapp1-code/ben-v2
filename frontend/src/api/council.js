@@ -1,4 +1,5 @@
 import { BEN_API_BASE } from '../config.js'
+import { humanizeBenHttpError, parseBenErrorResponse } from './benErrors.js'
 
 export const COUNCIL_CLIENT_TIMEOUT_MS = 35_000
 
@@ -9,6 +10,8 @@ const COUNCIL_LABEL = {
 }
 
 export function humanizeCouncilHttpError(status, data) {
+  const parsed = parseBenErrorResponse(status, data)
+  if (parsed) return parsed.message
   const detail = data?.detail
   if (status === 401) {
     return typeof detail === 'string' ? detail : 'Sign in required to use Council.'
