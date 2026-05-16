@@ -1,8 +1,23 @@
-# BEN STATUS — Stabilization Checkpoint v1
+# BEN STATUS — Tenant Mode v2 deployed
 
 **Last updated:** 2026-05-16
 
 ## Summary
+
+`main` @ **`40bd45e`** — Tenant Mode v2 (personal + organization + anonymous) live on Railway.
+
+| Area | Status |
+|------|--------|
+| Tenant mode v2 | **DEPLOYED** — health `tenant_modes_enabled=true` |
+| Anonymous prod smoke | **VERIFIED** |
+| Personal/org prod JWT smoke | **PARTIAL** (no token in CI agent) |
+| Browser E2E | **Pending** |
+
+Report: `docs/TASK_REPORT_TENANT_MODE_V2_DEPLOY.md`
+
+---
+
+## Prior — Stabilization Checkpoint v1
 
 `main` consolidates recent fix branches (no new features):
 
