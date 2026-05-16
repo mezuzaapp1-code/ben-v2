@@ -2,6 +2,8 @@
 
 **Last updated:** 2026-05-16
 
+**Architecture map:** [`docs/BEN_SYSTEM_MAP.md`](BEN_SYSTEM_MAP.md) — system overview, request/tenant/council lifecycles, ops controls, and build-order rules for future work.
+
 ## Summary
 
 `main` @ **`40bd45e`** — Tenant Mode v2 (personal + organization + anonymous) live on Railway.
