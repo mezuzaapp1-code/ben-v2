@@ -1,4 +1,4 @@
-"""Server-authoritative tenant / org context from Clerk JWT (R-014)."""
+"""Server-authoritative tenant context from Clerk JWT (R-014, tenant mode v2)."""
 from __future__ import annotations
 
 import os
@@ -12,21 +12,36 @@ from fastapi import HTTPException, Request, status
 
 from auth.config import get_anonymous_org_id
 from auth.org_errors import raise_clerk_org_required
+from auth.tenant_ids import personal_tenant_id
+from auth.tenant_policy import require_org_for_signed_in
 from services.ops.structured_log import log_info, log_warning
 
 AuthOutcome = Literal["auth_missing", "auth_valid", "auth_invalid", "auth_error"]
+TenantType = Literal["personal", "organization", "anonymous"]
 
 
 @dataclass(frozen=True)
 class TenantContext:
-    """Normalized tenant context; never sourced from client JSON."""
+    """
+    Normalized tenant context; never sourced from client JSON.
 
-    org_id: str
+    tenant_id: UUID string used for DB RLS and thread isolation (effective scope).
+    org_id: Clerk organization UUID when tenant_type is organization; else None.
+    """
+
+    tenant_id: str
+    tenant_type: TenantType
     user_id: str | None
+    org_id: str | None
     email: str | None
     auth_source: Literal["clerk_jwt", "anonymous"]
     auth_present: bool
     org_bound: bool
+
+    @property
+    def scope_org_id(self) -> str:
+        """Backward-compatible alias: effective tenant scope for persistence APIs."""
+        return self.tenant_id
 
 
 def extract_bearer_token(authorization: str | None) -> str | None:
@@ -77,55 +92,75 @@ def authenticate_request(request: Request) -> tuple[AuthOutcome, dict[str, Any] 
     return authenticate_from_authorization(request.headers.get("Authorization"))
 
 
+def _validate_uuid_tenant(value: str, *, field_name: str) -> str:
+    try:
+        return str(uuid.UUID(str(value).strip()))
+    except ValueError as e:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid {field_name}",
+        ) from e
+
+
 def build_tenant_context(
     outcome: AuthOutcome,
     claims: dict[str, Any] | None,
     auth_present: bool,
 ) -> TenantContext:
-    """Map auth outcome + claims to TenantContext. Raises 403 clerk_org_required when JWT valid but org missing."""
+    """Derive tenant from verified JWT only; personal workspace when no org (default policy)."""
     if outcome == "auth_valid":
-        oid = (claims or {}).get("org_id")
-        if not oid or not str(oid).strip():
+        c = claims or {}
+        uid = c.get("user_id")
+        if uid is None or not str(uid).strip():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid user id in token")
+        uid_str = str(uid).strip()
+        em = c.get("email")
+        email = str(em) if em is not None else None
+
+        oid = c.get("org_id")
+        if oid and str(oid).strip():
+            oid_str = _validate_uuid_tenant(str(oid).strip(), field_name="organization id in token")
+            return TenantContext(
+                tenant_id=oid_str,
+                tenant_type="organization",
+                user_id=uid_str,
+                org_id=oid_str,
+                email=email,
+                auth_source="clerk_jwt",
+                auth_present=auth_present,
+                org_bound=True,
+            )
+
+        if require_org_for_signed_in():
             log_warning(
-                "signed-in user missing Clerk organization in token",
+                "signed-in user missing Clerk organization (org required by policy)",
                 subsystem="auth",
                 operation="clerk_org_required",
                 category="config_error",
                 outcome="error",
             )
             raise_clerk_org_required()
-        oid_str = str(oid).strip()
-        try:
-            uuid.UUID(oid_str)
-        except ValueError as e:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                detail="Invalid organization id in token",
-            ) from e
-        c = claims or {}
-        uid = c.get("user_id")
-        em = c.get("email")
+
+        personal_id = _validate_uuid_tenant(personal_tenant_id(uid_str), field_name="personal tenant id")
         return TenantContext(
-            org_id=oid_str,
-            user_id=str(uid) if uid is not None else None,
-            email=str(em) if em is not None else None,
+            tenant_id=personal_id,
+            tenant_type="personal",
+            user_id=uid_str,
+            org_id=None,
+            email=email,
             auth_source="clerk_jwt",
             auth_present=auth_present,
-            org_bound=True,
+            org_bound=False,
         )
 
     anon = get_anonymous_org_id()
-    try:
-        uuid.UUID(anon)
-    except ValueError as e:
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Server anonymous org misconfigured (BEN_ANONYMOUS_ORG_ID)",
-        ) from e
+    anon_str = _validate_uuid_tenant(anon, field_name="anonymous org id")
 
     return TenantContext(
-        org_id=anon,
+        tenant_id=anon_str,
+        tenant_type="anonymous",
         user_id=None,
+        org_id=None,
         email=None,
         auth_source="anonymous",
         auth_present=auth_present,
@@ -143,18 +178,12 @@ def validate_body_tenant_matches_context(body: Any, ctx: TenantContext) -> None:
     tid = getattr(body, "tenant_id", None)
     if tid is None or str(tid).strip() == "":
         return
-    try:
-        body_u = uuid.UUID(str(tid).strip())
-        ctx_u = uuid.UUID(str(ctx.org_id).strip())
-    except ValueError as e:
+    body_scope = _validate_uuid_tenant(str(tid).strip(), field_name="tenant_id in request body")
+    ctx_scope = _validate_uuid_tenant(ctx.tenant_id, field_name="tenant scope")
+    if body_scope != ctx_scope:
         raise HTTPException(
             status_code=422,
-            detail="Invalid tenant_id in request body",
-        ) from e
-    if body_u != ctx_u:
-        raise HTTPException(
-            status_code=422,
-            detail="tenant_id does not match authenticated organization",
+            detail="tenant_id does not match authenticated tenant scope",
         )
 
 
@@ -166,4 +195,5 @@ def log_tenant_bound(*, route_operation: str, ctx: TenantContext) -> None:
         auth_present=ctx.auth_present,
         org_bound=ctx.org_bound,
         auth_source=ctx.auth_source,
+        tenant_type=ctx.tenant_type,
     )

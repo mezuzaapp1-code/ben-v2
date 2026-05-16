@@ -39,7 +39,9 @@ def test_build_tenant_context_jwt():
         {"user_id": "user_1", "email": "a@b.com", "org_id": ORG_A},
         True,
     )
+    assert ctx.tenant_id == ORG_A
     assert ctx.org_id == ORG_A
+    assert ctx.tenant_type == "organization"
     assert ctx.user_id == "user_1"
     assert ctx.email == "a@b.com"
     assert ctx.auth_source == "clerk_jwt"
@@ -48,13 +50,17 @@ def test_build_tenant_context_jwt():
 
 def test_build_tenant_context_anonymous():
     ctx = build_tenant_context("auth_missing", None, False)
-    assert ctx.org_id == ANON
+    assert ctx.tenant_id == ANON
+    assert ctx.org_id is None
+    assert ctx.tenant_type == "anonymous"
     assert ctx.auth_source == "anonymous"
     assert ctx.org_bound is False
 
 
 def test_forged_body_rejected_for_jwt():
     ctx = TenantContext(
+        tenant_id=ORG_A,
+        tenant_type="organization",
         org_id=ORG_A,
         user_id="u",
         email=None,
@@ -176,20 +182,28 @@ def test_enforce_auth_invalid_jwt_401(monkeypatch):
     assert r.status_code == 401
 
 
-def test_jwt_missing_org_returns_403_structured(monkeypatch):
+def test_jwt_missing_org_uses_personal_tenant(monkeypatch):
+    from auth.tenant_ids import personal_tenant_id
+
     def no_org(*_a, **_k):
         return {"sub": "usr", "email": "e@e.com", "org_id": None}
 
+    captured: dict[str, str] = {}
+
+    async def capture_chat(message, user_id, tenant_id, tier, thread_id=None):
+        captured["tenant_id"] = tenant_id
+        return {"thread_id": personal_tenant_id("usr"), "response": "ok", "model_used": "m", "cost_usd": 0.0}
+
     with patch("auth.tenant_binding._clerk_verify_token", side_effect=no_org):
-        with patch.object(main, "handle_chat", new_callable=AsyncMock):
+        with patch.object(main, "handle_chat", side_effect=capture_chat):
             with TestClient(main.app) as client:
                 r = client.post(
                     "/chat",
                     json={"message": "hi", "tier": "free"},
                     headers={"Authorization": "Bearer tok"},
                 )
-    assert r.status_code == 403
-    assert r.json()["detail"]["code"] == "clerk_org_required"
+    assert r.status_code == 200
+    assert captured["tenant_id"] == personal_tenant_id("usr")
 
 
 @pytest.mark.asyncio
@@ -218,4 +232,6 @@ def test_health_includes_tenant_binding_flags():
     data = r.json()
     checks = data.get("checks") or {}
     assert checks.get("tenant_binding_enabled") is True
+    assert checks.get("tenant_modes_enabled") is True
+    assert checks.get("require_org_for_signed_in") is False
     assert checks.get("enforce_auth") is False
