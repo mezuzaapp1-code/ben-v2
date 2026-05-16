@@ -117,10 +117,15 @@ async def test_chat_runtime_saturated():
 
 
 def test_api_council_returns_structured_overload(client):
-    hold = asyncio.Event()
+    import threading
+
+    hold = threading.Event()
 
     async def slow_council(*_a, **_k):
-        await hold.wait()
+        for _ in range(150):
+            if hold.is_set():
+                break
+            await asyncio.sleep(0.02)
         return {"council": [], "cost_usd": 0.0}
 
     with patch.object(main, "run_council", new_callable=AsyncMock, side_effect=slow_council):
@@ -143,10 +148,15 @@ def test_api_council_returns_structured_overload(client):
 
 
 def test_api_duplicate_council_same_question(client):
-    hold = asyncio.Event()
+    import threading
+
+    hold = threading.Event()
 
     async def slow_council(*_a, **_k):
-        await hold.wait()
+        for _ in range(150):
+            if hold.is_set():
+                break
+            await asyncio.sleep(0.02)
         return {"council": [], "cost_usd": 0.0}
 
     with patch.object(main, "run_council", new_callable=AsyncMock, side_effect=slow_council):

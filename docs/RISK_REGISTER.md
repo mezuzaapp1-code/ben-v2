@@ -1,6 +1,6 @@
 # BEN Risk Register
 
-**Last register review:** 2026-05-16 (Load governance v1 — automated pytest only)
+**Last register review:** 2026-05-16 (Observability & runtime diagnostics v1 — automated pytest only)
 
 **RISK_REGISTER.md changed:** YES
 
@@ -18,7 +18,7 @@
 | R-014 | Client-supplied `tenant_id` without auth binding | **High** | **PARTIAL** | 2026-05-15 | 2026-05-16 | **CHANGED** — tenant mode v2: `tenant_id` from JWT/personal UUID only; forged body **VERIFIED** pytest (org + personal); signed prod forge **NOT RUN** | Prod signed forge test; then **FIXED** | No | **Yes** (until signed prod check) |
 | R-015 | No rate limiting on expensive routes | Medium | **PARTIAL** | 2026-05-15 | 2026-05-16 | **CHANGED** — load governance v1: bounded concurrency, duplicate council guard, structured overload (`council_busy`, `runtime_saturated`, `retry_later`); **NOT** token-bucket rate limits; browser **NOT VERIFIED** | Manual spam/parallel matrix; T-108 token limits later | No | No |
 | R-018 | Accidental shell artifact files in repo root | Low | OPEN | 2026-05-15 | 2026-05-15 | UNCHANGED | Manual delete locally | No | No |
-| R-019 | Auth shadow without production log baseline | Low | OPEN | 2026-05-15 | 2026-05-15 | **CHANGED** — `tenant_bind` logs add `auth_present`/`org_bound`/`auth_source` (no JWT); prod log sample still **NOT VERIFIED** | `railway logs` + `tenant bound for POST` | No | No |
+| R-019 | Auth shadow / runtime observability without production log baseline | Low–Medium | **PARTIAL** | 2026-05-15 | 2026-05-16 | **CHANGED** — runtime diagnostics v1: lifecycle events, provider timing, `GET /runtime/snapshot`; pytest no-leak **VERIFIED**; prod JSON sample + browser stress **NOT VERIFIED** | `railway logs` + snapshot under load | No | No |
 | R-022 | Multi-provider council response divergence | Medium | **PARTIAL** | 2026-05-15 | 2026-05-15 | **CHANGED** — synthesis v1 adds domain reasoning sections; differentiation **PARTIALLY VERIFIED** (pytest); prod open | Monitor LLM compliance + council UX | No | No |
 | R-023 | Gemini Strategy Advisor operational variability | Low–Medium | **PARTIAL** | 2026-05-15 | 2026-05-15 | **CHANGED** — prod Strategy `google`/`gemini-2.5-flash`/`ok` **VERIFIED**; `gemini-1.5-flash` **FAIL** (retired) | Pin `GEMINI_MODEL=gemini-2.5-flash` on Railway | No | No |
 | R-024 | Council synthesis compresses distinct expert reasoning | Medium | OPEN | 2026-05-15 | 2026-05-15 | **NEW** — optional `legal_reasoning`/`strategic_reasoning`/etc.; pytest **NOT PROD VERIFIED** until merge | Merge `feature/reasoning-preservation-v1` + prod spot-check | No | No |
@@ -28,8 +28,10 @@
 | R-028 | Council submit can hang or block UI | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **CHANGED** — anonymous council Playwright completes, UI recovers; signed/long-prompt matrix **NOT VERIFIED** | Manual D + fail-path | No | No |
 | R-031 | Clerk org context UX failure (signed-in, no org in JWT) | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **CHANGED** — anonymous: no org banner **VERIFIED**; personal no-org sign-in **NOT VERIFIED** | Manual B; then **FIXED** | No | No |
 | R-032 | Personal vs organization tenant mode ambiguity | Medium | **OPEN** | 2026-05-16 | 2026-05-16 | **NEW** — personal uses deterministic UUID v5 (`user:{sub}`); org uses Clerk `org_id`; plan-based `REQUIRE_ORG` not wired to billing; cross-mode data migration undefined | Document operator playbook; browser matrix post-merge | No | No |
-| R-036 | Runtime overload / provider saturation under parallel council | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **NEW** — process-level council cap=2, dedup guard, fast 503/429; protects process not provider quotas; browser parallel matrix **NOT VERIFIED** | Prod load test + browser | No | No |
+| R-036 | Runtime overload / provider saturation under parallel council | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **CHANGED** — overload_rejected events + snapshot counters; browser parallel matrix **NOT VERIFIED** | Prod load test + browser | No | No |
 | R-037 | Bounded execution vs horizontal scale (multi-worker) | Low–Medium | **OPEN** | 2026-05-16 | 2026-05-16 | **NEW** — governance is per-process; Railway replicas multiply effective concurrency | Redis/distributed semaphores (future) | No | No |
+| R-038 | Provider timing / degradation visibility under stress | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **NEW** — per-provider duration_ms + timeout/degraded counters in snapshot; Claude timeout path logged; prod tail **NOT VERIFIED** | Degraded council browser + Railway logs | No | No |
+| R-039 | Runtime snapshot vs multi-instance truth | Low | **OPEN** | 2026-05-16 | 2026-05-16 | **NEW** — `/runtime/snapshot` is per-process only; no cross-replica aggregation | Central metrics store (future) | No | No |
 
 ---
 

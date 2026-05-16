@@ -71,6 +71,10 @@ class LoadGovernor:
 
     async def _reject(self, *, code: str, locale: str, status_code: int, operation: str) -> None:
         self.rejected_overload_requests += 1
+        route = "/council" if "council" in operation.lower() else "/chat"
+        from services.ops.runtime_diagnostics import get_runtime_metrics
+
+        await get_runtime_metrics().record_overload_rejected(code=code, route=route)
         snap = self.metrics_snapshot()
         log_warning(
             "load governance rejected request",

@@ -38,11 +38,18 @@ from services.health_service import build_health_payload, build_ready_payload
 
 from services.ops.logging_config import configure_ben_ops_logging
 
-from services.ops.request_context import set_request_id
+from services.ops.request_context import attach_request_id, set_request_id
 
 from services.ops.startup import validate_startup
 
 from services.ops.load_governance import get_load_governor, locale_for_request
+
+from services.ops.runtime_diagnostics import (
+    begin_request_diagnostics,
+    build_runtime_snapshot,
+    complete_request_diagnostics,
+    fail_request_diagnostics,
+)
 
 from services.ops.timing import measure
 
@@ -67,6 +74,8 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         "/health",
 
         "/ready",
+
+        "/runtime/snapshot",
 
         "/api/threads",
 
@@ -152,6 +161,15 @@ def _parse_thread_id(raw: str | None) -> uuid.UUID | None:
 
 
 
+def _fail_request_from_http(exc: HTTPException, *, route: str) -> None:
+    detail = exc.detail if isinstance(exc.detail, dict) else {}
+    code = detail.get("code") if isinstance(detail, dict) else None
+    if code in ("council_busy", "runtime_saturated", "retry_later", "duplicate_request"):
+        fail_request_diagnostics(outcome="rejected", category=str(code), route=route)
+    else:
+        fail_request_diagnostics(outcome="error", category=str(code) if code else None, route=route)
+
+
 async def _tenant_ctx_from_request(request: Request, *, route_operation: str):
 
     outcome, claims, auth_present = await apply_auth_policy(request, route_operation=route_operation)
@@ -230,21 +248,41 @@ async def chat(request: Request, body: ChatBody):
 
     locale = locale_for_request(request, body.message)
 
-    async with get_load_governor().govern_chat(locale=locale):
+    begin_request_diagnostics(route="/chat", ctx=ctx, text_hint=body.message)
 
-        return await handle_chat(
+    try:
 
-            body.message,
+        async with get_load_governor().govern_chat(locale=locale):
 
-            ctx.user_id or "anonymous",
+            result = await handle_chat(
 
-            ctx.tenant_id,
+                body.message,
 
-            body.tier,
+                ctx.user_id or "anonymous",
 
-            thread_id=tid,
+                ctx.tenant_id,
 
-        )
+                body.tier,
+
+                thread_id=tid,
+
+            )
+
+        complete_request_diagnostics(outcome="ok")
+
+        return result
+
+    except HTTPException as exc:
+
+        _fail_request_from_http(exc, route="/chat")
+
+        raise
+
+    except Exception:
+
+        fail_request_diagnostics(outcome="error")
+
+        raise
 
 
 
@@ -284,19 +322,53 @@ async def council(request: Request, body: CouncilBody):
 
     locale = locale_for_request(request, body.question)
 
-    async with get_load_governor().govern_council(
+    begin_request_diagnostics(route="/council", ctx=ctx, text_hint=body.question)
 
-        tenant_id=ctx.tenant_id,
+    try:
 
-        question=body.question,
+        async with get_load_governor().govern_council(
 
-        locale=locale,
+            tenant_id=ctx.tenant_id,
 
-    ):
+            question=body.question,
 
-        async with measure(subsystem="council", operation="POST /council"):
+            locale=locale,
 
-            return await run_council(body.question, ctx.tenant_id, thread_id=tid)
+        ):
+
+            async with measure(subsystem="council", operation="POST /council"):
+
+                result = await run_council(body.question, ctx.tenant_id, thread_id=tid)
+
+        complete_request_diagnostics(outcome="ok")
+
+        return result
+
+    except HTTPException as exc:
+
+        _fail_request_from_http(exc, route="/council")
+
+        raise
+
+    except Exception:
+
+        fail_request_diagnostics(outcome="error")
+
+        raise
+
+
+
+
+
+@app.get("/runtime/snapshot")
+
+async def runtime_snapshot():
+
+    """Safe operational metrics (no secrets, no tenant PII, no prompts)."""
+
+    snap = await build_runtime_snapshot()
+
+    return attach_request_id(snap)
 
 
 

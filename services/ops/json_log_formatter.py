@@ -16,6 +16,18 @@ STRUCTURED_FIELDS = (
     "duration_ms",
     "outcome",
     "category",
+    "event",
+    "route",
+    "tenant_type",
+    "tenant_hash",
+    "dominant_language",
+    "overload_code",
+    "council_duration_ms",
+    "synthesis_outcome",
+    "active_chat_requests",
+    "active_council_requests",
+    "inflight_total",
+    "rejected_overload_requests",
 )
 
 _SENSITIVE_KEYS = frozenset(
@@ -26,6 +38,11 @@ _SENSITIVE_KEYS = frozenset(
         "secret",
         "token",
         "database_url",
+        "question",
+        "prompt",
+        "content",
+        "response",
+        "email",
     }
 )
 

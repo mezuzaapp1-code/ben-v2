@@ -60,4 +60,54 @@ Do not mark **R-015** / overload risks **FIXED** until browser verification (spa
 
 ---
 
+## 8. Observability & Runtime Diagnostics (v1)
+
+### 8.1 Observability guarantees
+
+- Every traced `POST /chat` and `POST /council` emits `request_started` and `request_completed` or `request_failed`.
+- Council emits `council_started` and `council_completed` with expert outcome counts and `synthesis_outcome` (no message bodies).
+- Provider calls record `duration_ms` and normalized `outcome` ∈ {`ok`, `timeout`, `degraded`, `error`} for OpenAI, Anthropic, Google/Gemini, and synthesis.
+- Load rejections emit `overload_rejected` with `overload_code` and route.
+- Background persist failures emit `persistence_failed` with operation name only.
+
+### 8.2 Forbidden log payload
+
+Must **never** appear in diagnostics logs or `/runtime/snapshot`:
+
+- Prompts, questions, message content, responses
+- JWTs, API keys, emails, raw `tenant_id` / `user_id`
+- Full Authorization headers
+
+Allowed: `tenant_hash` (SHA-256 prefix), `tenant_type`, `dominant_language`, `request_id`, aggregates.
+
+### 8.3 Runtime snapshot (`GET /runtime/snapshot`)
+
+Safe operational fields:
+
+- `active_chat_requests`, `active_council_requests`, `inflight_total`
+- `rejected_overload_requests`, `overload_rejected_counts`
+- `provider_timeout_counts`, `provider_*_counts`, `provider_duration_ms_total`
+- `degraded_council_count`, `council_completed_count`, `council_duration_ms_total`
+- `persistence_failed_count`, synthesis outcome counters
+
+Emits `runtime_snapshot` diagnostic event when queried. No secrets.
+
+### 8.4 Saturation diagnostics
+
+Under overload, expect `overload_rejected` events and monotonic `rejected_overload_requests`. Snapshot must reflect inflight and rejection counters coherently with load governor state.
+
+### 8.5 Verification gates
+
+| Gate | Automated | Browser |
+|------|-----------|---------|
+| Chat lifecycle events | `pytest tests/test_runtime_diagnostics.py` | NOT VERIFIED |
+| Council provider timing | council integration + metrics store | NOT VERIFIED |
+| Snapshot accuracy | pytest | NOT VERIFIED |
+| No PII/prompt leakage | pytest caplog | NOT VERIFIED |
+| Stress / refresh matrix | — | NOT VERIFIED |
+
+Do not mark **R-019** / observability risks **FIXED** until browser verification under council load.
+
+---
+
 READY FOR CHATGPT REVIEW

@@ -26,6 +26,11 @@ from services.ops.failure_classification import (
 from services.ops.request_context import attach_request_id, get_request_id
 from services.ops.structured_log import log_warning
 from services.message_format import build_synthesis_display_text
+from services.ops.runtime_diagnostics import (
+    emit_council_started,
+    get_runtime_metrics,
+    record_provider_call,
+)
 from services.ops.timing import log_timing, measure
 from services.thread_service import persist_council_transcript, resolve_thread_id
 from services.ops.timeouts import (
@@ -362,6 +367,13 @@ async def _safe_expert(
         if not isinstance(result, ExpertResult):
             raise TypeError("expert coroutine must return ExpertResult")
         duration_ms = int((time.perf_counter() - t0) * 1000)
+        prov_outcome = result.outcome if result.outcome in ("ok", "timeout", "degraded", "error") else "degraded"
+        await record_provider_call(
+            provider=provider,
+            operation=op,
+            duration_ms=duration_ms,
+            outcome=prov_outcome,
+        )
         if result.outcome != "ok":
             log_timing(
                 f"{label} expert degraded",
@@ -376,6 +388,12 @@ async def _safe_expert(
         category = classify_failure(e)
         outcome = _category_to_outcome(category)
         duration_ms = int((time.perf_counter() - t0) * 1000)
+        await record_provider_call(
+            provider=provider,
+            operation=op,
+            duration_ms=duration_ms,
+            outcome=outcome,
+        )
         _log_provider_failure(
             provider=provider,
             subsystem="council",
@@ -549,14 +567,19 @@ async def _persist_synthesis_ko(tenant_id: str, question: str, synthesis: dict[s
         async with measure(subsystem="council", operation="db_persist_synthesis", provider="database"):
             await asyncio.wait_for(_do(), timeout=DB_OPERATION_TIMEOUT_S)
     except Exception as e:
+        cat = classify_failure(e)
         log_warning(
             "council synthesis persist failed",
             subsystem="council",
             provider="database",
-            category=classify_failure(e),
+            category=cat,
             exc=e,
             operation="db_persist_synthesis",
             outcome="error",
+        )
+        await get_runtime_metrics().record_persistence_failed(
+            operation="db_persist_synthesis",
+            category=cat,
         )
 
 
@@ -645,14 +668,19 @@ async def _persist_council_thread_if_needed(
         )
         return tid
     except Exception as e:
+        cat = classify_failure(e)
         log_warning(
             "council thread persist failed",
             subsystem="council",
             provider="database",
-            category=classify_failure(e),
+            category=cat,
             exc=e,
             operation="persist_council_thread",
             outcome="error",
+        )
+        await get_runtime_metrics().record_persistence_failed(
+            operation="persist_council_thread",
+            category=cat,
         )
     return None
 
@@ -667,6 +695,7 @@ async def _run_council_inner(
     synth_cost_out: list[float],
 ) -> dict[str, Any]:
     """Council body; writes partial state for outer-timeout fallback."""
+    council_t0 = time.perf_counter()
     legal_model = os.getenv("ANTHROPIC_MODEL", ANTHROPIC_MODEL_DEFAULT).strip() or ANTHROPIC_MODEL_DEFAULT
     strategy_model = _strategy_gemini_model()
     timeout = httpx.Timeout(HTTP_CLIENT_TIMEOUT_S)
@@ -704,6 +733,8 @@ async def _run_council_inner(
         synth_cost = 0.0
         model_syn = os.getenv("SYNTHESIS_MODEL", SYNTHESIS_MODEL_DEFAULT).strip() or SYNTHESIS_MODEL_DEFAULT
 
+        synth_t0 = time.perf_counter()
+        synthesis_outcome = "missing"
         try:
             async with measure(subsystem="council", operation="synthesis", provider="openai"):
                 raw_syn, synth_cost = await asyncio.wait_for(
@@ -717,7 +748,13 @@ async def _run_council_inner(
                     timeout=SYNTHESIS_TIMEOUT_S,
                 )
             synthesis = _parse_synthesis_json(raw_syn, expert_results)
+            synthesis_outcome = "ok"
+            synth_ms = int((time.perf_counter() - synth_t0) * 1000)
+            await get_runtime_metrics().record_synthesis(duration_ms=synth_ms, outcome="ok")
         except (TimeoutError, asyncio.TimeoutError) as e:
+            synth_ms = int((time.perf_counter() - synth_t0) * 1000)
+            await get_runtime_metrics().record_synthesis(duration_ms=synth_ms, outcome="timeout")
+            synthesis_outcome = "timeout"
             log_warning(
                 "council synthesis timed out",
                 subsystem="council",
@@ -728,6 +765,9 @@ async def _run_council_inner(
                 outcome="timeout",
             )
         except Exception as e:
+            synth_ms = int((time.perf_counter() - synth_t0) * 1000)
+            await get_runtime_metrics().record_synthesis(duration_ms=synth_ms, outcome="error")
+            synthesis_outcome = "error"
             log_warning(
                 "council synthesis failed",
                 subsystem="council",
@@ -750,10 +790,34 @@ async def _run_council_inner(
     if synthesis is not None:
         _schedule_background_task(_persist_synthesis_ko(tenant_id, question, synthesis))
     _schedule_background_task(_persist_council_thread_if_needed(tenant_id, thread_id, question, payload))
+    await _record_council_metrics(
+        council_t0=council_t0,
+        expert_results=expert_results,
+        synthesis_outcome=synthesis_outcome,
+    )
     return payload
 
 
+async def _record_council_metrics(
+    *,
+    council_t0: float,
+    expert_results: list[ExpertResult],
+    synthesis_outcome: str,
+) -> None:
+    council_ms = int((time.perf_counter() - council_t0) * 1000)
+    await get_runtime_metrics().record_council_completed(
+        duration_ms=council_ms,
+        synthesis_outcome=synthesis_outcome,
+        experts_ok=sum(1 for e in expert_results if e.outcome == "ok"),
+        experts_degraded=sum(1 for e in expert_results if e.outcome == "degraded"),
+        experts_timeout=sum(1 for e in expert_results if e.outcome == "timeout"),
+        experts_error=sum(1 for e in expert_results if e.outcome == "error"),
+    )
+
+
 async def run_council(question: str, tenant_id: str, *, thread_id: uuid.UUID | None = None) -> dict[str, Any]:
+    emit_council_started()
+    council_t0 = time.perf_counter()
     experts_out: list[list[ExpertResult]] = []
     synthesis_out: list[dict[str, Any] | None] = []
     synth_cost_out: list[float] = []
@@ -795,4 +859,12 @@ async def run_council(question: str, tenant_id: str, *, thread_id: uuid.UUID | N
             synth_cost=synth_cost,
         )
         _schedule_background_task(_persist_council_thread_if_needed(tenant_id, thread_id, question, payload))
+        syn_outcome = "timeout"
+        if synthesis_out and synthesis_out[0] is not None:
+            syn_outcome = "ok"
+        await _record_council_metrics(
+            council_t0=council_t0,
+            expert_results=experts,
+            synthesis_outcome=syn_outcome,
+        )
         return payload
