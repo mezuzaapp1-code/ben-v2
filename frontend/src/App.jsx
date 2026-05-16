@@ -580,9 +580,6 @@ function App() {
                   {m.role === 'assistant' &&
                     m.kind !== 'council_error' &&
                     m.kind !== 'api_error' &&
-                  <div className="bubble-text">{m.content}</div>
-                  {m.role === 'assistant' &&
-                    m.kind !== 'council_error' &&
                     (m.model_used || m.cost_usd !== undefined || m.expert_status) && (
                     <div className="meta">
                       {m.expert_status && <span className="expert-status">{m.expert_status}</span>}

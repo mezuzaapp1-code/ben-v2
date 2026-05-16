@@ -1,33 +1,45 @@
-# BEN STATUS — Conversation Rehydration v1
+# BEN STATUS — Stabilization Checkpoint v1
 
 **Last updated:** 2026-05-16
 
 ## Summary
 
-Branch `feature/conversation-rehydration-v1` adds server-backed threads and frontend reload:
+`main` consolidates recent fix branches (no new features):
 
-- `GET /api/threads`, `GET /api/threads/{id}`
-- Optional `thread_id` on `POST /chat` and `POST /council`
-- Council transcript persisted to `ben.messages` (JSON envelope)
-- Frontend: list on load, `localStorage` active thread, send `thread_id` on follow-up
+| Area | Status |
+|------|--------|
+| Tenant binding | On `main`; prod unsigned smoke **VERIFIED** |
+| Conversation rehydration | On `main`; pytest **VERIFIED** |
+| Council lifecycle recovery | Merged `520da66`; pytest **VERIFIED** |
+| Clerk org recovery | Merged `28d078d`; pytest **VERIFIED** |
+| Sidebar scroll | Merged `72c8ac0` |
+| Gemini Strategy (council) | Prod smoke **VERIFIED** |
+
+**Browser E2E:** pending manual pass (see `docs/TASK_REPORT_STABILIZATION_CHECKPOINT_V1.md`).
 
 ## Verification
 
 ```bash
-python -m pytest tests/test_conversation_rehydration.py tests/test_tenant_binding.py tests/test_council_degraded_honesty.py tests/test_council_gemini_strategy.py tests/test_reasoning_preservation.py -v
+python -m pytest tests/test_clerk_org_recovery.py tests/test_tenant_binding.py tests/test_conversation_rehydration.py tests/test_council_lifecycle.py tests/test_council_gemini_strategy.py tests/test_council_degraded_honesty.py -q
 cd frontend && npm run build
+python scripts/stabilization_smoke_v1.py
+python scripts/probe_vercel_clerk_bundle.py
 ```
 
-**28 pytest passed.** Manual browser refresh test: **pending**.
+**35 pytest passed.** Frontend build **PASS**.
 
-## Risks
+## Risks (snapshot)
 
 | ID | Status |
 |----|--------|
+| R-014 | **PARTIAL** |
+| R-015 | **OPEN** |
+| R-019 | **OPEN** |
 | R-026 | **PARTIAL** |
-| R-027 | **PARTIAL** |
+| R-028 | **PARTIAL** |
+| R-031 | **OPEN** |
 
-Report: `docs/TASK_REPORT_CONVERSATION_REHYDRATION_V1.md`
+Report: `docs/TASK_REPORT_STABILIZATION_CHECKPOINT_V1.md`
 
 ---
 
