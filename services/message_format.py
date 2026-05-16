@@ -4,6 +4,14 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from services.language_context import (
+    LanguageContext,
+    detect_dominant_language,
+    expert_status_label,
+    is_meaningful_reasoning_value,
+    label,
+)
+
 _BEN_PREFIX = '{"ben":'
 
 
@@ -86,7 +94,7 @@ def decode_message(role: str, content: str) -> dict[str, Any]:
             expert = data.get("expert") or "Advisor"
             resp = data.get("response") or ""
             outcome = data.get("outcome") or "ok"
-            label = _expert_status_from_outcome(outcome, resp)
+            label = expert_status_label(detect_dominant_language(resp), outcome, resp)
             display = data.get("display_content") or f"{expert}: {resp}"
             return {
                 "role": "assistant",
@@ -111,30 +119,47 @@ def decode_message(role: str, content: str) -> dict[str, Any]:
     return {"role": "assistant", "content": content}
 
 
-def _expert_status_from_outcome(outcome: str, response: str) -> str | None:
-    if not outcome or outcome == "ok":
-        return None
-    if outcome == "timeout":
-        return "Unavailable: timeout"
-    import re
-
-    m = re.search(r"Expert unavailable \(([^)]+)\)", response or "")
-    if outcome == "degraded" and m:
-        return f"Degraded: {m.group(1)}"
-    if outcome == "error":
-        return "Degraded: error"
-    return f"Degraded: {outcome}"
-
-
-def build_synthesis_display_text(synthesis: dict[str, Any], *, any_expert_failed: bool) -> str:
+def build_synthesis_display_text(
+    synthesis: dict[str, Any],
+    *,
+    any_expert_failed: bool,
+    lang_ctx: LanguageContext | None = None,
+) -> str:
+    ctx = lang_ctx or detect_dominant_language("")
     disagree = synthesis.get("main_disagreement")
-    disagree_s = str(disagree).strip() if disagree is not None and str(disagree).strip() else "None"
+    if is_meaningful_reasoning_value(disagree):
+        disagree_s = str(disagree).strip()
+    else:
+        disagree_s = label(ctx, "disagreement_none")
     ae = synthesis.get("agreement_estimate") or "unknown"
     rec = synthesis.get("recommendation") or ""
     cons = synthesis.get("consensus_points") or ""
-    prefix = "Based on available expert responses.\n\n" if any_expert_failed else ""
+    prefix = f"{label(ctx, 'synthesis_prefix_degraded')}\n\n" if any_expert_failed else ""
+    title = label(ctx, "synthesis_title", ae=ae)
     return (
-        f"{prefix}🧠 BEN Synthesis ({ae})\n{rec}\n\n"
-        f"✅ Consensus: {cons}\n⚡ Disagreement: {disagree_s}\n\n"
-        "This is a structured reasoning layer, not a final answer."
+        f"{prefix}🧠 {title}\n{rec}\n\n"
+        f"✅ {label(ctx, 'consensus')}: {cons}\n"
+        f"⚡ {label(ctx, 'disagreement')}: {disagree_s}\n\n"
+        f"{label(ctx, 'synthesis_footer')}"
     )
+
+
+def prune_empty_synthesis_fields(synthesis: dict[str, Any]) -> dict[str, Any]:
+    """Drop optional reasoning keys that are empty/null so clients do not render placeholders."""
+    out = dict(synthesis)
+    optional = (
+        "shared_recommendation",
+        "disagreement_points",
+        "legal_reasoning",
+        "operational_reasoning",
+        "strategic_reasoning",
+        "infrastructure_reasoning",
+        "minority_or_unique_views",
+    )
+    for key in optional:
+        if key in out and not is_meaningful_reasoning_value(out.get(key)):
+            out.pop(key, None)
+    md = out.get("main_disagreement")
+    if not is_meaningful_reasoning_value(md):
+        out["main_disagreement"] = None
+    return out

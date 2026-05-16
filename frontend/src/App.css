@@ -258,9 +258,29 @@
   color: #e0e2e8;
 }
 
-.bubble-text {
+.bubble-text,
+.bubble-text--ltr,
+.bubble-text--rtl {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.bubble-text--rtl,
+.synthesis-detail-body.bubble-text--rtl {
+  direction: rtl;
+  text-align: right;
+  unicode-bidi: plaintext;
+}
+
+.bubble-text--ltr,
+.synthesis-detail-body.bubble-text--ltr {
+  direction: ltr;
+  text-align: left;
+}
+
+.council-progress[dir='rtl'] {
+  direction: rtl;
+  text-align: right;
 }
 
 .meta {

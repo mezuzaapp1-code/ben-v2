@@ -6,6 +6,11 @@ from sqlalchemy import text
 
 from database.connection import get_db_session
 from database.models import Message, Thread
+from services.language_context import (
+    attach_language_metadata,
+    chat_user_message_with_language,
+    detect_dominant_language,
+)
 from services.message_format import encode_chat_assistant
 from services.model_gateway import route_request
 from services.thread_service import resolve_thread_id
@@ -24,7 +29,8 @@ async def handle_chat(
     title = (message.strip()[:512] or "Chat")[:512]
     tid = await resolve_thread_id(org, thread_id, title=title)
 
-    raw = await route_request(message, tenant_id, tier)
+    lang_ctx = detect_dominant_language(message)
+    raw = await route_request(chat_user_message_with_language(message, lang_ctx), tenant_id, tier)
     resp, model_u, cost = raw.get("content", ""), raw.get("model_used", ""), raw.get("cost_usd", 0.0)
 
     async with get_db_session() as session:
@@ -41,4 +47,7 @@ async def handle_chat(
             ]
         )
         await session.commit()
-    return {"thread_id": str(tid), "response": resp, "model_used": model_u, "cost_usd": cost}
+    return attach_language_metadata(
+        {"thread_id": str(tid), "response": resp, "model_used": model_u, "cost_usd": cost},
+        lang_ctx,
+    )

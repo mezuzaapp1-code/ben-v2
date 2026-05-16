@@ -25,7 +25,17 @@ from services.ops.failure_classification import (
 )
 from services.ops.request_context import attach_request_id, get_request_id
 from services.ops.structured_log import log_warning
-from services.message_format import build_synthesis_display_text
+from services.language_context import (
+    LanguageContext,
+    attach_language_metadata,
+    degraded_expert_message,
+    detect_dominant_language,
+    expert_respond_clause,
+    is_meaningful_reasoning_value,
+    language_context_from_payload,
+    synthesis_system_prompt,
+)
+from services.message_format import build_synthesis_display_text, prune_empty_synthesis_fields
 from services.ops.timing import log_timing, measure
 from services.thread_service import persist_council_transcript, resolve_thread_id
 from services.ops.timeouts import (
@@ -47,24 +57,8 @@ SYNTHESIS_MODEL_DEFAULT = "gpt-4o-mini"
 BUSINESS_MODEL = "gpt-4o"
 GEMINI_MODEL_DEFAULT = "gemini-2.5-flash"
 
-SYNTHESIS_SYSTEM = """You are BEN, a Cognitive Operating System.
-Your job is to synthesize expert opinions into structured organizational reasoning.
-Return ONLY valid JSON. No markdown. No explanations outside the JSON.
-
-Rules — honesty (must always hold):
-- Only count experts with outcome=ok as agreeing experts.
-- Do not claim 3/3 or 2/3 style agreement if any expert timed out or was unavailable.
-- If any expert failed, say in consensus_points that synthesis uses only available experts.
-- agreement_estimate must reflect available experts only (e.g. "2/2 available", "3/3 available", "unknown").
-
-Rules — reasoning preservation (must always hold):
-- Preserve distinct expert lenses. Do NOT collapse Legal, Business/operational, and Strategy into one generic voice.
-- If experts agree on a conclusion but differ on WHY, capture those WHY differences in disagreement_points and/or domain sections.
-- agreement vs rationale: consensus_points = what aligns; disagreement_points = where they diverge (including rationale), without fabricating conflict.
-- Use domain sections to hold domain-specific priorities and risk framing (legal vs operational vs strategic vs infrastructure where relevant).
-- Be faithful: do not invent unanimous consensus when experts emphasized different risks or tradeoffs.
-- minority_or_unique_views: views articulated by one expert or clearly not shared by others (or null).
-- Omit optional keys or set them to null if not applicable."""
+# Backward-compatible marker for tests that detect synthesis calls (content is per-request via synthesis_system_prompt).
+SYNTHESIS_SYSTEM = synthesis_system_prompt(LanguageContext("en", "ltr"))
 
 SYNTHESIS_OPTIONAL_STRING_KEYS = (
     "shared_recommendation",
@@ -119,10 +113,6 @@ def _strategy_gemini_model() -> str:
         or os.getenv("GOOGLE_MODEL", "").strip()
         or GEMINI_MODEL_DEFAULT
     )
-
-
-def _degraded_expert_response(category: str) -> str:
-    return f"Expert unavailable ({category}). Please retry or check configuration."
 
 
 def _category_to_outcome(category: str) -> ExpertOutcome:
@@ -281,7 +271,7 @@ async def _openai_expert(
     return ExpertResult(expert=expert, provider="openai", model=model, outcome="ok", response=text, cost=cost)
 
 
-async def _legal(cx: httpx.AsyncClient, q: str, tenant_id: str) -> ExpertResult:
+async def _legal(cx: httpx.AsyncClient, q: str, tenant_id: str, *, system: str = S_LEGAL) -> ExpertResult:
     k = os.getenv("ANTHROPIC_API_KEY", "").strip()
     model = os.getenv("ANTHROPIC_MODEL", ANTHROPIC_MODEL_DEFAULT).strip() or ANTHROPIC_MODEL_DEFAULT
     if not k:
@@ -307,7 +297,7 @@ async def _legal(cx: httpx.AsyncClient, q: str, tenant_id: str) -> ExpertResult:
             json={
                 "model": model,
                 "max_tokens": 512,
-                "system": S_LEGAL,
+                "system": system,
                 "messages": [{"role": "user", "content": q}],
             },
         )
@@ -354,6 +344,7 @@ async def _safe_expert(
     label: str,
     expert: str,
     model: str,
+    lang_ctx: LanguageContext,
 ) -> ExpertResult:
     t0 = time.perf_counter()
     op = f"expert_{label.lower()}"
@@ -396,7 +387,7 @@ async def _safe_expert(
             provider=provider,
             model=model,
             outcome=outcome,
-            response=_degraded_expert_response(category),
+            response=degraded_expert_message(lang_ctx, category),
             cost=0.0,
         )
 
@@ -520,10 +511,10 @@ def _parse_synthesis_json(raw: str, experts: list[ExpertResult]) -> dict[str, An
         if key == "shared_recommendation":
             continue
         v = _norm_synth_optional_str(pick(key))
-        if v:
+        if v and is_meaningful_reasoning_value(v):
             parsed[key] = v
 
-    return _honest_agreement_estimate(experts, parsed)
+    return prune_empty_synthesis_fields(_honest_agreement_estimate(experts, parsed))
 
 
 async def _persist_synthesis_ko(tenant_id: str, question: str, synthesis: dict[str, Any]) -> None:
@@ -566,6 +557,7 @@ def _build_council_payload(
     experts: list[ExpertResult],
     synthesis: dict[str, Any] | None,
     synth_cost: float,
+    lang_ctx: LanguageContext,
 ) -> dict[str, Any]:
     payload = {
         "question": question,
@@ -573,13 +565,14 @@ def _build_council_payload(
         "synthesis": synthesis,
         "cost_usd": round(sum(e.cost for e in experts) + synth_cost, 6),
     }
+    attach_language_metadata(payload, lang_ctx)
     if get_request_id():
         return attach_request_id(payload)
     return payload
 
 
-def _timeout_degraded_experts() -> list[ExpertResult]:
-    msg = _degraded_expert_response("timeout")
+def _timeout_degraded_experts(lang_ctx: LanguageContext) -> list[ExpertResult]:
+    msg = degraded_expert_message(lang_ctx, "timeout")
     return [
         ExpertResult("Legal Advisor", "anthropic", ANTHROPIC_MODEL_DEFAULT, "timeout", msg, 0.0),
         ExpertResult("Business Advisor", "openai", BUSINESS_MODEL, "timeout", msg, 0.0),
@@ -632,7 +625,12 @@ async def _persist_council_thread_if_needed(
     members = payload.get("council") or []
     synthesis = payload.get("synthesis") if isinstance(payload.get("synthesis"), dict) else None
     any_failed = any((m.get("outcome") or "ok") != "ok" for m in members)
-    display = build_synthesis_display_text(synthesis, any_expert_failed=any_failed) if synthesis else ""
+    lang_ctx = language_context_from_payload(payload)
+    display = (
+        build_synthesis_display_text(synthesis, any_expert_failed=any_failed, lang_ctx=lang_ctx)
+        if synthesis
+        else ""
+    )
     try:
         await persist_council_transcript(
             org_uuid,
@@ -667,6 +665,11 @@ async def _run_council_inner(
     synth_cost_out: list[float],
 ) -> dict[str, Any]:
     """Council body; writes partial state for outer-timeout fallback."""
+    lang_ctx = detect_dominant_language(question)
+    lang_clause = expert_respond_clause(lang_ctx)
+    s_legal = S_LEGAL + lang_clause
+    s_biz = S_BIZ + lang_clause
+    s_strat = S_STRAT + lang_clause
     legal_model = os.getenv("ANTHROPIC_MODEL", ANTHROPIC_MODEL_DEFAULT).strip() or ANTHROPIC_MODEL_DEFAULT
     strategy_model = _strategy_gemini_model()
     timeout = httpx.Timeout(HTTP_CLIENT_TIMEOUT_S)
@@ -674,27 +677,30 @@ async def _run_council_inner(
         expert_results: list[ExpertResult] = list(
             await asyncio.gather(
                 _safe_expert(
-                    lambda: _legal(cx, question, tenant_id),
+                    lambda: _legal(cx, question, tenant_id, system=s_legal),
                     provider="anthropic",
                     label="Legal",
                     expert="Legal Advisor",
                     model=legal_model,
+                    lang_ctx=lang_ctx,
                 ),
                 _safe_expert(
-                    lambda: _openai_expert(cx, BUSINESS_MODEL, S_BIZ, question, tenant_id, expert="Business Advisor"),
+                    lambda: _openai_expert(cx, BUSINESS_MODEL, s_biz, question, tenant_id, expert="Business Advisor"),
                     provider="openai",
                     label="Business",
                     expert="Business Advisor",
                     model=BUSINESS_MODEL,
+                    lang_ctx=lang_ctx,
                 ),
                 _safe_expert(
                     lambda: _gemini_expert(
-                        cx, strategy_model, S_STRAT, question, tenant_id, expert="Strategy Advisor"
+                        cx, strategy_model, s_strat, question, tenant_id, expert="Strategy Advisor"
                     ),
                     provider="google",
                     label="Strategy",
                     expert="Strategy Advisor",
                     model=strategy_model,
+                    lang_ctx=lang_ctx,
                 ),
             )
         )
@@ -710,7 +716,7 @@ async def _run_council_inner(
                     _openai_completion(
                         cx,
                         model_syn,
-                        SYNTHESIS_SYSTEM,
+                        synthesis_system_prompt(lang_ctx),
                         _synthesis_user_prompt(question, expert_results),
                         tenant_id,
                     ),
@@ -746,6 +752,7 @@ async def _run_council_inner(
         experts=expert_results,
         synthesis=synthesis,
         synth_cost=synth_cost,
+        lang_ctx=lang_ctx,
     )
     if synthesis is not None:
         _schedule_background_task(_persist_synthesis_ko(tenant_id, question, synthesis))
@@ -771,6 +778,7 @@ async def run_council(question: str, tenant_id: str, *, thread_id: uuid.UUID | N
             timeout=COUNCIL_TOTAL_TIMEOUT_S,
         )
     except (TimeoutError, asyncio.TimeoutError) as e:
+        lang_ctx = detect_dominant_language(question)
         log_warning(
             "council total timed out",
             subsystem="council",
@@ -785,7 +793,7 @@ async def run_council(question: str, tenant_id: str, *, thread_id: uuid.UUID | N
             synthesis = synthesis_out[0] if synthesis_out else None
             synth_cost = synth_cost_out[0] if synth_cost_out else 0.0
         else:
-            experts = _timeout_degraded_experts()
+            experts = _timeout_degraded_experts(lang_ctx)
             synthesis = None
             synth_cost = 0.0
         payload = _build_council_payload(
@@ -793,6 +801,7 @@ async def run_council(question: str, tenant_id: str, *, thread_id: uuid.UUID | N
             experts=experts,
             synthesis=synthesis,
             synth_cost=synth_cost,
+            lang_ctx=lang_ctx,
         )
         _schedule_background_task(_persist_council_thread_if_needed(tenant_id, thread_id, question, payload))
         return payload

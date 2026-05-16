@@ -1,6 +1,6 @@
 # BEN Risk Register
 
-**Last register review:** 2026-05-16 (Stabilization verification matrix — anonymous browser automated)
+**Last register review:** 2026-05-16 (Language & cognitive consistency v1 — automated only)
 
 **RISK_REGISTER.md changed:** YES
 
@@ -28,6 +28,9 @@
 | R-028 | Council submit can hang or block UI | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **CHANGED** — anonymous council Playwright completes, UI recovers; signed/long-prompt matrix **NOT VERIFIED** | Manual D + fail-path | No | No |
 | R-031 | Clerk org context UX failure (signed-in, no org in JWT) | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **CHANGED** — anonymous: no org banner **VERIFIED**; personal no-org sign-in **NOT VERIFIED** | Manual B; then **FIXED** | No | No |
 | R-032 | Personal vs organization tenant mode ambiguity | Medium | **OPEN** | 2026-05-16 | 2026-05-16 | **NEW** — personal uses deterministic UUID v5 (`user:{sub}`); org uses Clerk `org_id`; plan-based `REQUIRE_ORG` not wired to billing; cross-mode data migration undefined | Document operator playbook; browser matrix post-merge | No | No |
+| R-033 | Multilingual synthesis / agreement language drift | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **NEW** — dominant-language detection + synthesis LANGUAGE CONTRACT; pytest **VERIFIED**; prod LLM compliance + browser Hebrew council **NOT VERIFIED** | Manual Hebrew/English council matrix; spot-check synthesis language | No | No |
+| R-034 | Degraded cognition copy inconsistent across locales | Low–Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **NEW** — localized degraded expert + status labels (en/he/ar); Hebrew timeout pytest **VERIFIED**; full degraded council browser **NOT VERIFIED** | Browser degraded path Hebrew + English | No | No |
+| R-035 | RTL rendering stability (refresh / mixed content) | Low–Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **NEW** — `dir` + `bubble-text--rtl` on bubbles/progress; automated JS smoke **VERIFIED**; refresh persistence RTL **NOT VERIFIED** | Manual refresh after Hebrew council; mixed LTR URLs in RTL bubble | No | No |
 
 ---
 

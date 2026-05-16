@@ -1,4 +1,11 @@
 import { BEN_API_BASE } from '../config.js'
+import {
+  buildSynthesisBubbleText,
+  expertStatusLabel,
+  labelLocale,
+  t,
+} from '../cognitiveLabels.js'
+import { detectDominantLanguage } from '../languageContext.js'
 import { humanizeBenHttpError, parseBenErrorResponse } from './benErrors.js'
 
 export const COUNCIL_CLIENT_TIMEOUT_MS = 35_000
@@ -33,14 +40,15 @@ export function humanizeCouncilHttpError(status, data) {
   return `Council request failed (${status}). You can retry.`
 }
 
-export function humanizeCouncilFetchError(err) {
+export function humanizeCouncilFetchError(err, dominantLanguage = 'en') {
+  const locale = labelLocale(dominantLanguage)
   if (err?.name === 'AbortError') {
-    return 'Council timed out. You can retry.'
+    return t(locale, 'council_timeout')
   }
   if (err instanceof TypeError) {
-    return 'Network error. Check your connection and try again.'
+    return t(locale, 'council_network')
   }
-  return 'Council failed unexpectedly. You can retry.'
+  return t(locale, 'council_failed')
 }
 
 /**
@@ -51,18 +59,21 @@ export function councilResponseToMessages(data, synthesisTextFn) {
   const members = Array.isArray(data.council) ? data.council : []
   const syn = data.synthesis && typeof data.synthesis === 'object' ? data.synthesis : null
   const anyExpertFailed = members.some((c) => c.outcome && c.outcome !== 'ok')
+  const lang = data.dominant_language || detectDominantLanguage(data.question || '').dominant_language
+  const dir = data.text_direction || detectDominantLanguage(data.question || '').text_direction
+  const locale = labelLocale(lang)
+  const meta = { dominant_language: lang, text_direction: dir }
+  const textFn =
+    synthesisTextFn ||
+    ((s, failed) => buildSynthesisBubbleText(s, failed, locale))
   const messages = members.map((c, i) => {
     const name = c.expert || 'Advisor'
     const head = COUNCIL_LABEL[name] || name
     const lastExpert = i === members.length - 1 && !syn
-    let statusLabel = null
-    if (c.outcome && c.outcome !== 'ok') {
-      if (c.outcome === 'timeout') statusLabel = 'Unavailable: timeout'
-      else if (c.outcome === 'degraded') {
-        const m = /Expert unavailable \(([^)]+)\)/.exec(c.response || '')
-        statusLabel = m ? `Degraded: ${m[1]}` : 'Degraded'
-      } else statusLabel = `Degraded: ${c.outcome}`
-    }
+    const statusLabel =
+      c.outcome && c.outcome !== 'ok'
+        ? expertStatusLabel(locale, c.outcome, c.response)
+        : null
     return {
       role: 'assistant',
       content: `${head}: ${c.response ?? ''}`,
@@ -70,6 +81,7 @@ export function councilResponseToMessages(data, synthesisTextFn) {
       expert_outcome: c.outcome ?? 'ok',
       expert_status: statusLabel,
       cost_usd: lastExpert ? data.cost_usd ?? 0 : 0,
+      ...meta,
     }
   })
   if (syn) {
@@ -77,18 +89,20 @@ export function councilResponseToMessages(data, synthesisTextFn) {
       role: 'assistant',
       kind: 'council_synthesis',
       synthesis: syn,
-      content: synthesisTextFn(syn, anyExpertFailed),
+      content: textFn(syn, anyExpertFailed),
       model_used: 'synthesis',
       cost_usd: data.cost_usd ?? 0,
+      ...meta,
     })
   }
   if (messages.length === 0) {
     messages.push({
       role: 'assistant',
       kind: 'council_error',
-      content: 'Council returned no responses. You can retry.',
+      content: t(locale, 'council_empty'),
       model_used: '',
       cost_usd: 0,
+      ...meta,
     })
   }
   return messages

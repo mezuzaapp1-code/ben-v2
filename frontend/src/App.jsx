@@ -16,8 +16,10 @@ import {
 } from './api/council.js'
 import { fetchThreadDetail, fetchThreadList, mapApiMessage, mapThreadFromList } from './api/threads.js'
 import { logCouncilLifecycle } from './councilLifecycleLog.js'
+import { councilPhaseTimers, labelLocale, synthesisSectionLabels, t } from './cognitiveLabels.js'
 import { useBenAuthContext } from './auth/BenAuthContext.jsx'
 import { BEN_API_BASE } from './config.js'
+import { bubbleTextProps, detectDominantLanguage, isMeaningfulReasoningValue } from './languageContext.js'
 import {
   DRAFT_PREFIX,
   getStoredActiveThreadId,
@@ -30,45 +32,18 @@ import './App.css'
 const CHAT_URL = `${BEN_API_BASE}/chat`
 const HAS_CLERK_UI = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim())
 
-const COUNCIL_PHASE_TIMERS = [
-  { at: 0, phase: 'started', message: 'Council started…' },
-  { at: 300, phase: 'experts', message: 'Waiting for Legal, Business, and Strategy…' },
-  { at: 12_000, phase: 'synthesizing', message: 'Synthesizing…' },
-]
 
-const COUNCIL_LABEL = {
-  'Legal Advisor': '⚖️ Legal Advisor',
-  'Business Advisor': '💼 Business Advisor',
-  'Strategy Advisor': '🎯 Strategy Advisor',
-}
-
-function expertStatusLabel(outcome, response) {
-  if (!outcome || outcome === 'ok') return null
-  if (outcome === 'timeout') return 'Unavailable: timeout'
-  const m = /Expert unavailable \(([^)]+)\)/.exec(response || '')
-  if (outcome === 'degraded' && m) return `Degraded: ${m[1]}`
-  if (outcome === 'error') return 'Degraded: error'
-  return `Degraded: ${outcome}`
-}
-
-const SYNTHESIS_REASONING_SECTIONS = [
-  ['shared_recommendation', 'Shared recommendation'],
-  ['disagreement_points', 'Disagreement & rationale'],
-  ['legal_reasoning', 'Legal reasoning'],
-  ['operational_reasoning', 'Operational reasoning'],
-  ['strategic_reasoning', 'Strategic reasoning'],
-  ['infrastructure_reasoning', 'Infrastructure reasoning'],
-  ['minority_or_unique_views', 'Minority or unique views'],
-]
-
-function SynthesisReasoningExtras({ synthesis }) {
-  const blocks = SYNTHESIS_REASONING_SECTIONS.map(([key, label]) => {
+function SynthesisReasoningExtras({ synthesis, locale }) {
+  const blocks = synthesisSectionLabels(locale).map(([key, label]) => {
     const v = synthesis[key]
-    if (v == null || String(v).trim() === '') return null
+    if (!isMeaningfulReasoningValue(v)) return null
+    const textProps = bubbleTextProps(String(v))
     return (
       <details key={key} className="synthesis-detail">
         <summary>{label}</summary>
-        <div className="synthesis-detail-body">{String(v)}</div>
+        <div {...textProps} className={`synthesis-detail-body ${textProps.className}`}>
+          {String(v)}
+        </div>
       </details>
     )
   }).filter(Boolean)
@@ -76,22 +51,11 @@ function SynthesisReasoningExtras({ synthesis }) {
   return <div className="synthesis-reasoning-extras">{blocks}</div>
 }
 
-function councilSynthesisBubbleText(s, anyExpertFailed) {
-  const disagree =
-    s.main_disagreement != null && String(s.main_disagreement).trim() !== ''
-      ? String(s.main_disagreement)
-      : 'None'
-  const ae = s.agreement_estimate ?? 'unknown'
-  const rec = s.recommendation ?? ''
-  const cons = s.consensus_points ?? ''
-  const prefix = anyExpertFailed ? 'Based on available expert responses.\n\n' : ''
-  return `${prefix}🧠 BEN Synthesis (${ae})
-${rec}
-
-✅ Consensus: ${cons}
-⚡ Disagreement: ${disagree}
-
-This is a structured reasoning layer, not a final answer.`
+function messageBubbleTextProps(m) {
+  if (m.text_direction) {
+    return bubbleTextProps(m)
+  }
+  return bubbleTextProps(m.content || '')
 }
 
 function OrgRecoveryBanner({ banner, onDismiss }) {
@@ -145,22 +109,29 @@ function App() {
   const [orgBanner, setOrgBanner] = useState(null)
   const [councilStatus, setCouncilStatus] = useState(null)
   const councilPhaseTimersRef = useRef([])
+  const councilLangRef = useRef('en')
 
   const clearCouncilPhaseTimers = useCallback(() => {
     councilPhaseTimersRef.current.forEach((id) => clearTimeout(id))
     councilPhaseTimersRef.current = []
   }, [])
 
-  const startCouncilPhaseTimers = useCallback(() => {
-    clearCouncilPhaseTimers()
-    COUNCIL_PHASE_TIMERS.forEach(({ at, phase, message }) => {
-      const id = setTimeout(() => {
-        setCouncilStatus({ phase, message })
-        logCouncilLifecycle('council_phase', { phase })
-      }, at)
-      councilPhaseTimersRef.current.push(id)
-    })
-  }, [clearCouncilPhaseTimers])
+  const startCouncilPhaseTimers = useCallback(
+    (questionText) => {
+      const lang = detectDominantLanguage(questionText)
+      councilLangRef.current = lang.dominant_language
+      const locale = labelLocale(lang.dominant_language)
+      clearCouncilPhaseTimers()
+      councilPhaseTimers(locale).forEach(({ at, phase, message }) => {
+        const id = setTimeout(() => {
+          setCouncilStatus({ phase, message, text_direction: lang.text_direction })
+          logCouncilLifecycle('council_phase', { phase })
+        }, at)
+        councilPhaseTimersRef.current.push(id)
+      })
+    },
+    [clearCouncilPhaseTimers]
+  )
 
   const active = useMemo(
     () => threads.find((t) => t.id === activeId) ?? null,
@@ -398,7 +369,14 @@ function App() {
     let tid = activeId
     if (!tid || !threads.some((x) => x.id === tid)) tid = newThread()
     const apiThreadId = serverThreadIdForApi(tid)
-    const userMsg = { role: 'user', content: text }
+    const lang = detectDominantLanguage(text)
+    const locale = labelLocale(lang.dominant_language)
+    const userMsg = {
+      role: 'user',
+      content: text,
+      dominant_language: lang.dominant_language,
+      text_direction: lang.text_direction,
+    }
     setInput('')
     setThreads((prev) =>
       prev.map((t) =>
@@ -409,8 +387,12 @@ function App() {
     logCouncilLifecycle('council_submit_started', {
       hasThreadId: Boolean(apiThreadId),
     })
-    setCouncilStatus({ phase: 'started', message: 'Council started…' })
-    startCouncilPhaseTimers()
+    setCouncilStatus({
+      phase: 'started',
+      message: t(locale, 'council_started'),
+      text_direction: lang.text_direction,
+    })
+    startCouncilPhaseTimers(text)
 
     const controller = new AbortController()
     const abortTimer = setTimeout(() => controller.abort(), COUNCIL_CLIENT_TIMEOUT_MS)
@@ -460,7 +442,7 @@ function App() {
       }
 
       setOrgBanner(null)
-      const extras = councilResponseToMessages(data, councilSynthesisBubbleText)
+      const extras = councilResponseToMessages(data)
       applyCouncilMessages(tid, extras, apiThreadId)
       logCouncilLifecycle('council_render_completed', { messageCount: extras.length })
 
@@ -486,7 +468,7 @@ function App() {
         })()
       }
     } catch (e) {
-      const errText = humanizeCouncilFetchError(e)
+      const errText = humanizeCouncilFetchError(e, councilLangRef.current)
       logCouncilLifecycle('council_submit_failed', {
         reason: e?.name || 'error',
       })
@@ -551,7 +533,12 @@ function App() {
             <div className="hydrate-hint">Loading conversations…</div>
           ) : null}
           {councilStatus ? (
-            <div className="council-progress" role="status" aria-live="polite">
+            <div
+              className="council-progress"
+              role="status"
+              aria-live="polite"
+              dir={councilStatus.text_direction === 'rtl' ? 'rtl' : 'ltr'}
+            >
               {councilStatus.message}
             </div>
           ) : null}
@@ -562,8 +549,11 @@ function App() {
             >
               {m.kind === 'council_synthesis' && m.synthesis ? (
                 <div className="bubble synthesis">
-                  <div className="bubble-text">{m.content}</div>
-                  <SynthesisReasoningExtras synthesis={m.synthesis} />
+                  <div {...messageBubbleTextProps(m)}>{m.content}</div>
+                  <SynthesisReasoningExtras
+                    synthesis={m.synthesis}
+                    locale={labelLocale(m.dominant_language)}
+                  />
                   {(m.model_used || m.cost_usd !== undefined) && (
                     <div className="meta">
                       {m.model_used && <span>{m.model_used}</span>}
@@ -576,7 +566,7 @@ function App() {
                 <div
                   className={`bubble ${m.role}${m.kind === 'council_error' ? ' council-error' : ''}${m.kind === 'api_error' ? ' api-error' : ''}`}
                 >
-                  <div className="bubble-text">{m.content}</div>
+                  <div {...messageBubbleTextProps(m)}>{m.content}</div>
                   {m.role === 'assistant' &&
                     m.kind !== 'council_error' &&
                     m.kind !== 'api_error' &&

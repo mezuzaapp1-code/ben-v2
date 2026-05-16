@@ -105,6 +105,8 @@ async def test_happy_path_all_experts_ok():
         ), patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
             out = await run_council("Launch Q2?", TENANT)
 
+    assert out.get("dominant_language") == "en"
+    assert out.get("text_direction") == "ltr"
     assert len(out["council"]) == 3
     for m in out["council"]:
         assert m["outcome"] == "ok"
@@ -156,3 +158,20 @@ async def test_invalid_anthropic_model_degraded():
     assert legal["outcome"] in ("degraded", "error")
     assert legal["outcome"] != "ok"
     assert "Expert unavailable" in legal["response"]
+
+
+@pytest.mark.asyncio
+async def test_hebrew_council_language_metadata_and_degraded_timeout():
+    with patch.object(httpx.AsyncClient, "post", new=_make_post(legal_mode="timeout")):
+        with patch(
+            "services.council_service._persist_council_thread_if_needed",
+            new=lambda *a, **k: asyncio.sleep(0),
+        ), patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
+            out = await run_council("מה הסיכון המשפטי בהסכם עם הספק?", TENANT)
+
+    assert out["dominant_language"] == "he"
+    assert out["text_direction"] == "rtl"
+    legal = next(m for m in out["council"] if m["expert"] == "Legal Advisor")
+    assert legal["outcome"] == "timeout"
+    assert "פסק זמן" in legal["response"]
+    assert "Expert unavailable" not in legal["response"]
