@@ -1,6 +1,12 @@
-import { SignInButton, SignOutButton, useAuth } from '@clerk/clerk-react'
+import { OrganizationSwitcher, SignInButton, SignOutButton, useAuth } from '@clerk/clerk-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { buildBenHeaders } from './api/benHeaders.js'
+import {
+  CLERK_ORG_REQUIRED,
+  humanizeBenHttpError,
+  parseBenErrorResponse,
+  readJsonResponse,
+} from './api/benErrors.js'
 import { fetchThreadDetail, fetchThreadList, mapApiMessage, mapThreadFromList } from './api/threads.js'
 import { useBenAuthContext } from './auth/BenAuthContext.jsx'
 import { BEN_API_BASE } from './config.js'
@@ -75,17 +81,35 @@ ${rec}
 This is a structured reasoning layer, not a final answer.`
 }
 
+function OrgRecoveryBanner({ banner, onDismiss }) {
+  if (!banner) return null
+  return (
+    <div className="org-recovery-banner" role="alert">
+      <p className="org-recovery-title">{banner.message}</p>
+      {banner.hint ? <p className="org-recovery-hint">{banner.hint}</p> : null}
+      {onDismiss ? (
+        <button type="button" className="org-recovery-dismiss" onClick={onDismiss}>
+          Dismiss
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 function ClerkAuthControls() {
   const { isSignedIn } = useAuth()
   if (!HAS_CLERK_UI) return null
   return (
     <div className="auth-controls">
       {isSignedIn ? (
-        <SignOutButton>
-          <button type="button" className="auth-btn">
-            Sign out
-          </button>
-        </SignOutButton>
+        <>
+          <OrganizationSwitcher hidePersonal />
+          <SignOutButton>
+            <button type="button" className="auth-btn">
+              Sign out
+            </button>
+          </SignOutButton>
+        </>
       ) : (
         <SignInButton mode="modal">
           <button type="button" className="auth-btn">
@@ -105,6 +129,7 @@ function App() {
   const [tier, setTier] = useState('free')
   const [loading, setLoading] = useState(false)
   const [hydrating, setHydrating] = useState(true)
+  const [orgBanner, setOrgBanner] = useState(null)
 
   const active = useMemo(
     () => threads.find((t) => t.id === activeId) ?? null,
@@ -163,16 +188,33 @@ function App() {
         if (active && isPersistedThreadId(active)) {
           await loadThreadMessages(active)
         }
-      } catch {
+      } catch (e) {
         if (!cancelled) {
-          const stored = getStoredActiveThreadId()
-          if (stored && isPersistedThreadId(stored)) {
-            setActiveId(stored)
-            setThreads([{ id: stored, title: 'Conversation', messages: [], loaded: false }])
-            try {
-              await loadThreadMessages(stored)
-            } catch {
-              /* empty */
+          if (e.parsed?.code === CLERK_ORG_REQUIRED) {
+            setOrgBanner({ message: e.parsed.message, hint: e.parsed.hint })
+            const stored = getStoredActiveThreadId()
+            if (stored) {
+              setActiveId(stored)
+              setThreads((prev) => {
+                if (prev.some((t) => t.id === stored)) return prev
+                return [{ id: stored, title: 'Conversation', messages: [], loaded: false }, ...prev]
+              })
+            }
+          } else {
+            const stored = getStoredActiveThreadId()
+            if (stored && isPersistedThreadId(stored)) {
+              setActiveId(stored)
+              setThreads((prev) => {
+                if (prev.some((t) => t.id === stored)) return prev
+                return [{ id: stored, title: 'Conversation', messages: [], loaded: false }, ...prev]
+              })
+              try {
+                await loadThreadMessages(stored)
+              } catch (inner) {
+                if (inner.parsed?.code === CLERK_ORG_REQUIRED) {
+                  setOrgBanner({ message: inner.parsed.message, hint: inner.parsed.hint })
+                }
+              }
             }
           }
         }
@@ -219,10 +261,38 @@ function App() {
           ...(apiThreadId ? { thread_id: apiThreadId } : {}),
         }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await readJsonResponse(res)
+      if (!res.ok) {
+        const parsed = parseBenErrorResponse(res.status, data)
+        if (parsed?.code === CLERK_ORG_REQUIRED) {
+          setOrgBanner({ message: parsed.message, hint: parsed.hint })
+          return
+        }
+        setThreads((prev) =>
+          prev.map((t) =>
+            t.id === tid
+              ? {
+                  ...t,
+                  messages: [
+                    ...t.messages,
+                    {
+                      role: 'assistant',
+                      kind: 'api_error',
+                      content: humanizeBenHttpError(res.status, data),
+                      model_used: '',
+                      cost_usd: 0,
+                    },
+                  ],
+                }
+              : t
+          )
+        )
+        return
+      }
+      setOrgBanner(null)
       const assistant = {
         role: 'assistant',
-        content: data.response ?? JSON.stringify(data),
+        content: data.response ?? '',
         model_used: data.model_used ?? '',
         cost_usd: data.cost_usd ?? 0,
       }
@@ -247,6 +317,7 @@ function App() {
         setStoredActiveThreadId(serverTid)
       }
     } catch (e) {
+      const msg = e?.message || 'Chat failed. You can retry.'
       setThreads((prev) =>
         prev.map((t) =>
           t.id === tid
@@ -254,7 +325,7 @@ function App() {
                 ...t,
                 messages: [
                   ...t.messages,
-                  { role: 'assistant', content: String(e), model_used: '', cost_usd: 0 },
+                  { role: 'assistant', kind: 'api_error', content: msg, model_used: '', cost_usd: 0 },
                 ],
               }
             : t
@@ -289,7 +360,35 @@ function App() {
           ...(apiThreadId ? { thread_id: apiThreadId } : {}),
         }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await readJsonResponse(res)
+      if (!res.ok) {
+        const parsed = parseBenErrorResponse(res.status, data)
+        if (parsed?.code === CLERK_ORG_REQUIRED) {
+          setOrgBanner({ message: parsed.message, hint: parsed.hint })
+          return
+        }
+        setThreads((prev) =>
+          prev.map((t) =>
+            t.id === tid
+              ? {
+                  ...t,
+                  messages: [
+                    ...t.messages,
+                    {
+                      role: 'assistant',
+                      kind: 'api_error',
+                      content: humanizeBenHttpError(res.status, data),
+                      model_used: '',
+                      cost_usd: 0,
+                    },
+                  ],
+                }
+              : t
+          )
+        )
+        return
+      }
+      setOrgBanner(null)
       const members = Array.isArray(data.council) ? data.council : []
       const syn = data.synthesis && typeof data.synthesis === 'object' ? data.synthesis : null
       const anyExpertFailed = members.some((c) => c.outcome && c.outcome !== 'ok')
@@ -323,8 +422,10 @@ function App() {
           const listData = await fetchThreadList(headers)
           const latest = listData.threads?.[0]
           if (latest?.id) resolvedId = latest.id
-        } catch {
-          /* UI still has in-memory messages */
+        } catch (inner) {
+          if (inner.parsed?.code === CLERK_ORG_REQUIRED) {
+            setOrgBanner({ message: inner.parsed.message, hint: inner.parsed.hint })
+          }
         }
       }
       setThreads((prev) => {
@@ -350,12 +451,16 @@ function App() {
         setStoredActiveThreadId(resolvedId)
       }
     } catch (e) {
+      const msg = e?.message || 'Council failed. You can retry.'
       setThreads((prev) =>
         prev.map((t) =>
           t.id === tid
             ? {
                 ...t,
-                messages: [...t.messages, { role: 'assistant', content: String(e), model_used: '', cost_usd: 0 }],
+                messages: [
+                  ...t.messages,
+                  { role: 'assistant', kind: 'api_error', content: msg, model_used: '', cost_usd: 0 },
+                ],
               }
             : t
         )
@@ -388,6 +493,7 @@ function App() {
         </ul>
       </aside>
       <main className="main">
+        <OrgRecoveryBanner banner={orgBanner} onDismiss={() => setOrgBanner(null)} />
         <div className="messages">
           {hydrating && threads.length === 0 ? (
             <div className="hydrate-hint">Loading conversations…</div>
@@ -410,7 +516,7 @@ function App() {
                   )}
                 </div>
               ) : (
-                <div className={`bubble ${m.role}`}>
+                <div className={`bubble ${m.role}${m.kind === 'api_error' ? ' api-error' : ''}`}>
                   <div className="bubble-text">{m.content}</div>
                   {m.role === 'assistant' && (m.model_used || m.cost_usd !== undefined || m.expert_status) && (
                     <div className="meta">

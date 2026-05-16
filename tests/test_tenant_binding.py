@@ -176,7 +176,7 @@ def test_enforce_auth_invalid_jwt_401(monkeypatch):
     assert r.status_code == 401
 
 
-def test_jwt_missing_org_returns_400(monkeypatch):
+def test_jwt_missing_org_returns_403_structured(monkeypatch):
     def no_org(*_a, **_k):
         return {"sub": "usr", "email": "e@e.com", "org_id": None}
 
@@ -188,7 +188,8 @@ def test_jwt_missing_org_returns_400(monkeypatch):
                     json={"message": "hi", "tier": "free"},
                     headers={"Authorization": "Bearer tok"},
                 )
-    assert r.status_code == 400
+    assert r.status_code == 403
+    assert r.json()["detail"]["code"] == "clerk_org_required"
 
 
 @pytest.mark.asyncio

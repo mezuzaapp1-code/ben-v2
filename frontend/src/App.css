@@ -36,6 +36,50 @@
 
 .auth-controls {
   margin-bottom: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.org-recovery-banner {
+  margin: 0.75rem 1rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid #4a3a1a;
+  background: #1a1608;
+  border-radius: 8px;
+  color: #e8d4a8;
+}
+
+.org-recovery-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.org-recovery-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #b8a070;
+}
+
+.org-recovery-dismiss {
+  margin-top: 0.5rem;
+  background: transparent;
+  border: 1px solid #4a3a1a;
+  color: #c9b07a;
+  border-radius: 6px;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.bubble.api-error {
+  border-color: #5a3030;
+  background: #1a1010;
+}
+
+.bubble.api-error .bubble-text {
+  color: #e8b0b0;
 }
 
 .auth-btn {

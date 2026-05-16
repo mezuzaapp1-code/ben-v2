@@ -1,15 +1,26 @@
+import { humanizeBenHttpError, parseBenErrorResponse, readJsonResponse } from './benErrors.js'
 import { BEN_API_BASE } from '../config.js'
+
+function enrichFetchError(res, data) {
+  const err = new Error(humanizeBenHttpError(res.status, data))
+  err.status = res.status
+  err.data = data
+  err.parsed = parseBenErrorResponse(res.status, data)
+  return err
+}
 
 export async function fetchThreadList(headers) {
   const res = await fetch(`${BEN_API_BASE}/api/threads`, { headers })
-  if (!res.ok) throw new Error(`threads list ${res.status}`)
-  return res.json()
+  const data = await readJsonResponse(res)
+  if (!res.ok) throw enrichFetchError(res, data)
+  return data
 }
 
 export async function fetchThreadDetail(threadId, headers) {
   const res = await fetch(`${BEN_API_BASE}/api/threads/${encodeURIComponent(threadId)}`, { headers })
-  if (!res.ok) throw new Error(`thread ${res.status}`)
-  return res.json()
+  const data = await readJsonResponse(res)
+  if (!res.ok) throw enrichFetchError(res, data)
+  return data
 }
 
 export function mapApiMessage(m) {

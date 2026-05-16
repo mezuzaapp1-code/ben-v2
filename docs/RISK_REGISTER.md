@@ -1,6 +1,6 @@
 # BEN Risk Register
 
-**Last register review:** 2026-05-16 (Conversation rehydration v1 — branch, not merged)
+**Last register review:** 2026-05-16 (Clerk org context recovery v1 — branch, not merged)
 
 **RISK_REGISTER.md changed:** YES
 
@@ -23,8 +23,9 @@
 | R-023 | Gemini Strategy Advisor operational variability | Low–Medium | **PARTIAL** | 2026-05-15 | 2026-05-15 | **CHANGED** — prod Strategy `google`/`gemini-2.5-flash`/`ok` **VERIFIED**; `gemini-1.5-flash` **FAIL** (retired) | Pin `GEMINI_MODEL=gemini-2.5-flash` on Railway | No | No |
 | R-024 | Council synthesis compresses distinct expert reasoning | Medium | OPEN | 2026-05-15 | 2026-05-15 | **NEW** — optional `legal_reasoning`/`strategic_reasoning`/etc.; pytest **NOT PROD VERIFIED** until merge | Merge `feature/reasoning-preservation-v1` + prod spot-check | No | No |
 | R-025 | Legal Advisor (Anthropic) timeout variability under heavier prompts | Medium | OPEN | 2026-05-15 | 2026-05-15 | **NEW** — prod short prompt 0/5 Legal timeout; ~3.4k char prompt 1/2 Legal `timeout`; `claude-sonnet-4-6` **VERIFIED** ok when fast enough | Tail logs (`provider_anthropic` duration); optional Haiku eval; prompt bounding; **not FIXED** | No | No |
-| R-026 | Conversation continuity / refresh rehydration | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **NEW** — `GET /api/threads`, `thread_id` on chat/council, frontend localStorage + load; pytest **VERIFIED**; browser refresh E2E **NOT VERIFIED** | Manual refresh test; then consider **FIXED** | No | No |
+| R-026 | Conversation continuity / refresh rehydration | Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **CHANGED** — rehydration keeps local thread on `clerk_org_required` (banner, no wipe); pytest **VERIFIED**; browser refresh E2E **NOT VERIFIED** | Manual refresh + org-missing hydrate test | No | No |
 | R-027 | Council transcript persistence incomplete vs KO | Low–Medium | **PARTIAL** | 2026-05-16 | 2026-05-16 | **NEW** — council rows in `messages` with expert metadata; `knowledge_objects` synthesis still parallel; draft thread links via list heuristic | Document dual-store; optional unify later | No | No |
+| R-031 | Clerk org context UX failure (signed-in, no org in JWT) | Medium | **OPEN** | 2026-05-16 | 2026-05-16 | **NEW** — structured 403 `clerk_org_required`, frontend banner + `OrganizationSwitcher`, pytest **VERIFIED**; **browser/prod NOT VERIFIED** | Manual: sign in without active org → banner, no raw JSON, retry after org select; then **FIXED** | No | No |
 
 ---
 
