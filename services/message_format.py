@@ -31,35 +31,54 @@ def encode_council_expert(
     model: str,
     outcome: str,
     cost_usd: float = 0.0,
+    room_id: str | None = None,
+    question_id: str | None = None,
+    expert_index: int | None = None,
 ) -> str:
     head = COUNCIL_DISPLAY_LABEL.get(expert, expert)
-    return json.dumps(
-        {
-            "ben": 1,
-            "kind": "council_expert",
-            "expert": expert,
-            "response": response,
-            "display_content": f"{head}: {response}",
-            "provider": provider,
-            "model": model,
-            "outcome": outcome,
-            "cost_usd": cost_usd,
-        },
-        ensure_ascii=False,
-    )
+    payload: dict[str, Any] = {
+        "ben": 1,
+        "kind": "council_expert",
+        "expert": expert,
+        "response": response,
+        "display_content": f"{head}: {response}",
+        "provider": provider,
+        "model": model,
+        "outcome": outcome,
+        "cost_usd": cost_usd,
+    }
+    if room_id:
+        payload["room_id"] = room_id
+    if question_id:
+        payload["question_id"] = question_id
+    if expert_index is not None:
+        payload["expert_index"] = expert_index
+    return json.dumps(payload, ensure_ascii=False)
 
 
-def encode_council_synthesis(*, synthesis: dict[str, Any], cost_usd: float, display_text: str) -> str:
-    return json.dumps(
-        {
-            "ben": 1,
-            "kind": "council_synthesis",
-            "synthesis": synthesis,
-            "cost_usd": cost_usd,
-            "display_text": display_text,
-        },
-        ensure_ascii=False,
-    )
+def encode_council_synthesis(
+    *,
+    synthesis: dict[str, Any],
+    cost_usd: float,
+    display_text: str,
+    room_id: str | None = None,
+    question_id: str | None = None,
+    room_status: str | None = None,
+) -> str:
+    payload: dict[str, Any] = {
+        "ben": 1,
+        "kind": "council_synthesis",
+        "synthesis": synthesis,
+        "cost_usd": cost_usd,
+        "display_text": display_text,
+    }
+    if room_id:
+        payload["room_id"] = room_id
+    if question_id:
+        payload["question_id"] = question_id
+    if room_status:
+        payload["room_status"] = room_status
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def decode_message(role: str, content: str) -> dict[str, Any]:
@@ -88,7 +107,7 @@ def decode_message(role: str, content: str) -> dict[str, Any]:
             outcome = data.get("outcome") or "ok"
             label = _expert_status_from_outcome(outcome, resp)
             display = data.get("display_content") or f"{expert}: {resp}"
-            return {
+            out: dict[str, Any] = {
                 "role": "assistant",
                 "content": display,
                 "model_used": data.get("model") or "",
@@ -96,10 +115,17 @@ def decode_message(role: str, content: str) -> dict[str, Any]:
                 "expert_status": label,
                 "cost_usd": float(data.get("cost_usd") or 0),
             }
+            if data.get("room_id"):
+                out["room_id"] = data.get("room_id")
+            if data.get("question_id"):
+                out["question_id"] = data.get("question_id")
+            if data.get("expert_index") is not None:
+                out["expert_index"] = data.get("expert_index")
+            return out
         if kind == "council_synthesis":
             syn = data.get("synthesis")
             if isinstance(syn, dict):
-                return {
+                out_syn: dict[str, Any] = {
                     "role": "assistant",
                     "kind": "council_synthesis",
                     "synthesis": syn,
@@ -107,6 +133,13 @@ def decode_message(role: str, content: str) -> dict[str, Any]:
                     "model_used": "synthesis",
                     "cost_usd": float(data.get("cost_usd") or 0),
                 }
+                if data.get("room_id"):
+                    out_syn["room_id"] = data.get("room_id")
+                if data.get("question_id"):
+                    out_syn["question_id"] = data.get("question_id")
+                if data.get("room_status"):
+                    out_syn["room_status"] = data.get("room_status")
+                return out_syn
 
     return {"role": "assistant", "content": content}
 

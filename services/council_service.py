@@ -25,6 +25,7 @@ from services.ops.failure_classification import (
 )
 from services.ops.request_context import attach_request_id, get_request_id
 from services.ops.structured_log import log_warning
+from services.council_room import CouncilRoom, RoomMember
 from services.message_format import build_synthesis_display_text
 from services.ops.idempotency import get_idempotency_registry, get_idempotency_store_key
 from services.ops.runtime_diagnostics import (
@@ -427,7 +428,19 @@ async def _safe_expert(
         )
 
 
-def _expert_line_for_synthesis(member: ExpertResult) -> str:
+def _expert_result_to_room_member(result: ExpertResult, expert_index: int) -> RoomMember:
+    return RoomMember(
+        expert=result.expert,
+        provider=result.provider,
+        model=result.model,
+        outcome=result.outcome,
+        response=result.response,
+        expert_index=expert_index,
+        cost=result.cost,
+    )
+
+
+def _expert_line_for_room_member(member: RoomMember) -> str:
     icon = {"Legal Advisor": "⚖️", "Business Advisor": "💼", "Strategy Advisor": "🎯"}.get(member.expert, "•")
     if member.outcome == "ok":
         return f"{icon} {member.expert} (outcome=ok): {member.response}"
@@ -437,11 +450,11 @@ def _expert_line_for_synthesis(member: ExpertResult) -> str:
     )
 
 
-def _synthesis_user_prompt(question: str, experts: list[ExpertResult]) -> str:
-    lines = "\n".join(_expert_line_for_synthesis(e) for e in experts)
-    ok_count = sum(1 for e in experts if e.outcome == "ok")
-    return f"""Experts responded to this question ({ok_count} of {len(experts)} with outcome=ok):
-Question: {question}
+def _synthesis_user_prompt(room: CouncilRoom) -> str:
+    lines = "\n".join(_expert_line_for_room_member(m) for m in room.members)
+    ok_count = sum(1 for m in room.members if m.outcome == "ok")
+    return f"""Experts responded to this question ({ok_count} of {len(room.members)} with outcome=ok):
+Question: {room.question_text}
 
 {lines}
 
@@ -600,15 +613,15 @@ async def _persist_synthesis_ko(tenant_id: str, question: str, synthesis: dict[s
 def _build_council_payload(
     question: str,
     *,
-    experts: list[ExpertResult],
-    synthesis: dict[str, Any] | None,
+    room: CouncilRoom,
     synth_cost: float,
 ) -> dict[str, Any]:
     payload = {
         "question": question,
-        "council": [e.to_member() for e in experts],
-        "synthesis": synthesis,
-        "cost_usd": round(sum(e.cost for e in experts) + synth_cost, 6),
+        "council": room.to_council_members(),
+        "synthesis": room.synthesis,
+        "cost_usd": round(sum(m.cost for m in room.members) + synth_cost, 6),
+        "room": room.to_http_room(),
     }
     if get_request_id():
         return attach_request_id(payload)
@@ -676,6 +689,10 @@ async def _persist_council_thread_if_needed(
     synthesis = payload.get("synthesis") if isinstance(payload.get("synthesis"), dict) else None
     any_failed = any((m.get("outcome") or "ok") != "ok" for m in members)
     display = build_synthesis_display_text(synthesis, any_expert_failed=any_failed) if synthesis else ""
+    room_block = payload.get("room") if isinstance(payload.get("room"), dict) else {}
+    room_id = str(room_block.get("id") or "").strip() or None
+    question_id = str(room_block.get("question_id") or "").strip() or None
+    room_status = str(room_block.get("status") or "").strip() or None
     try:
         await persist_council_transcript(
             org_uuid,
@@ -685,6 +702,9 @@ async def _persist_council_thread_if_needed(
             synthesis=synthesis,
             total_cost_usd=float(payload.get("cost_usd") or 0),
             synthesis_display_text=display,
+            room_id=room_id,
+            question_id=question_id,
+            room_status=room_status,
         )
         await reg.mark_persisted(store_key, "council_transcript")
         return tid
@@ -711,12 +731,14 @@ async def _run_council_inner(
     tenant_id: str,
     *,
     thread_id: uuid.UUID | None = None,
+    room: CouncilRoom,
     experts_out: list[list[ExpertResult]],
     synthesis_out: list[dict[str, Any] | None],
     synth_cost_out: list[float],
 ) -> dict[str, Any]:
     """Council body; writes partial state for outer-timeout fallback."""
     council_t0 = time.perf_counter()
+    room.mark_experts_running()
     legal_model = os.getenv("ANTHROPIC_MODEL", ANTHROPIC_MODEL_DEFAULT).strip() or ANTHROPIC_MODEL_DEFAULT
     strategy_model = _strategy_gemini_model()
     timeout = httpx.Timeout(HTTP_CLIENT_TIMEOUT_S)
@@ -749,6 +771,9 @@ async def _run_council_inner(
             )
         )
         experts_out.append(expert_results)
+        for i, result in enumerate(expert_results):
+            room.add_member(_expert_result_to_room_member(result, i))
+        room.mark_experts_complete()
 
         synthesis: dict[str, Any] | None = None
         synth_cost = 0.0
@@ -756,6 +781,7 @@ async def _run_council_inner(
 
         synth_t0 = time.perf_counter()
         synthesis_outcome = "missing"
+        room.mark_synthesizing()
         try:
             async with measure(subsystem="council", operation="synthesis", provider="openai"):
                 raw_syn, synth_cost = await asyncio.wait_for(
@@ -763,7 +789,7 @@ async def _run_council_inner(
                         cx,
                         model_syn,
                         SYNTHESIS_SYSTEM,
-                        _synthesis_user_prompt(question, expert_results),
+                        _synthesis_user_prompt(room),
                         tenant_id,
                     ),
                     timeout=SYNTHESIS_TIMEOUT_S,
@@ -802,10 +828,12 @@ async def _run_council_inner(
         synthesis_out.append(synthesis)
         synth_cost_out.append(synth_cost)
 
+    room.attach_synthesis(synthesis)
+    room.finalize_status()
+
     payload = _build_council_payload(
         question,
-        experts=expert_results,
-        synthesis=synthesis,
+        room=room,
         synth_cost=synth_cost,
     )
     if synthesis is not None:
@@ -840,6 +868,7 @@ async def run_council(question: str, tenant_id: str, *, thread_id: uuid.UUID | N
     emit_council_started()
     emit_runtime_event(COUNCIL_RUNNING, route="/council", outcome="running")
     council_t0 = time.perf_counter()
+    room = CouncilRoom.create(question=question, thread_id=thread_id)
     experts_out: list[list[ExpertResult]] = []
     synthesis_out: list[dict[str, Any] | None] = []
     synth_cost_out: list[float] = []
@@ -850,6 +879,7 @@ async def run_council(question: str, tenant_id: str, *, thread_id: uuid.UUID | N
                 question,
                 tenant_id,
                 thread_id=thread_id,
+                room=room,
                 experts_out=experts_out,
                 synthesis_out=synthesis_out,
                 synth_cost_out=synth_cost_out,
@@ -874,10 +904,15 @@ async def run_council(question: str, tenant_id: str, *, thread_id: uuid.UUID | N
             experts = _timeout_degraded_experts()
             synthesis = None
             synth_cost = 0.0
+        if not room.members:
+            for i, expert in enumerate(experts):
+                room.add_member(_expert_result_to_room_member(expert, i))
+            room.mark_experts_complete()
+        room.attach_synthesis(synthesis)
+        room.finalize_status()
         payload = _build_council_payload(
             question,
-            experts=experts,
-            synthesis=synthesis,
+            room=room,
             synth_cost=synth_cost,
         )
         await _persist_council_thread_if_needed(tenant_id, thread_id, question, payload)

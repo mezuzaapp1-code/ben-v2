@@ -130,6 +130,9 @@ async def persist_council_transcript(
     synthesis: dict[str, Any] | None,
     total_cost_usd: float,
     synthesis_display_text: str,
+    room_id: str | None = None,
+    question_id: str | None = None,
+    room_status: str | None = None,
 ) -> None:
     """Append user question + council expert rows + optional synthesis to thread."""
     async with get_db_session() as session:
@@ -156,6 +159,8 @@ async def persist_council_transcript(
             resp = str(m.get("response") or "")
             is_last = i == len(council_members) - 1 and synthesis is None
             cost = total_cost_usd if is_last else 0.0
+            idx = m.get("expert_index")
+            expert_index = int(idx) if idx is not None else i
             to_add.append(
                 Message(
                     org_id=org_id,
@@ -168,6 +173,9 @@ async def persist_council_transcript(
                         model=str(m.get("model") or ""),
                         outcome=str(m.get("outcome") or "ok"),
                         cost_usd=cost if not synthesis else 0.0,
+                        room_id=room_id,
+                        question_id=question_id,
+                        expert_index=expert_index,
                     ),
                 )
             )
@@ -181,6 +189,9 @@ async def persist_council_transcript(
                         synthesis=synthesis,
                         cost_usd=total_cost_usd,
                         display_text=synthesis_display_text,
+                        room_id=room_id,
+                        question_id=question_id,
+                        room_status=room_status,
                     ),
                 )
             )
