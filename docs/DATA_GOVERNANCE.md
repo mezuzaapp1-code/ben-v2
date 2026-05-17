@@ -6,6 +6,20 @@ This document complements `docs/BEN_RUNTIME_CONTRACTS.md` and `docs/BEN_SYSTEM_M
 
 ---
 
+## Council Durability Contract (normative)
+
+**Council Durability Contract:**
+
+- Tier-1 store: `ben.messages` / thread transcript.
+- Tier-1 transcript persistence must complete before `/council` returns HTTP 200.
+- HTTP 200 from `/council` means thread reload via `GET /api/threads/{thread_id}` is valid.
+- Transcript persistence failure must return **503** `council_persistence_failed` and release idempotency for retry.
+- Tier-2 store: `ben.knowledge_objects` / synthesis KO.
+- KO persistence is best-effort background work.
+- KO failure must not block `/council` HTTP 200 if Tier-1 transcript persistence succeeded.
+
+---
+
 ## 1. Persistence ownership map
 
 | Data | Store | Tenant key | Thread scope | Notes |

@@ -170,6 +170,18 @@ Do not mark **R-019** / observability risks **FIXED** until browser verification
 
 ## 10. Persistence Integrity & Data Governance (v1)
 
+### 10.0 Council Durability Contract (normative)
+
+**Council Durability Contract:**
+
+- Tier-1 store: `ben.messages` / thread transcript.
+- Tier-1 transcript persistence must complete before `/council` returns HTTP 200.
+- HTTP 200 from `/council` means thread reload via `GET /api/threads/{thread_id}` is valid.
+- Transcript persistence failure must return **503** `council_persistence_failed` and release idempotency for retry.
+- Tier-2 store: `ben.knowledge_objects` / synthesis KO.
+- KO persistence is best-effort background work.
+- KO failure must not block `/council` HTTP 200 if Tier-1 transcript persistence succeeded.
+
 ### 10.1 Ownership boundaries
 
 See `docs/DATA_GOVERNANCE.md` for the full ownership map. Summary:
@@ -185,21 +197,23 @@ See `docs/DATA_GOVERNANCE.md` for the full ownership map. Summary:
 | Message tenant scope | Every message `org_id` matches bound tenant; cross-tenant rows flagged |
 | Thread membership | Message `thread_id` must match requested thread |
 | Council envelope | Expert rows require `expert`, `provider`, `model`, `outcome` |
-| Synthesis optional | HTTP 200 even if KO/transcript background persist fails |
+| Tier-1 transcript | HTTP 200 only after transcript persist completes; reload via `GET /api/threads/{id}` is valid |
+| Tier-1 transcript fail | **503** `council_persistence_failed`; idempotency released for retry |
+| Tier-2 KO | Best-effort background; KO failure does not block 200 when transcript succeeded |
 | Persist observability | Failures emit `persistence_failed`; deduped success emits `persistence_recovery` |
 | Retry dedupe | Same `client_request_id` does not double-append transcript/KO (in-process marker) |
 | Rehydrate partial | Legacy plain assistant text tolerated; integrity codes returned when unsafe patterns detected |
 
 ### 10.3 Background persistence semantics
 
-- Council returns before `_persist_council_thread_if_needed` and `_persist_synthesis_ko` complete.
-- Failures are logged and counted; they **do not** change HTTP status after experts/synthesis are built.
-- Client may see `persistence_pending` until reload; refresh uses `GET /api/threads/{id}`.
+- **Tier-1:** `_persist_council_thread_if_needed` is **awaited** before `/council` returns HTTP 200.
+- **Tier-2:** `_persist_synthesis_ko` runs in background; KO failures are logged and counted but do not change HTTP status when transcript succeeded.
+- On success, `persistence_state` may be `persistence_completed` when idempotency transcript marker is set.
 
 ### 10.4 Partial persistence recovery
 
-- **Transcript failed, response ok:** User sees council JSON; thread may lack new rows until a new council with new `client_request_id`.
-- **KO failed, transcript ok:** Thread rehydrates; KO may be missing (dual-store drift — R-027).
+- **Transcript failed:** **503** `council_persistence_failed`; no idempotent success cache; retry with same `client_request_id` allowed after `fail()`.
+- **KO failed, transcript ok:** HTTP 200; thread rehydrates; KO may be missing (dual-store drift — R-027).
 - **Replay:** Idempotent response without re-execution; persist markers prevent duplicate append on same process.
 
 ### 10.5 Rehydration integrity

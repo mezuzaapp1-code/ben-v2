@@ -7,6 +7,10 @@ export const RUNTIME_SATURATED = 'runtime_saturated'
 export const RETRY_LATER = 'retry_later'
 export const DUPLICATE_REQUEST = 'duplicate_request'
 export const IDEMPOTENCY_REJECTED = 'idempotency_rejected'
+export const COUNCIL_PERSISTENCE_FAILED = 'council_persistence_failed'
+
+const COUNCIL_PERSISTENCE_FAILED_MESSAGE =
+  'BEN completed the council response, but could not save the transcript. Please retry.'
 
 const OVERLOAD_CODES = new Set([
   COUNCIL_BUSY,
@@ -68,6 +72,14 @@ export function parseBenErrorResponse(status, data) {
           : 'Invalid request. Check your session and try again.',
       hint: null,
       recoverable: true,
+    }
+  }
+  if (status === 503 && data?.error === COUNCIL_PERSISTENCE_FAILED) {
+    return {
+      code: COUNCIL_PERSISTENCE_FAILED,
+      message: COUNCIL_PERSISTENCE_FAILED_MESSAGE,
+      hint: data?.message ? String(data.message) : null,
+      recoverable: data?.retryable !== false,
     }
   }
   if (status >= 500) {
