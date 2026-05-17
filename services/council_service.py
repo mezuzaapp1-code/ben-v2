@@ -46,6 +46,11 @@ from services.ops.timeouts import (
 
 ExpertOutcome = Literal["ok", "degraded", "timeout", "error"]
 
+
+class CouncilTranscriptPersistError(Exception):
+    """Tier-1 council transcript could not be persisted to ben.messages."""
+
+
 S_LEGAL = "You are a sharp legal advisor.\nAnalyze risks, contracts, compliance.\nBe direct. Max 3 sentences."
 S_BIZ = "You are a senior business strategist.\nAnalyze market, revenue, growth.\nBe direct. Max 3 sentences."
 S_STRAT = "You are a strategic thinker.\nAnalyze long-term implications and risks.\nBe direct. Max 3 sentences."
@@ -657,13 +662,11 @@ async def _persist_council_thread_if_needed(
     question: str,
     payload: dict[str, Any],
 ) -> uuid.UUID | None:
+    """Persist council transcript (Tier-1). Returns thread id when known; raises on failure."""
     store_key = get_idempotency_store_key()
     reg = get_idempotency_registry()
     if not await reg.should_persist(store_key, "council_transcript"):
-        org_uuid = uuid.UUID(tenant_id)
-        if thread_id is not None:
-            return thread_id
-        return None
+        return thread_id
 
     org_uuid = uuid.UUID(tenant_id)
     tid = thread_id
@@ -700,7 +703,7 @@ async def _persist_council_thread_if_needed(
             operation="persist_council_thread",
             category=cat,
         )
-    return None
+        raise CouncilTranscriptPersistError("council transcript persistence failed") from e
 
 
 async def _run_council_inner(
@@ -807,7 +810,7 @@ async def _run_council_inner(
     )
     if synthesis is not None:
         _schedule_background_task(_persist_synthesis_ko(tenant_id, question, synthesis))
-    _schedule_background_task(_persist_council_thread_if_needed(tenant_id, thread_id, question, payload))
+    await _persist_council_thread_if_needed(tenant_id, thread_id, question, payload)
     await _record_council_metrics(
         council_t0=council_t0,
         expert_results=expert_results,
@@ -877,7 +880,7 @@ async def run_council(question: str, tenant_id: str, *, thread_id: uuid.UUID | N
             synthesis=synthesis,
             synth_cost=synth_cost,
         )
-        _schedule_background_task(_persist_council_thread_if_needed(tenant_id, thread_id, question, payload))
+        await _persist_council_thread_if_needed(tenant_id, thread_id, question, payload)
         syn_outcome = "timeout"
         if synthesis_out and synthesis_out[0] is not None:
             syn_outcome = "ok"

@@ -32,13 +32,13 @@ from auth.tenant_binding import build_tenant_context, log_tenant_bound, validate
 
 from services.chat_service import handle_chat
 
-from services.council_service import run_council
+from services.council_service import CouncilTranscriptPersistError, run_council
 
 from services.health_service import build_health_payload, build_ready_payload
 
 from services.ops.logging_config import configure_ben_ops_logging
 
-from services.ops.request_context import attach_request_id, set_request_id
+from services.ops.request_context import attach_request_id, get_request_id, set_request_id
 
 from services.ops.startup import validate_startup
 
@@ -419,6 +419,22 @@ async def council(request: Request, body: CouncilBody):
         complete_request_diagnostics(outcome="ok")
 
         return result
+
+    except CouncilTranscriptPersistError:
+
+        await get_idempotency_registry().fail(idem.store_key)
+
+        fail_request_diagnostics(outcome="persistence_failed", route="/council")
+
+        body = {
+            "error": "council_persistence_failed",
+            "message": "Council completed but transcript persistence failed. Please retry.",
+            "retryable": True,
+        }
+        rid = get_request_id()
+        if rid:
+            body["request_id"] = rid
+        return JSONResponse(status_code=503, content=body)
 
     except HTTPException as exc:
 

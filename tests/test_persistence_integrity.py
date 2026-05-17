@@ -166,7 +166,56 @@ async def test_duplicate_council_retry_skips_second_persist():
     assert persist_mock.await_count == 1
 
 
-def test_background_persist_failure_does_not_break_council_response(client):
+def test_transcript_persist_failure_returns_503(client):
+    from services.council_service import CouncilTranscriptPersistError
+
+    with patch.object(main, "run_council", new_callable=AsyncMock, side_effect=CouncilTranscriptPersistError()):
+        r = client.post(
+            "/council",
+            json={"question": "q?", "thread_id": str(THREAD_A), "client_request_id": "tx-fail-503"},
+        )
+    assert r.status_code == 503
+    body = r.json()
+    assert body["error"] == "council_persistence_failed"
+    assert body["retryable"] is True
+    assert "retry" in body["message"].lower()
+
+
+def test_transcript_fail_releases_idempotency_for_retry(client):
+    from services.council_service import CouncilTranscriptPersistError
+
+    calls = {"n": 0}
+
+    async def run_council_flaky(*_a, **_k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise CouncilTranscriptPersistError()
+        return {
+            "question": "q",
+            "council": [{"expert": "Legal Advisor", "outcome": "ok", "response": "x", "provider": "o", "model": "m"}],
+            "synthesis": {"recommendation": "done"},
+            "cost_usd": 0.01,
+        }
+
+    with patch.object(main, "run_council", side_effect=run_council_flaky):
+        with patch(
+            "services.council_service._persist_council_thread_if_needed",
+            new_callable=AsyncMock,
+            return_value=THREAD_A,
+        ), patch("services.council_service._persist_synthesis_ko", new_callable=AsyncMock):
+            r1 = client.post(
+                "/council",
+                json={"question": "q?", "client_request_id": "tx-fail-retry"},
+            )
+            r2 = client.post(
+                "/council",
+                json={"question": "q?", "client_request_id": "tx-fail-retry"},
+            )
+    assert r1.status_code == 503
+    assert r2.status_code == 200
+
+
+def test_ko_failure_still_allows_200_when_transcript_ok(client):
     async def fake_council(*_a, **_k):
         return {
             "question": "q",
@@ -183,15 +232,16 @@ def test_background_persist_failure_does_not_break_council_response(client):
             "cost_usd": 0.01,
         }
 
-    async def fail_persist(*_a, **_k):
-        raise RuntimeError("db down")
-
     with patch.object(main, "run_council", new_callable=AsyncMock, side_effect=fake_council):
         with patch(
             "services.council_service._persist_council_thread_if_needed",
             new_callable=AsyncMock,
-            side_effect=fail_persist,
-        ), patch("services.council_service._persist_synthesis_ko", new_callable=AsyncMock):
+            return_value=THREAD_A,
+        ), patch(
+            "services.council_service._persist_synthesis_ko",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("ko down"),
+        ):
             r = client.post("/council", json={"question": "q?", "thread_id": str(THREAD_A)})
     assert r.status_code == 200
     assert r.json().get("synthesis") is not None
