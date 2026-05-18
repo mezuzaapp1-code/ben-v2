@@ -1,6 +1,7 @@
 """Thread list/read and council transcript persistence (tenant-scoped via RLS)."""
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -20,7 +21,9 @@ from services.ops.persistence_integrity import (
     validate_council_member,
 )
 from services.ops.request_context import attach_request_id
+from services.ops.runtime_diagnostics import record_transcript_persist_timeout
 from services.ops.structured_log import log_warning
+from services.ops.timeouts import DB_OPERATION_TIMEOUT_S
 
 LIST_THREADS_LIMIT = 50
 
@@ -121,7 +124,7 @@ async def get_thread_detail(org_id: uuid.UUID, thread_id: uuid.UUID) -> dict[str
     return attach_request_id(payload)
 
 
-async def persist_council_transcript(
+async def _persist_council_transcript_inner(
     org_id: uuid.UUID,
     thread_id: uuid.UUID,
     question: str,
@@ -134,7 +137,7 @@ async def persist_council_transcript(
     question_id: str | None = None,
     room_status: str | None = None,
 ) -> None:
-    """Append user question + council expert rows + optional synthesis to thread."""
+    """Tier-1 transcript body (unbounded; caller must apply DB_OPERATION_TIMEOUT_S)."""
     async with get_db_session() as session:
         await _set_org(session, org_id)
         row = await session.get(Thread, thread_id)
@@ -197,3 +200,38 @@ async def persist_council_transcript(
             )
         session.add_all(to_add)
         await session.commit()
+
+
+async def persist_council_transcript(
+    org_id: uuid.UUID,
+    thread_id: uuid.UUID,
+    question: str,
+    *,
+    council_members: list[dict[str, Any]],
+    synthesis: dict[str, Any] | None,
+    total_cost_usd: float,
+    synthesis_display_text: str,
+    room_id: str | None = None,
+    question_id: str | None = None,
+    room_status: str | None = None,
+) -> None:
+    """Append user question + council expert rows + optional synthesis (Tier-1 budget)."""
+    try:
+        await asyncio.wait_for(
+            _persist_council_transcript_inner(
+                org_id,
+                thread_id,
+                question,
+                council_members=council_members,
+                synthesis=synthesis,
+                total_cost_usd=total_cost_usd,
+                synthesis_display_text=synthesis_display_text,
+                room_id=room_id,
+                question_id=question_id,
+                room_status=room_status,
+            ),
+            timeout=DB_OPERATION_TIMEOUT_S,
+        )
+    except (TimeoutError, asyncio.TimeoutError):
+        await record_transcript_persist_timeout()
+        raise

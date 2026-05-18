@@ -210,6 +210,19 @@ def fail_request_diagnostics(*, outcome: str = "error", category: str | None = N
     _request_diag.set(None)
 
 
+_EXPERT_SAMPLE_CAP = 64
+_COUNCIL_ROOM_BUDGET_MS = 25_000
+_COUNCIL_BUDGET_PRESSURE_MS = 22_000
+
+
+def _latency_p95_ms(samples: list[int]) -> int | None:
+    if not samples:
+        return None
+    ordered = sorted(samples)
+    idx = min(len(ordered) - 1, int(len(ordered) * 0.95))
+    return ordered[idx]
+
+
 @dataclass
 class RuntimeMetricsStore:
     """Process-wide counters (safe aggregates only)."""
@@ -219,6 +232,14 @@ class RuntimeMetricsStore:
     provider_degraded_counts: dict[str, int] = field(default_factory=lambda: {"openai": 0, "anthropic": 0, "google": 0})
     provider_ok_counts: dict[str, int] = field(default_factory=lambda: {"openai": 0, "anthropic": 0, "google": 0})
     provider_duration_ms_total: dict[str, int] = field(default_factory=lambda: {"openai": 0, "anthropic": 0, "google": 0})
+    expert_legal_timeout_count: int = 0
+    expert_business_timeout_count: int = 0
+    expert_strategy_timeout_count: int = 0
+    expert_legal_duration_samples: list[int] = field(default_factory=list)
+    expert_business_duration_samples: list[int] = field(default_factory=list)
+    expert_strategy_duration_samples: list[int] = field(default_factory=list)
+    transcript_persist_timeout_count: int = 0
+    council_room_budget_pressure_count: int = 0
     synthesis_duration_ms_total: int = 0
     synthesis_ok_count: int = 0
     synthesis_timeout_count: int = 0
@@ -229,6 +250,24 @@ class RuntimeMetricsStore:
     persistence_failed_count: int = 0
     overload_rejected_counts: dict[str, int] = field(default_factory=dict)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+
+    def _expert_key_from_label(self, label: str) -> str | None:
+        key = (label or "").strip().lower()
+        if key in ("legal", "business", "strategy"):
+            return key
+        return None
+
+    def _append_expert_duration(self, key: str, duration_ms: int) -> None:
+        bucket = {
+            "legal": self.expert_legal_duration_samples,
+            "business": self.expert_business_duration_samples,
+            "strategy": self.expert_strategy_duration_samples,
+        }.get(key)
+        if bucket is None:
+            return
+        bucket.append(max(0, duration_ms))
+        if len(bucket) > _EXPERT_SAMPLE_CAP:
+            del bucket[: len(bucket) - _EXPERT_SAMPLE_CAP]
 
     def _norm_provider(self, provider: str) -> str:
         p = (provider or "").lower()
@@ -284,6 +323,34 @@ class RuntimeMetricsStore:
             outcome=outcome,
         )
 
+    async def record_expert_budget(
+        self,
+        *,
+        label: str,
+        duration_ms: int,
+        outcome: ProviderOutcome,
+    ) -> None:
+        key = self._expert_key_from_label(label)
+        if key is None:
+            return
+        async with self._lock:
+            self._append_expert_duration(key, duration_ms)
+            if outcome == "timeout":
+                if key == "legal":
+                    self.expert_legal_timeout_count += 1
+                elif key == "business":
+                    self.expert_business_timeout_count += 1
+                elif key == "strategy":
+                    self.expert_strategy_timeout_count += 1
+
+    async def record_transcript_persist_timeout(self) -> None:
+        async with self._lock:
+            self.transcript_persist_timeout_count += 1
+
+    async def record_council_room_budget_pressure(self) -> None:
+        async with self._lock:
+            self.council_room_budget_pressure_count += 1
+
     async def record_council_completed(
         self,
         *,
@@ -298,6 +365,8 @@ class RuntimeMetricsStore:
         async with self._lock:
             self.council_completed_count += 1
             self.council_duration_ms_total += duration_ms
+            if duration_ms >= _COUNCIL_BUDGET_PRESSURE_MS:
+                self.council_room_budget_pressure_count += 1
             if any_degraded:
                 self.degraded_council_count += 1
         emit_runtime_event(
@@ -336,6 +405,15 @@ class RuntimeMetricsStore:
     async def snapshot_fields(self) -> dict[str, Any]:
         async with self._lock:
             store = {
+                "council_room_budget_envelope_ms": _COUNCIL_ROOM_BUDGET_MS,
+                "council_room_budget_pressure_count": self.council_room_budget_pressure_count,
+                "transcript_persist_timeout_count": self.transcript_persist_timeout_count,
+                "expert_legal_timeout_count": self.expert_legal_timeout_count,
+                "expert_business_timeout_count": self.expert_business_timeout_count,
+                "expert_strategy_timeout_count": self.expert_strategy_timeout_count,
+                "expert_legal_latency_p95_ms": _latency_p95_ms(self.expert_legal_duration_samples),
+                "expert_business_latency_p95_ms": _latency_p95_ms(self.expert_business_duration_samples),
+                "expert_strategy_latency_p95_ms": _latency_p95_ms(self.expert_strategy_duration_samples),
                 "provider_timeout_counts": dict(self.provider_timeout_counts),
                 "provider_error_counts": dict(self.provider_error_counts),
                 "provider_degraded_counts": dict(self.provider_degraded_counts),
@@ -412,3 +490,24 @@ async def record_provider_call(
         duration_ms=duration_ms,
         outcome=outcome,
     )
+
+
+async def record_expert_budget(
+    *,
+    label: str,
+    duration_ms: int,
+    outcome: ProviderOutcome,
+) -> None:
+    await get_runtime_metrics().record_expert_budget(
+        label=label,
+        duration_ms=duration_ms,
+        outcome=outcome,
+    )
+
+
+async def record_transcript_persist_timeout() -> None:
+    await get_runtime_metrics().record_transcript_persist_timeout()
+
+
+async def record_council_room_budget_pressure() -> None:
+    await get_runtime_metrics().record_council_room_budget_pressure()

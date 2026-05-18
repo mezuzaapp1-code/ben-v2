@@ -32,6 +32,8 @@ from services.ops.runtime_diagnostics import (
     emit_council_started,
     emit_runtime_event,
     get_runtime_metrics,
+    record_council_room_budget_pressure,
+    record_expert_budget,
     record_provider_call,
 )
 from services.ops.runtime_events import COUNCIL_RUNNING
@@ -383,6 +385,7 @@ async def _safe_expert(
             duration_ms=duration_ms,
             outcome=prov_outcome,
         )
+        await record_expert_budget(label=label, duration_ms=duration_ms, outcome=prov_outcome)
         if result.outcome != "ok":
             log_timing(
                 f"{label} expert degraded",
@@ -403,6 +406,7 @@ async def _safe_expert(
             duration_ms=duration_ms,
             outcome=outcome,
         )
+        await record_expert_budget(label=label, duration_ms=duration_ms, outcome=outcome)
         _log_provider_failure(
             provider=provider,
             subsystem="council",
@@ -887,6 +891,7 @@ async def run_council(question: str, tenant_id: str, *, thread_id: uuid.UUID | N
             timeout=COUNCIL_TOTAL_TIMEOUT_S,
         )
     except (TimeoutError, asyncio.TimeoutError) as e:
+        await record_council_room_budget_pressure()
         log_warning(
             "council total timed out",
             subsystem="council",

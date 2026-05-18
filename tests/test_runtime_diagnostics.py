@@ -26,7 +26,9 @@ from services.ops.runtime_diagnostics import (  # noqa: E402
     detect_dominant_language,
     emit_runtime_event,
     get_runtime_metrics,
+    record_expert_budget,
     record_provider_call,
+    record_transcript_persist_timeout,
     reset_runtime_metrics_for_tests,
 )
 from services.ops.runtime_events import OVERLOAD_REJECTED, REQUEST_STARTED  # noqa: E402
@@ -116,7 +118,72 @@ def test_runtime_snapshot_endpoint(client):
     assert "inflight_total" in data
     assert "provider_timeout_counts" in data
     assert "degraded_council_count" in data
+    assert data.get("council_room_budget_envelope_ms") == 25_000
+    assert "expert_legal_timeout_count" in data
+    assert "expert_business_timeout_count" in data
+    assert "expert_strategy_timeout_count" in data
+    assert "transcript_persist_timeout_count" in data
+    assert "council_room_budget_pressure_count" in data
     assert TENANT not in json.dumps(data)
+
+
+@pytest.mark.asyncio
+async def test_expert_budget_timeout_metrics():
+    await record_expert_budget(label="Legal", duration_ms=11_900, outcome="timeout")
+    await record_expert_budget(label="Business", duration_ms=4_000, outcome="ok")
+    snap = await get_runtime_metrics().snapshot_fields()
+    assert snap["expert_legal_timeout_count"] == 1
+    assert snap["expert_business_timeout_count"] == 0
+    assert snap["expert_legal_latency_p95_ms"] == 11_900
+
+
+@pytest.mark.asyncio
+async def test_transcript_persist_timeout_metric():
+    await record_transcript_persist_timeout()
+    snap = await get_runtime_metrics().snapshot_fields()
+    assert snap["transcript_persist_timeout_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_persist_council_transcript_bounded_timeout():
+    import asyncio
+    import uuid
+    from unittest.mock import AsyncMock, patch
+
+    from services.thread_service import persist_council_transcript
+
+    org = uuid.UUID(TENANT)
+    tid = uuid.uuid4()
+
+    class FakeSession:
+        async def execute(self, *_a, **_k):
+            return None
+
+        async def get(self, *_a, **_k):
+            return type("T", (), {"org_id": org})()
+
+        def add_all(self, _rows):
+            return None
+
+        async def commit(self):
+            await asyncio.sleep(1.0)
+
+    with patch("services.thread_service.DB_OPERATION_TIMEOUT_S", 0.05):
+        with patch("services.thread_service.get_db_session") as mock_sess:
+            mock_sess.return_value.__aenter__ = AsyncMock(return_value=FakeSession())
+            mock_sess.return_value.__aexit__ = AsyncMock(return_value=False)
+            with pytest.raises(asyncio.TimeoutError):
+                await persist_council_transcript(
+                    org,
+                    tid,
+                    "Q?",
+                    council_members=[],
+                    synthesis=None,
+                    total_cost_usd=0.0,
+                    synthesis_display_text="",
+                )
+    snap = await get_runtime_metrics().snapshot_fields()
+    assert snap["transcript_persist_timeout_count"] == 1
 
 
 def test_chat_request_lifecycle_events(client, caplog):
