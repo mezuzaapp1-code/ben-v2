@@ -11,6 +11,8 @@ from services.ops.timeouts import HTTP_CLIENT_TIMEOUT_S
 
 _CHAIN = ("openai", "anthropic", "google")
 _FALLBACK = {"openai": "gpt-4o-mini", "anthropic": "claude-3-5-haiku-20241022", "google": "gemini-2.5-flash"}
+ALLOWED_CHAT_PROVIDER_IDS = frozenset({"gpt", "claude", "gemini"})
+_CHAT_PROVIDER_TO_GATEWAY = {"gpt": "openai", "claude": "anthropic", "gemini": "google"}
 _RATES: dict[tuple[str, str], tuple[float, float]] = {
     ("openai", "gpt-4o-mini"): (0.15e-6, 0.60e-6),
     ("openai", "gpt-4o"): (2.5e-6, 10e-6),
@@ -31,7 +33,40 @@ def _tier_primary(tier: str) -> tuple[str, str]:
     return "openai", "gpt-4o-mini"
 
 
-def _attempts(tier: str) -> list[tuple[str, str]]:
+def normalize_chat_provider_id(raw: str | None) -> str | None:
+    """UI provider id for /chat; None when omitted (tier routing)."""
+    if raw is None:
+        return None
+    pid = str(raw).strip().lower()
+    if not pid:
+        return None
+    if pid not in ALLOWED_CHAT_PROVIDER_IDS:
+        raise ValueError("provider_id must be one of: gpt, claude, gemini")
+    return pid
+
+
+def _model_for_gateway_provider(gateway_prov: str, tier: str) -> str:
+    t = (tier or "free").lower()
+    if gateway_prov == "openai":
+        if t == "enterprise":
+            return "gpt-4o"
+        return "gpt-4o-mini"
+    if gateway_prov == "anthropic":
+        return (
+            os.getenv("ANTHROPIC_MODEL", "").strip()
+            or "claude-sonnet-4-6"
+        )
+    return (
+        os.getenv("GEMINI_MODEL", "").strip()
+        or os.getenv("GOOGLE_MODEL", "").strip()
+        or "gemini-2.5-flash"
+    )
+
+
+def _attempts(tier: str, *, provider_id: str | None = None) -> list[tuple[str, str]]:
+    if provider_id:
+        gateway = _CHAT_PROVIDER_TO_GATEWAY[provider_id]
+        return [(gateway, _model_for_gateway_provider(gateway, tier))]
     t = (tier or "free").lower()
     if t == "free":
         return [("openai", "gpt-4o-mini")]
@@ -116,12 +151,19 @@ async def _call_google(cx: httpx.AsyncClient, model: str, message: str, tenant_i
     return txt, pi + po, pi, po
 
 
-async def route_request(message: str, tenant_id: str, tier: str) -> dict[str, Any]:
+async def route_request(
+    message: str,
+    tenant_id: str,
+    tier: str,
+    *,
+    provider_id: str | None = None,
+) -> dict[str, Any]:
     t0 = time.perf_counter()
     keys = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "google": "GOOGLE_API_KEY"}
     last: BaseException | None = None
+    attempts = _attempts(tier, provider_id=provider_id)
     async with httpx.AsyncClient(timeout=HTTP_CLIENT_TIMEOUT_S) as cx:
-        for prov, model in _attempts(tier):
+        for prov, model in attempts:
             if not (os.getenv(keys[prov]) or "").strip():
                 continue
             if not _cb_ready(prov):

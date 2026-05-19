@@ -36,6 +36,8 @@ import {
   serverThreadIdForApi,
   setStoredActiveThreadId,
 } from './threadStorage.js'
+import { ProviderToolbar } from './providers/ProviderToolbar.jsx'
+import { DEFAULT_SPEAKING_PROVIDER_ID } from './providers/providerRegistry.js'
 import './App.css'
 
 const CHAT_URL = `${BEN_API_BASE}/chat`
@@ -155,6 +157,9 @@ function App() {
   const [hydrating, setHydrating] = useState(true)
   const [orgBanner, setOrgBanner] = useState(null)
   const [councilStatus, setCouncilStatus] = useState(null)
+  const [activeSpeakingProviderId, setActiveSpeakingProviderId] = useState(
+    DEFAULT_SPEAKING_PROVIDER_ID
+  )
   const councilPhaseTimersRef = useRef([])
 
   const clearCouncilPhaseTimers = useCallback(() => {
@@ -309,6 +314,7 @@ function App() {
         body: JSON.stringify({
           message: text,
           tier,
+          provider_id: activeSpeakingProviderId,
           client_request_id: clientRequestId,
           ...(apiThreadId ? { thread_id: apiThreadId } : {}),
         }),
@@ -386,7 +392,7 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }, [input, loading, activeId, threads, tier, newThread, getToken])
+  }, [input, loading, activeId, threads, tier, activeSpeakingProviderId, newThread, getToken])
 
   const applyCouncilMessages = useCallback((tid, extras, resolvedId) => {
     setThreads((prev) => {
@@ -650,7 +656,13 @@ function App() {
             </div>
           ))}
         </div>
-        <footer className="composer">
+        <footer className="composer-footer">
+          <ProviderToolbar
+            activeProviderId={activeSpeakingProviderId}
+            onActiveProviderChange={setActiveSpeakingProviderId}
+            disabled={loading}
+          />
+          <div className="composer">
           <select className="tier" value={tier} onChange={(e) => setTier(e.target.value)} aria-label="Tier">
             <option value="free">free</option>
             <option value="pro">pro</option>
@@ -669,6 +681,7 @@ function App() {
           <button type="button" className="send" onClick={send} disabled={loading || !input.trim()}>
             {loading ? '…' : 'Send'}
           </button>
+          </div>
         </footer>
       </main>
     </div>

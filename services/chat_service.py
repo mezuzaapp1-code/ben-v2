@@ -18,13 +18,14 @@ async def handle_chat(
     tier: str,
     *,
     thread_id: uuid.UUID | None = None,
+    provider_id: str | None = None,
 ) -> dict[str, Any]:
     _ = user_id
     org = uuid.UUID(tenant_id)
     title = (message.strip()[:512] or "Chat")[:512]
     tid = await resolve_thread_id(org, thread_id, title=title)
 
-    raw = await route_request(message, tenant_id, tier)
+    raw = await route_request(message, tenant_id, tier, provider_id=provider_id)
     resp, model_u, cost = raw.get("content", ""), raw.get("model_used", ""), raw.get("cost_usd", 0.0)
 
     async with get_db_session() as session:

@@ -31,6 +31,7 @@ from auth.shadow_auth import apply_auth_policy
 from auth.tenant_binding import build_tenant_context, log_tenant_bound, validate_body_tenant_matches_context
 
 from services.chat_service import handle_chat
+from services.model_gateway import normalize_chat_provider_id
 
 from services.council_service import CouncilTranscriptPersistError, run_council
 
@@ -244,6 +245,11 @@ class ChatBody(BaseModel):
 
     tier: str = "free"
 
+    provider_id: str | None = Field(
+        None,
+        description="Speaking provider for chat routing: gpt, claude, or gemini",
+    )
+
     client_request_id: str | None = Field(
         None,
         max_length=128,
@@ -263,6 +269,11 @@ async def chat(request: Request, body: ChatBody):
     validate_body_tenant_matches_context(body, ctx)
 
     tid = _parse_thread_id(body.thread_id)
+
+    try:
+        chat_provider_id = normalize_chat_provider_id(body.provider_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     locale = locale_for_request(request, body.message)
 
@@ -303,6 +314,8 @@ async def chat(request: Request, body: ChatBody):
                 body.tier,
 
                 thread_id=tid,
+
+                provider_id=chat_provider_id,
 
             )
 

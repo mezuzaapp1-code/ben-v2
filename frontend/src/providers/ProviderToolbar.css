@@ -1,0 +1,123 @@
+.provider-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem 0;
+  background: #080808;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.provider-toolbar__list {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.provider-toolbar__chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid #2a2a2a;
+  background: #121212;
+  color: #aaa;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.provider-toolbar__chip:hover:not(:disabled) {
+  border-color: #444;
+  color: #e8e8e8;
+}
+
+.provider-toolbar__chip:focus-visible {
+  outline: 2px solid #5b8cff;
+  outline-offset: 2px;
+}
+
+.provider-toolbar__chip--active {
+  border-color: var(--provider-accent, #5b8cff);
+  background: #161820;
+  color: #f2f4fa;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--provider-accent, #5b8cff) 35%, transparent);
+}
+
+.provider-toolbar__dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--provider-accent, #666);
+  opacity: 0.85;
+}
+
+.provider-toolbar__chip--active .provider-toolbar__dot {
+  opacity: 1;
+  box-shadow: 0 0 6px var(--provider-accent, #5b8cff);
+}
+
+.provider-toolbar__add {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px dashed #3a3a3a;
+  background: transparent;
+  color: #888;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.provider-toolbar__add:hover:not(:disabled) {
+  border-color: #555;
+  color: #ccc;
+}
+
+.provider-toolbar__add:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.provider-toolbar__label {
+  flex: 0 0 auto;
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #555;
+  margin-right: 0.15rem;
+  user-select: none;
+}
+
+@media (max-width: 720px) {
+  .provider-toolbar {
+    padding: 0.4rem 0.65rem 0;
+    gap: 0.35rem;
+  }
+
+  .provider-toolbar__label {
+    display: none;
+  }
+
+  .provider-toolbar__chip,
+  .provider-toolbar__add {
+    font-size: 0.75rem;
+    padding: 0.3rem 0.6rem;
+  }
+}
