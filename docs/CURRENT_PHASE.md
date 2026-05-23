@@ -1,7 +1,7 @@
 # Current Phase
 
 **Phase name:** Provider-First Chat Stabilization  
-**Last updated:** 2026-05-23
+**Last updated:** 2026-05-19
 
 ---
 
@@ -43,7 +43,9 @@ Make BEN a **provider-first cognitive workspace**: users choose GPT, Claude, or 
 - [x] Provider identity visible in UI and rehydration
 - [x] Explicit-provider timeout 25s with clear error messages
 - [x] Request-level language preference live (`en`/`he`)
-- [ ] Uncommitted truncation / `max_tokens` work shipped or explicitly deferred
+- [x] Provider hardening shipped and prod-verified (`a658a1d`: `max_tokens` cap, `ProviderSendResult`, adapter diagnostics)
+- [ ] Untracked prod smoke scripts: commit with maintained SHA pins, or discard / document manual smoke only
+- [ ] Auto-language detection: implement, or explicitly defer with rationale in `docs/DEFERRED.md`
 - [ ] Documented replica/idempotency gate before multi-instance Railway
 - [ ] Next phase chosen in `docs/ROADMAP.md` (language persistence vs governance vs memory)
 

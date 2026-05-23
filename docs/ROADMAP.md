@@ -1,6 +1,6 @@
 # BEN Roadmap
 
-**Last updated:** 2026-05-23
+**Last updated:** 2026-05-19
 
 Phase sequence for BEN-V2. **Current phase** marked explicitly.
 
@@ -12,8 +12,8 @@ Phase sequence for BEN-V2. **Current phase** marked explicitly.
 |---|--------|--------|
 | 0 | Stabilization (health, tenant, persist, idempotency) | Done |
 | 1 | Council honesty + durability + room metadata | Done |
-| 2 | **Provider-first chat stabilization** | **Current** |
-| 3 | Provider hardening (truncation, max_tokens, diagnostics ship) | Next |
+| 2 | **Provider-first chat stabilization** | **Current** (cleanup in progress) |
+| 3 | Provider hardening (truncation, max_tokens, diagnostics) | Done (`a658a1d`) |
 | 4 | Language persistence (user/thread + UI) | Planned |
 | 5 | Council ↔ adapter convergence (optional) | Later |
 | 6 | Governance / hat registry v1 | Later |
@@ -24,31 +24,36 @@ Phase sequence for BEN-V2. **Current phase** marked explicitly.
 
 ## Current phase: Provider-first chat stabilization
 
-**Goal:** Toolbar → routed provider → visible identity → bounded errors.
+**Goal:** Toolbar → routed provider → visible identity → bounded errors → observable provider calls.
 
-**Delivered to production (`0d81665`):**
+**Delivered to production (`a658a1d` baseline):**
 
-- Provider toolbar + `provider_id` routing
-- Provider adapters (chat)
-- Provider transparency (API + UI + persist)
-- Timeout messages + 25s explicit provider budget
-- Request-level `preferred_language` (`en`, `he`)
+- Provider toolbar + `provider_id` routing (`f4e62f8`)
+- Provider adapters (chat) (`9864909`)
+- Provider transparency (API + UI + persist) (`03eeca4`)
+- Timeout messages + 25s explicit provider budget (`fde9566`)
+- Request-level `preferred_language` (`en`, `he`) (`0d81665`)
+- Provider hardening: Anthropic `max_tokens` cap, `ProviderSendResult` dataclass, adapter diagnostics, truncation logging (`a658a1d`)
 
-**Remaining in phase:**
+**Remaining before phase exit (stabilization cleanup):**
 
-- Ship uncommitted truncation / `max_tokens` / call diagnostics
-- Replica/idempotency decision documented
+- Decision on untracked `scripts/prod_smoke_*.py` (commit, maintain, or discard)
+- Decision on auto-language detection (defer vs spec)
+- Replica/idempotency gate documented
+- Choose next phase (language persistence vs governance vs memory)
+
+**Do not start Phase 4 implementation until exit criteria in `docs/CURRENT_PHASE.md` are met.**
 
 ---
 
-## Next phase: Provider hardening
+## Completed: Provider hardening (`a658a1d`)
 
-- Commit truncation observability + `ANTHROPIC_CHAT_MAX_TOKENS`
-- Production verify long-prompt Claude
-- Optional: expose `completion_truncated` in API (not UI)
-- Stale comment cleanup in frontend registry
+- `ANTHROPIC_CHAT_MAX_TOKENS` default 1024 (env-tunable)
+- Structured adapter logging (`ttfb_ms`, `truncation_detected`, token fields)
+- `completion_truncated` on gateway dict (logs; not `/chat` API)
+- Prod smoke: GPT/Claude/Gemini short; Claude long prompt once; `preferred_language=he`; council unchanged
 
-**Exit:** 7 days prod without silent truncation complaints; Claude p95 < 20s on typical prompts.
+**Optional follow-up (same phase or Phase 4):** expose `completion_truncated` in API (not UI).
 
 ---
 
@@ -58,7 +63,7 @@ Phase sequence for BEN-V2. **Current phase** marked explicitly.
 - `threads.preferred_language` override
 - UI: account + thread selector
 - Resolution order (explicit message > request > thread > user > default)
-- Still no auto-detect unless specified
+- Auto-detect only if explicitly approved in phase gate
 
 **Exit:** User sets Hebrew once; all threads default Hebrew without per-request field.
 

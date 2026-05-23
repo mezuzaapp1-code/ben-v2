@@ -1,7 +1,7 @@
 # BEN Project State
 
-**Last updated:** 2026-05-23  
-**Source of truth:** production-verified + `main` at `0d81665`
+**Last updated:** 2026-05-19  
+**Source of truth:** production-verified + `main` at `a658a1d`
 
 ---
 
@@ -11,8 +11,8 @@
 |------|--------|
 | API | `https://ben-v2-production.up.railway.app` |
 | Frontend | `https://ben-v2.vercel.app` |
-| Deployed commit | `0d81665` — feat: add request-level chat language preference |
-| Health | `/health` 200, DB ok (verified on deploy) |
+| Deployed commit | `a658a1d` — fix: cap Anthropic chat output and standardize provider results |
+| Health | `/health` 200, DB ok (verified 2026-05-19) |
 | Auth mode | `ENFORCE_AUTH=false` (unsigned chat/council allowed) |
 
 ---
@@ -35,16 +35,19 @@
 | Provider transparency | Live | `provider_id` + model in API, persist, UI meta |
 | Chat timeout governance | Live | 25s explicit provider; 12s tier-default |
 | Language preference v1 | Live | Request `preferred_language`: `en`, `he` only |
+| Provider hardening | Live | `ProviderSendResult` dataclass; Anthropic `max_tokens` cap (default 1024); adapter call diagnostics |
+| Truncation observability (chat) | Live (logs) | `truncation_detected`, `completion_truncated` in gateway logs; not API/UI |
 
 ---
 
 ## Verified systems (automated / prod smoke)
 
-- Provider routing smoke (GPT, Claude, Gemini)
+- Provider routing smoke (GPT, Claude, Gemini) — post-`a658a1d`
+- Provider hardening: short GPT/Claude/Gemini; Claude long prompt (no 25s timeout); provider labels correct
 - Provider transparency + thread rehydration
 - Invalid `provider_id` → 400
-- Language preference: `he`/`en` instruction to gateway; raw user message in DB
-- Council unchanged; `preferred_language` on `/council` → 422
+- Language preference: `preferred_language=he` on `/chat` — passed prod smoke
+- Council unchanged (`POST /council` with `question` → 200)
 - Omitted `preferred_language` → prior behavior
 
 ---
@@ -55,10 +58,12 @@ See `docs/RISK_REGISTER.md`. Top items:
 
 - In-memory idempotency unsafe if Railway replicas > 1
 - Production auth not enforced (`ENFORCE_AUTH=false`)
-- Anthropic chat tail latency near 25s on long prompts
-- Uncommitted local work: truncation observability, extended adapter diagnostics
-- Council Legal (Anthropic) 12s expert timeout under load
+- Anthropic chat tail latency (reduced by `max_tokens` cap; not eliminated under load)
+- Truncation visible in logs only (`completion_truncated` not on `/chat` or UI)
+- Council provider path still separate from chat adapters (12s / 512 tokens on Legal expert)
+- Untracked prod smoke scripts in `scripts/` (stale SHA pins; not in repo)
 - No UI for `preferred_language` (API-only)
+- Auto-detect language not implemented (decision pending)
 
 ---
 
@@ -77,20 +82,21 @@ See `docs/RISK_REGISTER.md`. Top items:
 
 | Target | Branch | Status |
 |--------|--------|--------|
-| GitHub `main` | `0d81665` | Pushed |
-| Railway API | Auto from `main` | On `0d81665` |
+| GitHub `main` | `a658a1d` | Pushed |
+| Railway API | Auto from `main` | On `a658a1d` |
 | Vercel frontend | Auto from `main` | Deployed (toolbar + transparency bundle) |
 
 ---
 
 ## Current next task
 
-1. **Commit and ship** uncommitted provider work (truncation observability, `max_tokens` cap, call diagnostics) — separate from language commit.
-2. **Wire UI** `preferred_language` when product ready (no backend schema yet).
-3. **Decide** replica gate: document single-replica or Postgres idempotency before scale.
+1. **Phase cleanup:** decide untracked `scripts/prod_smoke_*.py` (commit, refresh SHA pins, or discard).
+2. **Decide** auto-language detection (in scope or explicitly deferred — see `docs/CURRENT_PHASE.md`).
+3. **Wire UI** `preferred_language` when product ready (no backend schema yet).
+4. **Decide** replica gate: document single-replica or Postgres idempotency before scale.
 
 ---
 
 ## Local working tree (not production)
 
-Uncommitted changes exist for: `model_gateway`, Anthropic adapter, `ProviderSendResult`, truncation tests. Do not treat as deployed until committed and smoke-verified.
+Untracked only: `scripts/probe_claude_latency_prod.py`, `scripts/prod_smoke_*.py` (several). No uncommitted provider runtime changes after `a658a1d`.
