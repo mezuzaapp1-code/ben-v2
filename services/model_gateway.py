@@ -7,8 +7,12 @@ from typing import Any
 
 import httpx
 
-from services.ops.timeouts import HTTP_CLIENT_TIMEOUT_S
+from services.message_format import provider_display_label
+from services.ops.failure_classification import classify_failure
+from services.ops.structured_log import log_warning
+from services.ops.timeouts import CHAT_EXPLICIT_PROVIDER_TIMEOUT_S, HTTP_CLIENT_TIMEOUT_S
 from services.providers import gateway_provider_api_key_env, get_gateway_provider
+from services.providers.provider_errors import format_chat_provider_error, sanitize_provider_error_message
 
 _CHAIN = ("openai", "anthropic", "google")
 _FALLBACK = {"openai": "gpt-4o-mini", "anthropic": "claude-3-5-haiku-20241022", "google": "gemini-2.5-flash"}
@@ -79,6 +83,12 @@ def _attempts(tier: str, *, provider_id: str | None = None) -> list[tuple[str, s
     return out
 
 
+def _chat_http_timeout_s(*, provider_id: str | None) -> float:
+    if provider_id:
+        return CHAT_EXPLICIT_PROVIDER_TIMEOUT_S
+    return HTTP_CLIENT_TIMEOUT_S
+
+
 def _cb_ready(name: str) -> bool:
     s = _CB.setdefault(name, {"n": 0, "until": 0.0})
     now = time.monotonic()
@@ -106,6 +116,13 @@ def _cost(prov: str, model: str, inp: int, out: int) -> float:
     return ir * inp + or_ * out
 
 
+def _missing_key_message(*, provider_id: str | None, gateway_prov: str) -> str:
+    if provider_id:
+        label = provider_display_label(provider_id) or gateway_prov.title()
+        return f"{label} is not configured (missing API key)"
+    return f"{gateway_prov} is not configured (missing API key)"
+
+
 async def route_request(
     message: str,
     tenant_id: str,
@@ -114,14 +131,28 @@ async def route_request(
     provider_id: str | None = None,
 ) -> dict[str, Any]:
     t0 = time.perf_counter()
+    timeout_s = _chat_http_timeout_s(provider_id=provider_id)
     last: BaseException | None = None
+    last_prov: str = ""
     attempts = _attempts(tier, provider_id=provider_id)
-    async with httpx.AsyncClient(timeout=HTTP_CLIENT_TIMEOUT_S) as cx:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s, connect=5.0)) as cx:
         for prov, model in attempts:
-            if not (os.getenv(gateway_provider_api_key_env(prov)) or "").strip():
+            key_env = gateway_provider_api_key_env(prov)
+            if not (os.getenv(key_env) or "").strip():
+                if provider_id and _CHAT_PROVIDER_TO_GATEWAY.get(provider_id) == prov:
+                    ms = (time.perf_counter() - t0) * 1000.0
+                    return {
+                        "content": _missing_key_message(provider_id=provider_id, gateway_prov=prov),
+                        "model_used": "",
+                        "provider_used": prov,
+                        "tokens": 0,
+                        "cost_usd": 0.0,
+                        "latency_ms": round(ms, 2),
+                    }
                 continue
             if not _cb_ready(prov):
                 continue
+            attempt_t0 = time.perf_counter()
             try:
                 adapter = get_gateway_provider(prov)
                 content, tok, pi, po = await adapter.send_message(
@@ -139,7 +170,35 @@ async def route_request(
                 }
             except BaseException as e:
                 last = e
+                last_prov = prov
+                elapsed_ms = int((time.perf_counter() - attempt_t0) * 1000.0)
+                log_warning(
+                    "chat provider adapter call failed",
+                    subsystem="model_gateway",
+                    provider=prov,
+                    category=classify_failure(e),
+                    exc=e,
+                    duration_ms=elapsed_ms,
+                    operation="provider_send_message",
+                    outcome="error",
+                    model=model,
+                    timeout_s=timeout_s,
+                    error_class=type(e).__name__,
+                    error_message=sanitize_provider_error_message(e),
+                )
                 _cb_fail(prov)
     ms = (time.perf_counter() - t0) * 1000.0
-    err = repr(last) if last else "no_provider"
-    return {"content": f"error: {err}", "model_used": "", "provider_used": "", "tokens": 0, "cost_usd": 0.0, "latency_ms": round(ms, 2)}
+    if last and last_prov:
+        err = format_chat_provider_error(last_prov, last, timeout_s=timeout_s)
+    elif last:
+        err = format_chat_provider_error("", last, timeout_s=timeout_s)
+    else:
+        err = "No provider available"
+    return {
+        "content": err,
+        "model_used": "",
+        "provider_used": last_prov,
+        "tokens": 0,
+        "cost_usd": 0.0,
+        "latency_ms": round(ms, 2),
+    }
