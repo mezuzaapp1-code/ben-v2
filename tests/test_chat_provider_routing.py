@@ -17,6 +17,7 @@ os.environ.setdefault("OPENAI_API_KEY", "sk-test-openai")
 
 import main  # noqa: E402
 from services.model_gateway import normalize_chat_provider_id, route_request  # noqa: E402
+from services.providers import get_gateway_provider  # noqa: E402
 from services.ops.idempotency import reset_idempotency_registry_for_tests  # noqa: E402
 from services.ops.load_governance import reset_load_governor_for_tests  # noqa: E402
 
@@ -94,22 +95,22 @@ async def test_route_request_explicit_provider_calls_only_that_gateway(monkeypat
 
     seen: list[str] = []
 
-    async def fake_openai(cx, model, message, tenant_id):
+    async def fake_openai(cx, *, model, message, tenant_id):
         seen.append("openai")
         return "gpt-ok", 1, 1, 1
 
-    async def fake_anthropic(cx, model, message, tenant_id):
+    async def fake_anthropic(cx, *, model, message, tenant_id):
         seen.append("anthropic")
         return "claude-ok", 1, 1, 1
 
-    async def fake_google(cx, model, message, tenant_id):
+    async def fake_google(cx, *, model, message, tenant_id):
         seen.append("google")
         return "gemini-ok", 1, 1, 1
 
     with (
-        patch("services.model_gateway._call_openai", side_effect=fake_openai),
-        patch("services.model_gateway._call_anthropic", side_effect=fake_anthropic),
-        patch("services.model_gateway._call_google", side_effect=fake_google),
+        patch.object(get_gateway_provider("openai"), "send_message", side_effect=fake_openai),
+        patch.object(get_gateway_provider("anthropic"), "send_message", side_effect=fake_anthropic),
+        patch.object(get_gateway_provider("google"), "send_message", side_effect=fake_google),
     ):
         out = await route_request("hello", TENANT, "free", provider_id="gpt")
     assert seen == ["openai"]
@@ -117,9 +118,9 @@ async def test_route_request_explicit_provider_calls_only_that_gateway(monkeypat
 
     seen.clear()
     with (
-        patch("services.model_gateway._call_openai", side_effect=fake_openai),
-        patch("services.model_gateway._call_anthropic", side_effect=fake_anthropic),
-        patch("services.model_gateway._call_google", side_effect=fake_google),
+        patch.object(get_gateway_provider("openai"), "send_message", side_effect=fake_openai),
+        patch.object(get_gateway_provider("anthropic"), "send_message", side_effect=fake_anthropic),
+        patch.object(get_gateway_provider("google"), "send_message", side_effect=fake_google),
     ):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
         out = await route_request("hello", TENANT, "free", provider_id="claude")
@@ -127,9 +128,9 @@ async def test_route_request_explicit_provider_calls_only_that_gateway(monkeypat
 
     seen.clear()
     with (
-        patch("services.model_gateway._call_openai", side_effect=fake_openai),
-        patch("services.model_gateway._call_anthropic", side_effect=fake_anthropic),
-        patch("services.model_gateway._call_google", side_effect=fake_google),
+        patch.object(get_gateway_provider("openai"), "send_message", side_effect=fake_openai),
+        patch.object(get_gateway_provider("anthropic"), "send_message", side_effect=fake_anthropic),
+        patch.object(get_gateway_provider("google"), "send_message", side_effect=fake_google),
     ):
         out = await route_request("hello", TENANT, "free", provider_id="gemini")
     assert seen == ["google"]

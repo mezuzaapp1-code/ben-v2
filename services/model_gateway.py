@@ -1,4 +1,4 @@
-"""T03 Model Gateway: tier routing, per-provider circuit breaker, httpx async calls."""
+"""T03 Model Gateway: tier routing, per-provider circuit breaker, adapter dispatch."""
 from __future__ import annotations
 
 import os
@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from services.ops.timeouts import HTTP_CLIENT_TIMEOUT_S
+from services.providers import gateway_provider_api_key_env, get_gateway_provider
 
 _CHAIN = ("openai", "anthropic", "google")
 _FALLBACK = {"openai": "gpt-4o-mini", "anthropic": "claude-3-5-haiku-20241022", "google": "gemini-2.5-flash"}
@@ -105,52 +106,6 @@ def _cost(prov: str, model: str, inp: int, out: int) -> float:
     return ir * inp + or_ * out
 
 
-def _hdr(tenant_id: str) -> dict[str, str]:
-    return {"X-BEN-Tenant": tenant_id}
-
-
-async def _call_openai(cx: httpx.AsyncClient, model: str, message: str, tenant_id: str) -> tuple[str, int, int, int]:
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    r = await cx.post(
-        "https://api.openai.com/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", **_hdr(tenant_id)},
-        json={"model": model, "messages": [{"role": "user", "content": message}]},
-    )
-    r.raise_for_status()
-    d = r.json()
-    u = d.get("usage") or {}
-    pi, po = int(u.get("prompt_tokens", 0)), int(u.get("completion_tokens", 0))
-    return str(d["choices"][0]["message"]["content"]), pi + po, pi, po
-
-
-async def _call_anthropic(cx: httpx.AsyncClient, model: str, message: str, tenant_id: str) -> tuple[str, int, int, int]:
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    r = await cx.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json", **_hdr(tenant_id)},
-        json={"model": model, "max_tokens": 4096, "messages": [{"role": "user", "content": message}]},
-    )
-    r.raise_for_status()
-    d = r.json()
-    txt = "".join(b.get("text", "") for b in d.get("content", []) if b.get("type") == "text")
-    u = d.get("usage") or {}
-    pi, po = int(u.get("input_tokens", 0)), int(u.get("output_tokens", 0))
-    return txt, pi + po, pi, po
-
-
-async def _call_google(cx: httpx.AsyncClient, model: str, message: str, tenant_id: str) -> tuple[str, int, int, int]:
-    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    r = await cx.post(url, params={"key": api_key}, headers=_hdr(tenant_id), json={"contents": [{"parts": [{"text": message}]}]})
-    r.raise_for_status()
-    d = r.json()
-    parts = ((d.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
-    txt = "".join(p.get("text", "") for p in parts)
-    m = d.get("usageMetadata") or {}
-    pi, po = int(m.get("promptTokenCount", 0)), int(m.get("candidatesTokenCount", 0))
-    return txt, pi + po, pi, po
-
-
 async def route_request(
     message: str,
     tenant_id: str,
@@ -159,22 +114,19 @@ async def route_request(
     provider_id: str | None = None,
 ) -> dict[str, Any]:
     t0 = time.perf_counter()
-    keys = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "google": "GOOGLE_API_KEY"}
     last: BaseException | None = None
     attempts = _attempts(tier, provider_id=provider_id)
     async with httpx.AsyncClient(timeout=HTTP_CLIENT_TIMEOUT_S) as cx:
         for prov, model in attempts:
-            if not (os.getenv(keys[prov]) or "").strip():
+            if not (os.getenv(gateway_provider_api_key_env(prov)) or "").strip():
                 continue
             if not _cb_ready(prov):
                 continue
             try:
-                if prov == "openai":
-                    content, tok, pi, po = await _call_openai(cx, model, message, tenant_id)
-                elif prov == "anthropic":
-                    content, tok, pi, po = await _call_anthropic(cx, model, message, tenant_id)
-                else:
-                    content, tok, pi, po = await _call_google(cx, model, message, tenant_id)
+                adapter = get_gateway_provider(prov)
+                content, tok, pi, po = await adapter.send_message(
+                    cx, model=model, message=message, tenant_id=tenant_id
+                )
                 _cb_ok(prov)
                 ms = (time.perf_counter() - t0) * 1000.0
                 return {
