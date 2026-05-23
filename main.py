@@ -30,6 +30,7 @@ from auth.shadow_auth import apply_auth_policy
 
 from auth.tenant_binding import build_tenant_context, log_tenant_bound, validate_body_tenant_matches_context
 
+from services.chat_language import normalize_language_code
 from services.chat_service import handle_chat
 from services.model_gateway import normalize_chat_provider_id
 
@@ -250,6 +251,11 @@ class ChatBody(BaseModel):
         description="Speaking provider for chat routing: gpt, claude, or gemini",
     )
 
+    preferred_language: str | None = Field(
+        None,
+        description="Response language for this message: en or he",
+    )
+
     client_request_id: str | None = Field(
         None,
         max_length=128,
@@ -272,6 +278,11 @@ async def chat(request: Request, body: ChatBody):
 
     try:
         chat_provider_id = normalize_chat_provider_id(body.provider_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        chat_preferred_language = normalize_language_code(body.preferred_language)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -316,6 +327,8 @@ async def chat(request: Request, body: ChatBody):
                 thread_id=tid,
 
                 provider_id=chat_provider_id,
+
+                preferred_language=chat_preferred_language,
 
             )
 

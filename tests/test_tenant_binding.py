@@ -78,7 +78,7 @@ def test_forged_body_rejected_for_jwt():
 async def test_unsigned_chat_ignores_body_tenant(monkeypatch):
     captured: dict[str, str] = {}
 
-    async def capture_chat(message, user_id, tenant_id, tier, thread_id=None, provider_id=None):
+    async def capture_chat(message, user_id, tenant_id, tier, thread_id=None, provider_id=None, preferred_language=None):
         captured["tenant_id"] = tenant_id
         captured["user_id"] = user_id
         return {
@@ -104,7 +104,7 @@ async def test_unsigned_chat_ignores_body_tenant(monkeypatch):
 async def test_signed_jwt_org_used_when_body_tenant_omitted(monkeypatch):
     captured: dict[str, str] = {}
 
-    async def capture_chat(message, user_id, tenant_id, tier, thread_id=None, provider_id=None):
+    async def capture_chat(message, user_id, tenant_id, tier, thread_id=None, provider_id=None, preferred_language=None):
         captured["tenant_id"] = tenant_id
         captured["user_id"] = user_id
         return {
@@ -190,7 +190,7 @@ def test_jwt_missing_org_uses_personal_tenant(monkeypatch):
 
     captured: dict[str, str] = {}
 
-    async def capture_chat(message, user_id, tenant_id, tier, thread_id=None, provider_id=None):
+    async def capture_chat(message, user_id, tenant_id, tier, thread_id=None, provider_id=None, preferred_language=None):
         captured["tenant_id"] = tenant_id
         return {"thread_id": personal_tenant_id("usr"), "response": "ok", "model_used": "m", "cost_usd": 0.0}
 

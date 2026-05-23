@@ -79,7 +79,7 @@ def test_encode_decode_council_synthesis():
 def test_chat_passes_thread_id_to_handler():
     captured: dict = {}
 
-    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None):
+    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, preferred_language=None):
         captured["thread_id"] = thread_id
         return {"thread_id": THREAD_A, "response": "ok", "model_used": "m", "cost_usd": 0.0}
 

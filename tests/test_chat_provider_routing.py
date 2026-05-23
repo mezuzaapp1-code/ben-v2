@@ -18,6 +18,7 @@ os.environ.setdefault("OPENAI_API_KEY", "sk-test-openai")
 import main  # noqa: E402
 from services.model_gateway import normalize_chat_provider_id, route_request  # noqa: E402
 from services.providers import get_gateway_provider  # noqa: E402
+from services.providers.base_provider import ProviderSendResult  # noqa: E402
 from services.ops.idempotency import reset_idempotency_registry_for_tests  # noqa: E402
 from services.ops.load_governance import reset_load_governor_for_tests  # noqa: E402
 
@@ -64,7 +65,7 @@ def test_chat_invalid_provider_id_400(client):
 def test_chat_passes_provider_id_to_handler(client):
     captured: dict = {}
 
-    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None):
+    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, preferred_language=None):
         captured["provider_id"] = provider_id
         return {"thread_id": str(uuid.uuid4()), "response": "ok", "model_used": "m", "cost_usd": 0.0}
 
@@ -77,7 +78,7 @@ def test_chat_passes_provider_id_to_handler(client):
 def test_chat_omitted_provider_id_defaults_none(client):
     captured: dict = {}
 
-    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None):
+    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, preferred_language=None):
         captured["provider_id"] = provider_id
         return {"thread_id": str(uuid.uuid4()), "response": "ok", "model_used": "m", "cost_usd": 0.0}
 
@@ -97,15 +98,15 @@ async def test_route_request_explicit_provider_calls_only_that_gateway(monkeypat
 
     async def fake_openai(cx, *, model, message, tenant_id):
         seen.append("openai")
-        return "gpt-ok", 1, 1, 1
+        return ProviderSendResult.from_token_counts("gpt-ok", 1, 1)
 
     async def fake_anthropic(cx, *, model, message, tenant_id):
         seen.append("anthropic")
-        return "claude-ok", 1, 1, 1
+        return ProviderSendResult.from_token_counts("claude-ok", 1, 1)
 
     async def fake_google(cx, *, model, message, tenant_id):
         seen.append("google")
-        return "gemini-ok", 1, 1, 1
+        return ProviderSendResult.from_token_counts("gemini-ok", 1, 1)
 
     with (
         patch.object(get_gateway_provider("openai"), "send_message", side_effect=fake_openai),

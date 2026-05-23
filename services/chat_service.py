@@ -6,6 +6,7 @@ from sqlalchemy import text
 
 from database.connection import get_db_session
 from database.models import Message, Thread
+from services.chat_language import apply_language_context
 from services.message_format import encode_chat_assistant, gateway_to_provider_id
 from services.model_gateway import route_request
 from services.thread_service import resolve_thread_id
@@ -19,13 +20,15 @@ async def handle_chat(
     *,
     thread_id: uuid.UUID | None = None,
     provider_id: str | None = None,
+    preferred_language: str | None = None,
 ) -> dict[str, Any]:
     _ = user_id
     org = uuid.UUID(tenant_id)
     title = (message.strip()[:512] or "Chat")[:512]
     tid = await resolve_thread_id(org, thread_id, title=title)
 
-    raw = await route_request(message, tenant_id, tier, provider_id=provider_id)
+    effective_message = apply_language_context(message, preferred_language)
+    raw = await route_request(effective_message, tenant_id, tier, provider_id=provider_id)
     resp = raw.get("content", "")
     model_u = raw.get("model_used", "")
     cost = raw.get("cost_usd", 0.0)

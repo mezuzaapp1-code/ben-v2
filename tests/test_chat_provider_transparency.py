@@ -72,7 +72,7 @@ def test_decode_legacy_chat_without_provider_fields():
 
 
 def test_chat_api_returns_provider_fields(client):
-    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None):
+    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, preferred_language=None):
         return {
             "thread_id": str(uuid.uuid4()),
             "response": "ok",
