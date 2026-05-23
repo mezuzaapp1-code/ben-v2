@@ -491,6 +491,62 @@ Return ONLY this JSON (optional keys may be null or omitted):
 }}"""
 
 
+def _expert_counts(experts: list[ExpertResult]) -> tuple[int, int]:
+    available = sum(1 for e in experts if e.outcome == "ok")
+    return available, len(experts) - available
+
+
+def _zero_expert_synthesis() -> dict[str, Any]:
+    return {
+        "recommendation": (
+            "Council unavailable: no experts responded. "
+            "Check provider configuration and retry."
+        ),
+        "consensus_points": None,
+        "main_disagreement": None,
+        "agreement_estimate": "0/0 available",
+        "consensus_available": False,
+        "synthesis_mode": "degraded",
+    }
+
+
+def _single_expert_synthesis(expert: ExpertResult) -> dict[str, Any]:
+    return {
+        "recommendation": expert.response,
+        "consensus_points": None,
+        "main_disagreement": None,
+        "agreement_estimate": "1/1 available",
+        "consensus_available": False,
+        "synthesis_mode": "single_expert",
+    }
+
+
+def _annotate_synthesis_metadata(
+    synthesis: dict[str, Any] | None,
+    *,
+    available: int,
+    unavailable: int,
+) -> dict[str, Any] | None:
+    if synthesis is None:
+        return None
+    out = dict(synthesis)
+    out["available_experts"] = available
+    out["unavailable_experts"] = unavailable
+    if available >= 2:
+        out["consensus_available"] = True
+        out.setdefault(
+            "synthesis_mode",
+            "consensus" if unavailable == 0 else "partial_consensus",
+        )
+    elif available == 1:
+        out["consensus_available"] = False
+        out["synthesis_mode"] = "single_expert"
+    else:
+        out["consensus_available"] = False
+        out["synthesis_mode"] = "degraded"
+    return out
+
+
 def _honest_agreement_estimate(experts: list[ExpertResult], synthesis: dict[str, Any]) -> dict[str, Any]:
     ok_count = sum(1 for e in experts if e.outcome == "ok")
     total = len(experts)
@@ -620,10 +676,19 @@ def _build_council_payload(
     room: CouncilRoom,
     synth_cost: float,
 ) -> dict[str, Any]:
+    available = sum(1 for m in room.members if m.outcome == "ok")
+    unavailable = len(room.members) - available
+    synthesis = _annotate_synthesis_metadata(
+        room.synthesis,
+        available=available,
+        unavailable=unavailable,
+    )
     payload = {
         "question": question,
         "council": room.to_council_members(),
-        "synthesis": room.synthesis,
+        "synthesis": synthesis,
+        "available_experts": available,
+        "unavailable_experts": unavailable,
         "cost_usd": round(sum(m.cost for m in room.members) + synth_cost, 6),
         "room": room.to_http_room(),
     }
@@ -691,7 +756,9 @@ async def _persist_council_thread_if_needed(
         tid = await resolve_thread_id(org_uuid, None, title=(question[:100] or "Council")[:512])
     members = payload.get("council") or []
     synthesis = payload.get("synthesis") if isinstance(payload.get("synthesis"), dict) else None
-    any_failed = any((m.get("outcome") or "ok") != "ok" for m in members)
+    available = int(payload.get("available_experts") or 0)
+    unavailable = int(payload.get("unavailable_experts") or 0)
+    any_failed = unavailable > 0 or available < len(members)
     display = build_synthesis_display_text(synthesis, any_expert_failed=any_failed) if synthesis else ""
     room_block = payload.get("room") if isinstance(payload.get("room"), dict) else {}
     room_id = str(room_block.get("id") or "").strip() or None
@@ -781,53 +848,62 @@ async def _run_council_inner(
 
         synthesis: dict[str, Any] | None = None
         synth_cost = 0.0
+        available, unavailable = _expert_counts(expert_results)
         model_syn = os.getenv("SYNTHESIS_MODEL", SYNTHESIS_MODEL_DEFAULT).strip() or SYNTHESIS_MODEL_DEFAULT
 
         synth_t0 = time.perf_counter()
         synthesis_outcome = "missing"
         room.mark_synthesizing()
-        try:
-            async with measure(subsystem="council", operation="synthesis", provider="openai"):
-                raw_syn, synth_cost = await asyncio.wait_for(
-                    _openai_completion(
-                        cx,
-                        model_syn,
-                        SYNTHESIS_SYSTEM,
-                        _synthesis_user_prompt(room),
-                        tenant_id,
-                    ),
-                    timeout=SYNTHESIS_TIMEOUT_S,
+        if available == 0:
+            synthesis = _zero_expert_synthesis()
+            synthesis_outcome = "degraded"
+        elif available == 1:
+            ok_expert = next(e for e in expert_results if e.outcome == "ok")
+            synthesis = _single_expert_synthesis(ok_expert)
+            synthesis_outcome = "single_expert"
+        else:
+            try:
+                async with measure(subsystem="council", operation="synthesis", provider="openai"):
+                    raw_syn, synth_cost = await asyncio.wait_for(
+                        _openai_completion(
+                            cx,
+                            model_syn,
+                            SYNTHESIS_SYSTEM,
+                            _synthesis_user_prompt(room),
+                            tenant_id,
+                        ),
+                        timeout=SYNTHESIS_TIMEOUT_S,
+                    )
+                synthesis = _parse_synthesis_json(raw_syn, expert_results)
+                synthesis_outcome = "ok"
+                synth_ms = int((time.perf_counter() - synth_t0) * 1000)
+                await get_runtime_metrics().record_synthesis(duration_ms=synth_ms, outcome="ok")
+            except (TimeoutError, asyncio.TimeoutError) as e:
+                synth_ms = int((time.perf_counter() - synth_t0) * 1000)
+                await get_runtime_metrics().record_synthesis(duration_ms=synth_ms, outcome="timeout")
+                synthesis_outcome = "timeout"
+                log_warning(
+                    "council synthesis timed out",
+                    subsystem="council",
+                    provider="openai",
+                    category="timeout",
+                    exc=e,
+                    operation="synthesis",
+                    outcome="timeout",
                 )
-            synthesis = _parse_synthesis_json(raw_syn, expert_results)
-            synthesis_outcome = "ok"
-            synth_ms = int((time.perf_counter() - synth_t0) * 1000)
-            await get_runtime_metrics().record_synthesis(duration_ms=synth_ms, outcome="ok")
-        except (TimeoutError, asyncio.TimeoutError) as e:
-            synth_ms = int((time.perf_counter() - synth_t0) * 1000)
-            await get_runtime_metrics().record_synthesis(duration_ms=synth_ms, outcome="timeout")
-            synthesis_outcome = "timeout"
-            log_warning(
-                "council synthesis timed out",
-                subsystem="council",
-                provider="openai",
-                category="timeout",
-                exc=e,
-                operation="synthesis",
-                outcome="timeout",
-            )
-        except Exception as e:
-            synth_ms = int((time.perf_counter() - synth_t0) * 1000)
-            await get_runtime_metrics().record_synthesis(duration_ms=synth_ms, outcome="error")
-            synthesis_outcome = "error"
-            log_warning(
-                "council synthesis failed",
-                subsystem="council",
-                provider="openai",
-                category=classify_failure(e),
-                exc=e,
-                operation="synthesis",
-                outcome="error",
-            )
+            except Exception as e:
+                synth_ms = int((time.perf_counter() - synth_t0) * 1000)
+                await get_runtime_metrics().record_synthesis(duration_ms=synth_ms, outcome="error")
+                synthesis_outcome = "error"
+                log_warning(
+                    "council synthesis failed",
+                    subsystem="council",
+                    provider="openai",
+                    category=classify_failure(e),
+                    exc=e,
+                    operation="synthesis",
+                    outcome="error",
+                )
 
         synthesis_out.append(synthesis)
         synth_cost_out.append(synth_cost)

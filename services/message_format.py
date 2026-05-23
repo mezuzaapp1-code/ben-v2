@@ -193,9 +193,36 @@ def build_synthesis_display_text(synthesis: dict[str, Any], *, any_expert_failed
     ae = synthesis.get("agreement_estimate") or "unknown"
     rec = synthesis.get("recommendation") or ""
     cons = synthesis.get("consensus_points") or ""
+    available = int(synthesis.get("available_experts") or 0)
+    mode = str(synthesis.get("synthesis_mode") or "").strip().lower()
+    footer = "This is a structured reasoning layer, not a final answer."
+
+    if available == 0 or mode == "degraded":
+        return (
+            "Council unavailable: no experts responded.\n\n"
+            f"{rec}\n\n"
+            f"{footer}"
+        )
+
+    if available == 1 or mode == "single_expert":
+        return (
+            "Single expert result — no consensus available.\n\n"
+            f"🧠 BEN Synthesis ({ae})\n{rec}\n\n"
+            f"{footer}"
+        )
+
+    if available == 2:
+        prefix = "Partial council (2 experts) — limited consensus.\n\n"
+        consensus_block = f"⚡ Limited consensus: {cons}\n" if cons else ""
+        return (
+            f"{prefix}🧠 BEN Synthesis ({ae})\n{rec}\n\n"
+            f"{consensus_block}⚡ Disagreement: {disagree_s}\n\n"
+            f"{footer}"
+        )
+
     prefix = "Based on available expert responses.\n\n" if any_expert_failed else ""
     return (
         f"{prefix}🧠 BEN Synthesis ({ae})\n{rec}\n\n"
         f"✅ Consensus: {cons}\n⚡ Disagreement: {disagree_s}\n\n"
-        "This is a structured reasoning layer, not a final answer."
+        f"{footer}"
     )

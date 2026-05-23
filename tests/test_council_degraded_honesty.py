@@ -19,6 +19,7 @@ from services.council_service import (  # noqa: E402
     SYNTHESIS_SYSTEM,
     run_council,
 )
+from services.message_format import build_synthesis_display_text  # noqa: E402
 
 TENANT = "00000000-0000-0000-0000-000000000001"
 
@@ -42,8 +43,14 @@ def _openai_sys(messages: list[dict[str, Any]] | None) -> str:
     return str(messages[0].get("content", ""))
 
 
-def _make_post(*, legal_mode: str = "ok", synthesis_agreement: str = "3/3"):
-    """legal_mode: ok | timeout | bad_model"""
+def _make_post(
+    *,
+    legal_mode: str = "ok",
+    business_mode: str = "ok",
+    gemini_mode: str = "ok",
+    synthesis_agreement: str = "3/3",
+):
+    """legal_mode / business_mode / gemini_mode: ok | timeout | bad_model"""
 
     async def fake_post(self, url: str, **kwargs: Any) -> _FakeResponse:
         u = str(url)
@@ -77,6 +84,8 @@ def _make_post(*, legal_mode: str = "ok", synthesis_agreement: str = "3/3"):
                 )
             model = jb.get("model", "")
             if model == "gpt-4o":
+                if business_mode == "timeout":
+                    raise httpx.ReadTimeout("business timeout")
                 return _FakeResponse(
                     {
                         "choices": [{"message": {"content": "Business: viable market."}}],
@@ -85,6 +94,8 @@ def _make_post(*, legal_mode: str = "ok", synthesis_agreement: str = "3/3"):
                 )
             raise AssertionError(f"unexpected openai model: {model}")
         if "generativelanguage.googleapis.com" in u:
+            if gemini_mode == "timeout":
+                raise httpx.ReadTimeout("gemini timeout")
             return _FakeResponse(
                 {
                     "candidates": [{"content": {"parts": [{"text": "Strategy: phased rollout."}]}}],
@@ -141,6 +152,12 @@ async def test_legal_timeout_degraded_honest_synthesis():
     assert "2/2 available" == ae or "available" in ae
     assert ae != "2/3"
     assert ae != "3/3"
+    assert out["available_experts"] == 2
+    assert out["unavailable_experts"] == 1
+    assert syn.get("consensus_available") is True
+    display = build_synthesis_display_text(syn, any_expert_failed=True)
+    assert "Partial council" in display
+    assert "✅ Consensus:" not in display
 
 
 @pytest.mark.asyncio
@@ -156,3 +173,85 @@ async def test_invalid_anthropic_model_degraded():
     assert legal["outcome"] in ("degraded", "error")
     assert legal["outcome"] != "ok"
     assert "Expert unavailable" in legal["response"]
+
+
+@pytest.mark.asyncio
+async def test_single_expert_skips_consensus_synthesis():
+    synthesis_calls: list[str] = []
+
+    async def fake_post(self, url: str, **kwargs: Any) -> _FakeResponse:
+        u = str(url)
+        if "api.openai.com" in u:
+            jb = kwargs.get("json") or {}
+            msgs = jb.get("messages") or []
+            if SYNTHESIS_SYSTEM.splitlines()[0] in _openai_sys(msgs):
+                synthesis_calls.append("synthesis")
+        return await _make_post(
+            legal_mode="timeout",
+            gemini_mode="timeout",
+        )(self, url, **kwargs)
+
+    with patch.object(httpx.AsyncClient, "post", new=fake_post):
+        with patch(
+            "services.council_service._persist_council_thread_if_needed",
+            new=lambda *a, **k: asyncio.sleep(0),
+        ), patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
+            out = await run_council("Only business?", TENANT)
+
+    assert out["available_experts"] == 1
+    assert out["unavailable_experts"] == 2
+    syn = out["synthesis"]
+    assert syn is not None
+    assert syn["synthesis_mode"] == "single_expert"
+    assert syn.get("consensus_available") is False
+    assert synthesis_calls == []
+    display = build_synthesis_display_text(syn, any_expert_failed=True)
+    assert "Single expert result" in display
+    assert "✅ Consensus:" not in display
+
+
+@pytest.mark.asyncio
+async def test_zero_experts_degraded_message():
+    async def fake_post(self, url: str, **kwargs: Any) -> _FakeResponse:
+        u = str(url)
+        if "api.anthropic.com" in u or "generativelanguage.googleapis.com" in u:
+            raise httpx.ReadTimeout("expert timeout")
+        if "api.openai.com" in u:
+            jb = kwargs.get("json") or {}
+            if SYNTHESIS_SYSTEM.splitlines()[0] in _openai_sys(jb.get("messages") or []):
+                raise AssertionError("synthesis must not run with zero experts")
+            if (jb.get("model") or "") == "gpt-4o":
+                raise httpx.ReadTimeout("business timeout")
+        raise AssertionError(f"unexpected URL: {u}")
+
+    with patch.object(httpx.AsyncClient, "post", new=fake_post):
+        with patch(
+            "services.council_service._persist_council_thread_if_needed",
+            new=lambda *a, **k: asyncio.sleep(0),
+        ), patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
+            out = await run_council("All down?", TENANT)
+
+    assert out["available_experts"] == 0
+    assert out["unavailable_experts"] == 3
+    syn = out["synthesis"]
+    assert syn is not None
+    assert syn["synthesis_mode"] == "degraded"
+    display = build_synthesis_display_text(syn, any_expert_failed=True)
+    assert "Council unavailable" in display
+    assert "✅ Consensus:" not in display
+
+
+@pytest.mark.asyncio
+async def test_three_experts_keeps_consensus_label():
+    with patch.object(httpx.AsyncClient, "post", new=_make_post()):
+        with patch(
+            "services.council_service._persist_council_thread_if_needed",
+            new=lambda *a, **k: asyncio.sleep(0),
+        ), patch("services.council_service._persist_synthesis_ko", new=lambda *a, **k: asyncio.sleep(0)):
+            out = await run_council("All ok?", TENANT)
+
+    assert out["available_experts"] == 3
+    assert out["unavailable_experts"] == 0
+    syn = out["synthesis"]
+    display = build_synthesis_display_text(syn, any_expert_failed=False)
+    assert "✅ Consensus:" in display
