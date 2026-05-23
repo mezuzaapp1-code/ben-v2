@@ -37,6 +37,7 @@ import {
   setStoredActiveThreadId,
 } from './threadStorage.js'
 import { ProviderToolbar } from './providers/ProviderToolbar.jsx'
+import { formatChatAssistantMeta } from './providers/formatChatMeta.js'
 import { DEFAULT_SPEAKING_PROVIDER_ID } from './providers/providerRegistry.js'
 import './App.css'
 
@@ -352,6 +353,8 @@ function App() {
         role: 'assistant',
         content: data.response ?? '',
         model_used: data.model_used ?? '',
+        provider_id: data.provider_id ?? activeSpeakingProviderId,
+        provider_used: data.provider_used ?? '',
         cost_usd: data.cost_usd ?? 0,
       }
       const serverTid = data.thread_id
@@ -617,7 +620,15 @@ function App() {
               {councilStatus.message}
             </div>
           ) : null}
-          {(active?.messages ?? []).map((m, i) => (
+          {(active?.messages ?? []).map((m, i) => {
+            const chatMeta =
+              m.role === 'assistant' &&
+              m.kind !== 'council_error' &&
+              m.kind !== 'api_error' &&
+              m.kind !== 'council_synthesis'
+                ? formatChatAssistantMeta(m)
+                : ''
+            return (
             <div
               key={i}
               className={`bubble-wrap ${m.role}${m.kind === 'council_synthesis' ? ' synthesis-wrap' : ''}`}
@@ -642,19 +653,21 @@ function App() {
                   {m.role === 'assistant' &&
                     m.kind !== 'council_error' &&
                     m.kind !== 'api_error' &&
-                    (m.model_used || m.cost_usd !== undefined || m.expert_status) && (
+                    m.kind !== 'council_synthesis' &&
+                    (chatMeta || m.model_used || m.cost_usd !== undefined || m.expert_status) && (
                     <div className="meta">
                       {m.expert_status && <span className="expert-status">{m.expert_status}</span>}
-                      {m.expert_status && m.model_used && <span className="dot">·</span>}
-                      {m.model_used && <span>{m.model_used}</span>}
-                      {m.model_used && <span className="dot">·</span>}
+                      {m.expert_status && (chatMeta || m.model_used) && <span className="dot">·</span>}
+                      <span>{chatMeta || m.model_used || 'Assistant'}</span>
+                      {(chatMeta || m.model_used) && <span className="dot">·</span>}
                       <span>${Number(m.cost_usd).toFixed(6)}</span>
                     </div>
                   )}
                 </div>
               )}
             </div>
-          ))}
+            )
+          })}
         </div>
         <footer className="composer-footer">
           <ProviderToolbar

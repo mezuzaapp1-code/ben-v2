@@ -1,9 +1,7 @@
 import { getSpeakingProviders } from './providerRegistry.js'
 import './ProviderToolbar.css'
 
-/**
- * Horizontal speaking-provider selector (UI only; no backend routing yet).
- */
+/** Horizontal speaking-provider selector for /chat routing. */
 export function ProviderToolbar({
   activeProviderId,
   onActiveProviderChange,

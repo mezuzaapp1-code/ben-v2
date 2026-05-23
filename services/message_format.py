@@ -6,14 +6,40 @@ from typing import Any
 
 _BEN_PREFIX = '{"ben":'
 
+GATEWAY_TO_PROVIDER_ID = {"openai": "gpt", "anthropic": "claude", "google": "gemini"}
+PROVIDER_ID_LABELS = {"gpt": "GPT", "claude": "Claude", "gemini": "Gemini"}
 
-def encode_chat_assistant(text: str, *, model_used: str = "", cost_usd: float = 0.0) -> str:
-    if not model_used and not cost_usd:
+
+def gateway_to_provider_id(provider_used: str) -> str:
+    return GATEWAY_TO_PROVIDER_ID.get((provider_used or "").strip().lower(), "")
+
+
+def provider_display_label(provider_id: str) -> str:
+    return PROVIDER_ID_LABELS.get((provider_id or "").strip().lower(), "")
+
+
+def encode_chat_assistant(
+    text: str,
+    *,
+    model_used: str = "",
+    cost_usd: float = 0.0,
+    provider_id: str = "",
+    provider_used: str = "",
+) -> str:
+    if not model_used and not cost_usd and not provider_id and not provider_used:
         return text
-    return json.dumps(
-        {"ben": 1, "kind": "chat", "text": text, "model_used": model_used, "cost_usd": cost_usd},
-        ensure_ascii=False,
-    )
+    payload: dict[str, Any] = {
+        "ben": 1,
+        "kind": "chat",
+        "text": text,
+        "model_used": model_used,
+        "cost_usd": cost_usd,
+    }
+    if provider_id:
+        payload["provider_id"] = provider_id
+    if provider_used:
+        payload["provider_used"] = provider_used
+    return json.dumps(payload, ensure_ascii=False)
 
 
 COUNCIL_DISPLAY_LABEL = {
@@ -100,6 +126,8 @@ def decode_message(role: str, content: str) -> dict[str, Any]:
                 "content": str(data.get("text", "")),
                 "model_used": data.get("model_used") or "",
                 "cost_usd": float(data.get("cost_usd") or 0),
+                "provider_id": data.get("provider_id") or "",
+                "provider_used": data.get("provider_used") or "",
             }
         if kind == "council_expert":
             expert = data.get("expert") or "Advisor"

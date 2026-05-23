@@ -1,7 +1,4 @@
-/**
- * Speaking-provider registry (UI foundation).
- * Backend routing is not wired yet — selection is client state only.
- */
+/** Speaking-provider registry for toolbar labels and chat metadata display. */
 
 /** @typedef {{ id: string, label: string, shortLabel?: string, accent?: string }} SpeakingProvider */
 

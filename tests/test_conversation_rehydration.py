@@ -38,11 +38,19 @@ def _auth_env(monkeypatch):
 
 
 def test_encode_decode_chat_assistant():
-    raw = encode_chat_assistant("hello", model_used="gpt-4o-mini", cost_usd=0.001)
+    raw = encode_chat_assistant(
+        "hello",
+        model_used="gpt-4o-mini",
+        cost_usd=0.001,
+        provider_id="gpt",
+        provider_used="openai",
+    )
     out = decode_message("assistant", raw)
     assert out["content"] == "hello"
     assert out["model_used"] == "gpt-4o-mini"
     assert out["cost_usd"] == 0.001
+    assert out["provider_id"] == "gpt"
+    assert out["provider_used"] == "openai"
 
 
 def test_encode_decode_council_expert_metadata():

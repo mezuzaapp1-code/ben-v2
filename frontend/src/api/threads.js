@@ -28,6 +28,8 @@ export function mapApiMessage(m) {
     role: m.role,
     content: m.content ?? '',
     model_used: m.model_used ?? '',
+    provider_id: m.provider_id ?? '',
+    provider_used: m.provider_used ?? '',
     cost_usd: m.cost_usd ?? 0,
     expert_outcome: m.expert_outcome,
     expert_status: m.expert_status,
