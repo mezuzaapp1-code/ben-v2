@@ -35,4 +35,4 @@ class GeminiProvider(BaseProvider):
         txt = "".join(p.get("text", "") for p in parts)
         m = d.get("usageMetadata") or {}
         pi, po = int(m.get("promptTokenCount", 0)), int(m.get("candidatesTokenCount", 0))
-        return txt, pi + po, pi, po
+        return ProviderSendResult.from_token_counts(txt, pi, po)
