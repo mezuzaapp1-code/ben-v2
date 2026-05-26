@@ -26,6 +26,6 @@ Define a single append-only reasoning-event structure so BEN can record *what ha
 
 ---
 **Completed:** 2026-05-24  
-**Commit:** _(pending — schema files ready)_  
+**Commit:** `6ccc595` — schema: add BEN log event substrate  
 **Verification:** pass (local migration + tests)  
 **Notes:** Schema-only; capture blocked until commit/deploy.
