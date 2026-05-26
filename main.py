@@ -61,6 +61,7 @@ from services.ops.runtime_state import finalize_chat_payload, finalize_council_p
 
 from services.ops.timing import measure
 
+from services.continuity_service import build_thread_continuity
 from services.thread_service import get_thread_detail, list_threads
 
 
@@ -521,5 +522,14 @@ async def api_get_thread(request: Request, thread_id: str):
         raise HTTPException(422, "Invalid thread_id")
 
     return await get_thread_detail(uuid.UUID(ctx.tenant_id), tid)
+
+
+@app.get("/api/threads/{thread_id}/continuity")
+async def api_thread_continuity(request: Request, thread_id: str):
+    ctx = await _tenant_ctx_from_request(request, route_operation="GET /api/threads/{id}/continuity")
+    tid = _parse_thread_id(thread_id)
+    if tid is None:
+        raise HTTPException(422, "Invalid thread_id")
+    return await build_thread_continuity(uuid.UUID(ctx.tenant_id), tid)
 
 

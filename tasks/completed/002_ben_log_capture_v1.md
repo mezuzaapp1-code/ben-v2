@@ -26,6 +26,6 @@ Append reasoning events on real AI-assisted work paths so continuity can be reco
 
 ---
 **Completed:** 2026-05-26  
-**Commit:** _(set on commit)_  
+**Commit:** `d20dacb` — feat: capture BEN log events from chat and council  
 **Verification:** pass  
 **Notes:** `requirements-dev.txt` added for pytest-asyncio; not in production `requirements.txt`.
