@@ -6,7 +6,7 @@ Answer per thread: where did we stop? what was decided? what remains unresolved?
 
 ## Why Now
 
-**Deferred (P3).** Unlocks after BEN Log capture proves events exist.
+**P3 — active.** Unlocked after BEN Log capture (P2) writes events on chat/council paths.
 
 ## Scope
 
@@ -21,6 +21,7 @@ Answer per thread: where did we stop? what was decided? what remains unresolved?
 - Convergence summaries (P4)
 - Cross-thread search
 - Auto recommendations via provider calls
+- Ledger L2
 
 ## Dependencies
 
@@ -41,4 +42,4 @@ Answer per thread: where did we stop? what was decided? what remains unresolved?
 
 ## Next Task
 
-`004_convergence_summaries_v1.md` (add when P3 scoped)
+`004_convergence_summaries_v1.md` (add to `queued/` when P3 scoped)

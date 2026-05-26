@@ -38,6 +38,7 @@ from services.ops.runtime_diagnostics import (
 )
 from services.ops.runtime_events import COUNCIL_RUNNING
 from services.ops.timing import log_timing, measure
+from services.ben_log_service import capture_council_synthesis
 from services.thread_service import persist_council_transcript, resolve_thread_id
 from services.ops.timeouts import (
     COUNCIL_TOTAL_TIMEOUT_S,
@@ -778,6 +779,7 @@ async def _persist_council_thread_if_needed(
             room_status=room_status,
         )
         await reg.mark_persisted(store_key, "council_transcript")
+        await capture_council_synthesis(org_id=org_uuid, thread_id=tid, question=question, payload=payload)
         return tid
     except Exception as e:
         cat = classify_failure(e)

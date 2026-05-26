@@ -59,9 +59,10 @@ P7 Governance layer (after usage validation)
 
 | Status | Tasks |
 |--------|-------|
-| **Active** | `002_ben_log_capture_v1.md` |
+| **Active** | `003_continuity_engine_v1.md` |
+| **Completed (P2)** | `002_ben_log_capture_v1.md` |
 | **Completed (P1)** | `001_ben_log_event_schema_v1.md` |
-| **Queued** | `003_continuity_engine_v1.md`, `ledger_l2.md`, `hats_v1.md`, `governance_layer.md`, `workflow_engine.md`, `agents_exploration.md` |
+| **Queued** | `ledger_l2.md`, `hats_v1.md`, `governance_layer.md`, `workflow_engine.md`, `agents_exploration.md` |
 | **Completed** | `ledger_l1_schema.md` |
 
 See `decisions/` for convergence locks.
