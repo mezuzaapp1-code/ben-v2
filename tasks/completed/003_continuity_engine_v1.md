@@ -26,6 +26,6 @@ Answer per thread: where did we stop? what was decided? what remains unresolved?
 
 ---
 **Completed:** 2026-05-26  
-**Commit:** `7926112` — feat: add read-only continuity engine v1  
+**Commit:** `3fe38e9` — feat: add read-only continuity engine v1  
 **Verification:** pass  
 **Notes:** BEN Log capture still writes `prompt`/`response` only; rich `decision`/`rejection` events await human append API (deferred).
