@@ -183,3 +183,50 @@ class LedgerAction(Base):
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+# BEN Log v1 event types (reasoning continuity primitives — not workflow states).
+BEN_LOG_EVENT_TYPES = (
+    "prompt",
+    "response",
+    "decision",
+    "rejection",
+    "unresolved",
+    "next_step",
+    "context",
+    "note",
+)
+BEN_LOG_SOURCES = ("chat", "council", "human", "system")
+
+
+class BenLogEvent(Base):
+    __tablename__ = "ben_log_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ('prompt','response','decision','rejection','unresolved','next_step','context','note')",
+            name="ck_ben_log_events_event_type",
+        ),
+        CheckConstraint(
+            "source IN ('chat','council','human','system')",
+            name="ck_ben_log_events_source",
+        ),
+        Index("ix_ben_log_events_org", "org_id"),
+        Index("ix_ben_log_events_org_thread_created", "org_id", "thread_id", "created_at"),
+        Index("ix_ben_log_events_org_thread_type", "org_id", "thread_id", "event_type"),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    thread_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.threads.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    actor_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
