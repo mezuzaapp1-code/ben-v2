@@ -28,3 +28,8 @@ CHAT_EXPLICIT_PROVIDER_TIMEOUT_S = DELIBERATE_HARD_TIMEOUT_S
 SYNTHESIS_TIMEOUT_S = 10.0  # governance matrix; leaves ~15s for parallel experts within 25s total
 DB_OPERATION_TIMEOUT_S = 5.0  # optional KO persist; degrades without failing council HTTP 200
 COUNCIL_TOTAL_TIMEOUT_S = DELIBERATE_HARD_TIMEOUT_S  # outer envelope for POST /council (R-017)
+
+# --- Council NDJSON stream (/council/stream) — aligned with frontend 300s idle ceiling ---
+COUNCIL_STREAM_HTTP_CLIENT_TIMEOUT_S = 300.0  # httpx client envelope for sequential stream
+COUNCIL_STREAM_EXPERT_CALL_TIMEOUT_S = 90.0  # per-expert asyncio.wait_for (sequential lane)
+COUNCIL_STREAM_SYNTHESIS_TIMEOUT_S = 60.0  # synthesis step within stream path
