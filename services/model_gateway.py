@@ -8,6 +8,11 @@ from typing import Any
 import httpx
 
 from services.message_format import provider_display_label
+from services.providers.speaking_registry import (
+    all_provider_ids,
+    gateway_for_provider_id,
+    normalize_speaking_provider_id,
+)
 from services.ops.failure_classification import classify_failure
 from services.ops.structured_log import log_info, log_warning
 from services.providers.call_diagnostics import estimate_request_tokens
@@ -17,8 +22,11 @@ from services.providers.provider_errors import format_chat_provider_error, sanit
 
 _CHAIN = ("openai", "anthropic", "google")
 _FALLBACK = {"openai": "gpt-4o-mini", "anthropic": "claude-3-5-haiku-20241022", "google": "gemini-2.5-flash"}
-ALLOWED_CHAT_PROVIDER_IDS = frozenset({"gpt", "claude", "gemini"})
-_CHAT_PROVIDER_TO_GATEWAY = {"gpt": "openai", "claude": "anthropic", "gemini": "google"}
+ALLOWED_CHAT_PROVIDER_IDS = all_provider_ids()
+
+
+def _chat_provider_to_gateway(provider_id: str) -> str:
+    return gateway_for_provider_id(provider_id)
 _RATES: dict[tuple[str, str], tuple[float, float]] = {
     ("openai", "gpt-4o-mini"): (0.15e-6, 0.60e-6),
     ("openai", "gpt-4o"): (2.5e-6, 10e-6),
@@ -41,14 +49,7 @@ def _tier_primary(tier: str) -> tuple[str, str]:
 
 def normalize_chat_provider_id(raw: str | None) -> str | None:
     """UI provider id for /chat; None when omitted (tier routing)."""
-    if raw is None:
-        return None
-    pid = str(raw).strip().lower()
-    if not pid:
-        return None
-    if pid not in ALLOWED_CHAT_PROVIDER_IDS:
-        raise ValueError("provider_id must be one of: gpt, claude, gemini")
-    return pid
+    return normalize_speaking_provider_id(raw)
 
 
 def _model_for_gateway_provider(gateway_prov: str, tier: str) -> str:
@@ -71,7 +72,7 @@ def _model_for_gateway_provider(gateway_prov: str, tier: str) -> str:
 
 def _attempts(tier: str, *, provider_id: str | None = None) -> list[tuple[str, str]]:
     if provider_id:
-        gateway = _CHAT_PROVIDER_TO_GATEWAY[provider_id]
+        gateway = _chat_provider_to_gateway(provider_id)
         return [(gateway, _model_for_gateway_provider(gateway, tier))]
     t = (tier or "free").lower()
     if t == "free":
@@ -140,7 +141,7 @@ async def route_request(
         for prov, model in attempts:
             key_env = gateway_provider_api_key_env(prov)
             if not (os.getenv(key_env) or "").strip():
-                if provider_id and _CHAT_PROVIDER_TO_GATEWAY.get(provider_id) == prov:
+                if provider_id and _chat_provider_to_gateway(provider_id) == prov:
                     ms = (time.perf_counter() - t0) * 1000.0
                     return {
                         "content": _missing_key_message(provider_id=provider_id, gateway_prov=prov),

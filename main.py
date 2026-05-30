@@ -61,6 +61,7 @@ from services.ops.runtime_state import finalize_chat_payload, finalize_council_p
 
 from services.ops.timing import measure
 
+from services.adhoc_council_service import run_adhoc_expert, run_adhoc_synthesize
 from services.continuity_service import build_thread_continuity
 from services.thread_service import get_thread_detail, list_threads
 
@@ -167,6 +168,13 @@ def _parse_thread_id(raw: str | None) -> uuid.UUID | None:
     except ValueError as e:
 
         raise HTTPException(422, "Invalid thread_id") from e
+
+
+def _parse_required_uuid(raw: str, *, field: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(str(raw).strip())
+    except ValueError as e:
+        raise HTTPException(422, f"Invalid {field}") from e
 
 
 
@@ -548,5 +556,86 @@ async def api_thread_continuity(request: Request, thread_id: str):
     if tid is None:
         raise HTTPException(422, "Invalid thread_id")
     return await build_thread_continuity(uuid.UUID(ctx.tenant_id), tid)
+
+
+class AdhocExpertBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(..., description="UUID grouping this ad-hoc round")
+    provider_id: str = Field(..., description="Speaking provider: gpt, claude, or gemini")
+    tier: str = "free"
+    client_request_id: str | None = Field(
+        None,
+        max_length=128,
+        description="Client-generated idempotency token for safe retries",
+    )
+
+
+class AdhocSynthesizeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(..., description="UUID grouping this ad-hoc round")
+    mode: str = Field(
+        "consensus",
+        description="consensus (requires 2+ AI voices) or single_voice_wrap",
+    )
+    client_request_id: str | None = Field(
+        None,
+        max_length=128,
+        description="Client-generated idempotency token for safe retries",
+    )
+
+
+@app.post("/api/threads/{thread_id}/adhoc/expert")
+async def api_adhoc_expert(request: Request, thread_id: str, body: AdhocExpertBody):
+    ctx = await _tenant_ctx_from_request(
+        request, route_operation="POST /api/threads/{id}/adhoc/expert"
+    )
+    tid = _parse_thread_id(thread_id)
+    if tid is None:
+        raise HTTPException(422, "Invalid thread_id")
+    sid = _parse_required_uuid(body.session_id, field="session_id")
+    try:
+        provider_id = normalize_chat_provider_id(body.provider_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if provider_id is None:
+        raise HTTPException(status_code=400, detail="provider_id is required")
+    org_id = uuid.UUID(ctx.tenant_id)
+    async with measure(subsystem="adhoc", operation="POST /api/threads/{id}/adhoc/expert"):
+        return await run_adhoc_expert(
+            org_id,
+            tid,
+            session_id=sid,
+            provider_id=provider_id,
+            tenant_id=ctx.tenant_id,
+            tier=body.tier,
+        )
+
+
+@app.post("/api/threads/{thread_id}/adhoc/synthesize")
+async def api_adhoc_synthesize(request: Request, thread_id: str, body: AdhocSynthesizeBody):
+    ctx = await _tenant_ctx_from_request(
+        request, route_operation="POST /api/threads/{id}/adhoc/synthesize"
+    )
+    tid = _parse_thread_id(thread_id)
+    if tid is None:
+        raise HTTPException(422, "Invalid thread_id")
+    sid = _parse_required_uuid(body.session_id, field="session_id")
+    mode_raw = (body.mode or "consensus").strip().lower()
+    if mode_raw not in ("consensus", "single_voice_wrap"):
+        raise HTTPException(
+            422,
+            detail="mode must be consensus or single_voice_wrap",
+        )
+    org_id = uuid.UUID(ctx.tenant_id)
+    async with measure(subsystem="adhoc", operation="POST /api/threads/{id}/adhoc/synthesize"):
+        return await run_adhoc_synthesize(
+            org_id,
+            tid,
+            session_id=sid,
+            tenant_id=ctx.tenant_id,
+            mode=mode_raw,  # type: ignore[arg-type]
+        )
 
 

@@ -6,16 +6,20 @@ from typing import Any
 
 _BEN_PREFIX = '{"ben":'
 
-GATEWAY_TO_PROVIDER_ID = {"openai": "gpt", "anthropic": "claude", "google": "gemini"}
-PROVIDER_ID_LABELS = {"gpt": "GPT", "claude": "Claude", "gemini": "Gemini"}
+from services.providers.speaking_registry import (
+    gateway_to_provider_id as _registry_gateway_to_provider_id,
+)
+from services.providers.speaking_registry import (
+    provider_label as _registry_provider_label,
+)
 
 
 def gateway_to_provider_id(provider_used: str) -> str:
-    return GATEWAY_TO_PROVIDER_ID.get((provider_used or "").strip().lower(), "")
+    return _registry_gateway_to_provider_id(provider_used)
 
 
 def provider_display_label(provider_id: str) -> str:
-    return PROVIDER_ID_LABELS.get((provider_id or "").strip().lower(), "")
+    return _registry_provider_label(provider_id)
 
 
 def encode_chat_assistant(
@@ -107,6 +111,68 @@ def encode_council_synthesis(
     return json.dumps(payload, ensure_ascii=False)
 
 
+def build_adhoc_expert_display_text(
+    provider_id: str,
+    model: str,
+    response: str,
+) -> str:
+    """Provider-first label for ad-hoc expert bubbles (rehydration + persist)."""
+    label = provider_display_label(provider_id) or (provider_id or "Model").strip()
+    model_s = (model or "").strip()
+    head = f"{label} · {model_s}" if model_s else label
+    return f"{head}: {response}"
+
+
+def encode_adhoc_expert(
+    *,
+    session_id: str,
+    provider_id: str,
+    response: str,
+    provider_used: str = "",
+    model: str = "",
+    outcome: str = "ok",
+    cost_usd: float = 0.0,
+    sequence: int | None = None,
+    display_content: str | None = None,
+) -> str:
+    display = display_content or build_adhoc_expert_display_text(provider_id, model, response)
+    payload: dict[str, Any] = {
+        "ben": 1,
+        "kind": "adhoc_expert",
+        "session_id": session_id,
+        "provider_id": provider_id,
+        "response": response,
+        "display_content": display,
+        "outcome": outcome,
+        "cost_usd": cost_usd,
+    }
+    if provider_used:
+        payload["provider_used"] = provider_used
+    if model:
+        payload["model"] = model
+    if sequence is not None:
+        payload["sequence"] = sequence
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def encode_adhoc_synthesis(
+    *,
+    session_id: str,
+    synthesis: dict[str, Any],
+    display_text: str,
+    cost_usd: float = 0.0,
+) -> str:
+    payload: dict[str, Any] = {
+        "ben": 1,
+        "kind": "adhoc_synthesis",
+        "session_id": session_id,
+        "synthesis": synthesis,
+        "display_text": display_text,
+        "cost_usd": cost_usd,
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
 def decode_message(role: str, content: str) -> dict[str, Any]:
     """Map DB row to API/UI message shape."""
     if role == "user":
@@ -168,6 +234,43 @@ def decode_message(role: str, content: str) -> dict[str, Any]:
                 if data.get("room_status"):
                     out_syn["room_status"] = data.get("room_status")
                 return out_syn
+        if kind == "adhoc_expert":
+            provider_id = str(data.get("provider_id") or "")
+            resp = str(data.get("response") or "")
+            outcome = str(data.get("outcome") or "ok")
+            model = str(data.get("model") or "")
+            display = data.get("display_content") or build_adhoc_expert_display_text(
+                provider_id, model, resp
+            )
+            label = _expert_status_from_outcome(outcome, resp)
+            out_adhoc: dict[str, Any] = {
+                "role": "assistant",
+                "kind": "adhoc_expert",
+                "content": display,
+                "provider_id": provider_id,
+                "provider_used": data.get("provider_used") or "",
+                "model_used": model,
+                "expert_outcome": outcome,
+                "expert_status": label,
+                "cost_usd": float(data.get("cost_usd") or 0),
+                "adhoc_session_id": str(data.get("session_id") or ""),
+            }
+            if data.get("sequence") is not None:
+                out_adhoc["sequence"] = int(data.get("sequence"))
+            return out_adhoc
+        if kind == "adhoc_synthesis":
+            syn = data.get("synthesis")
+            if isinstance(syn, dict):
+                out_adhoc_syn: dict[str, Any] = {
+                    "role": "assistant",
+                    "kind": "adhoc_synthesis",
+                    "synthesis": syn,
+                    "content": str(data.get("display_text") or ""),
+                    "model_used": "synthesis",
+                    "cost_usd": float(data.get("cost_usd") or 0),
+                    "adhoc_session_id": str(data.get("session_id") or ""),
+                }
+                return out_adhoc_syn
 
     return {"role": "assistant", "content": content}
 

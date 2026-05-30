@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from typing import Any
 
@@ -11,6 +12,8 @@ from database.connection import get_db_session
 from database.models import Message, Thread
 from services.message_format import (
     decode_message,
+    encode_adhoc_expert,
+    encode_adhoc_synthesis,
     encode_chat_assistant,
     encode_council_expert,
     encode_council_synthesis,
@@ -229,6 +232,182 @@ async def persist_council_transcript(
                 room_id=room_id,
                 question_id=question_id,
                 room_status=room_status,
+            ),
+            timeout=DB_OPERATION_TIMEOUT_S,
+        )
+    except (TimeoutError, asyncio.TimeoutError):
+        await record_transcript_persist_timeout()
+        raise
+
+
+async def _append_adhoc_expert_message_inner(
+    org_id: uuid.UUID,
+    thread_id: uuid.UUID,
+    *,
+    session_id: str,
+    provider_id: str,
+    response: str,
+    provider_used: str,
+    model: str,
+    outcome: str,
+    cost_usd: float,
+    sequence: int,
+    display_content: str,
+) -> uuid.UUID:
+    async with get_db_session() as session:
+        await _set_org(session, org_id)
+        row = await session.get(Thread, thread_id)
+        if row is None or row.org_id != org_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Thread not found")
+        msg = Message(
+            org_id=org_id,
+            thread_id=thread_id,
+            role="assistant",
+            content=encode_adhoc_expert(
+                session_id=session_id,
+                provider_id=provider_id,
+                response=response,
+                provider_used=provider_used,
+                model=model,
+                outcome=outcome,
+                cost_usd=cost_usd,
+                sequence=sequence,
+                display_content=display_content,
+            ),
+        )
+        session.add(msg)
+        await session.flush()
+        message_id = msg.id
+        await session.commit()
+        return message_id
+
+
+async def append_adhoc_expert_message(
+    org_id: uuid.UUID,
+    thread_id: uuid.UUID,
+    *,
+    session_id: str,
+    provider_id: str,
+    response: str,
+    provider_used: str = "",
+    model: str = "",
+    outcome: str = "ok",
+    cost_usd: float = 0.0,
+    sequence: int = 1,
+    display_content: str = "",
+) -> uuid.UUID:
+    """Append one ad-hoc expert assistant row (Tier-1 DB budget)."""
+    try:
+        return await asyncio.wait_for(
+            _append_adhoc_expert_message_inner(
+                org_id,
+                thread_id,
+                session_id=session_id,
+                provider_id=provider_id,
+                response=response,
+                provider_used=provider_used,
+                model=model,
+                outcome=outcome,
+                cost_usd=cost_usd,
+                sequence=sequence,
+                display_content=display_content,
+            ),
+            timeout=DB_OPERATION_TIMEOUT_S,
+        )
+    except (TimeoutError, asyncio.TimeoutError):
+        await record_transcript_persist_timeout()
+        raise
+
+
+def _thread_has_adhoc_synthesis_for_session(messages: list[Message], session_id: str) -> bool:
+    session_key = str(session_id or "").strip().lower()
+    for m in reversed(messages):
+        if m.role != "assistant" or not m.content.startswith('{"ben":'):
+            continue
+        try:
+            data = json.loads(m.content)
+        except json.JSONDecodeError:
+            continue
+        if (
+            isinstance(data, dict)
+            and data.get("ben") == 1
+            and data.get("kind") == "adhoc_synthesis"
+            and str(data.get("session_id") or "").strip().lower() == session_key
+        ):
+            return True
+    return False
+
+
+async def _append_adhoc_synthesis_message_inner(
+    org_id: uuid.UUID,
+    thread_id: uuid.UUID,
+    *,
+    session_id: str,
+    synthesis: dict[str, Any],
+    display_text: str,
+    cost_usd: float,
+) -> uuid.UUID:
+    async with get_db_session() as session:
+        await _set_org(session, org_id)
+        lock_q = (
+            select(Thread)
+            .where(Thread.id == thread_id, Thread.org_id == org_id)
+            .with_for_update()
+        )
+        row = (await session.execute(lock_q)).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Thread not found")
+        msg_q = (
+            select(Message)
+            .where(Message.thread_id == thread_id, Message.org_id == org_id)
+            .order_by(Message.created_at.asc())
+        )
+        messages = list((await session.execute(msg_q)).scalars().all())
+        if _thread_has_adhoc_synthesis_for_session(messages, session_id):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "adhoc_session_closed",
+                    "message": "This ad-hoc session already has a synthesis.",
+                },
+            )
+        msg = Message(
+            org_id=org_id,
+            thread_id=thread_id,
+            role="assistant",
+            content=encode_adhoc_synthesis(
+                session_id=session_id,
+                synthesis=synthesis,
+                display_text=display_text,
+                cost_usd=cost_usd,
+            ),
+        )
+        session.add(msg)
+        await session.flush()
+        message_id = msg.id
+        await session.commit()
+        return message_id
+
+
+async def append_adhoc_synthesis_message(
+    org_id: uuid.UUID,
+    thread_id: uuid.UUID,
+    *,
+    session_id: str,
+    synthesis: dict[str, Any],
+    display_text: str,
+    cost_usd: float = 0.0,
+) -> uuid.UUID:
+    """Append ad-hoc BEN synthesis row (Tier-1 DB budget)."""
+    try:
+        return await asyncio.wait_for(
+            _append_adhoc_synthesis_message_inner(
+                org_id,
+                thread_id,
+                session_id=session_id,
+                synthesis=synthesis,
+                display_text=display_text,
+                cost_usd=cost_usd,
             ),
             timeout=DB_OPERATION_TIMEOUT_S,
         )

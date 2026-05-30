@@ -1,0 +1,28 @@
+{
+  "providers": [
+    {
+      "id": "gpt",
+      "label": "GPT",
+      "short_label": "GPT",
+      "gateway": "openai",
+      "api_key_env": "OPENAI_API_KEY",
+      "accent": "#10a37f"
+    },
+    {
+      "id": "claude",
+      "label": "Claude",
+      "short_label": "Claude",
+      "gateway": "anthropic",
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "accent": "#d97757"
+    },
+    {
+      "id": "gemini",
+      "label": "Gemini",
+      "short_label": "Gemini",
+      "gateway": "google",
+      "api_key_env": "GOOGLE_API_KEY",
+      "accent": "#4285f4"
+    }
+  ]
+}
