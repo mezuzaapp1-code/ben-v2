@@ -180,8 +180,9 @@ function CopyMessageButton({ content }) {
       aria-label={copied ? 'Copied' : 'Copy message'}
       title={copied ? 'Copied' : 'Copy'}
       style={{
-        flexShrink: 0,
-        marginTop: '0.35rem',
+        position: 'absolute',
+        top: '0.3rem',
+        right: '0.3rem',
         padding: '0.2rem 0.45rem',
         fontSize: '0.75rem',
         lineHeight: 1,
@@ -193,6 +194,7 @@ function CopyMessageButton({ content }) {
         borderRadius: '4px',
         color: copied ? '#6fcf97' : '#888',
         cursor: 'pointer',
+        zIndex: 1,
       }}
     >
       {copied ? (
@@ -794,9 +796,8 @@ function App() {
             <div
               key={i}
               className={`bubble-wrap ${m.role}${m.kind === 'council_synthesis' ? ' synthesis-wrap' : ''}`}
-              style={m.role === 'assistant' ? { display: 'flex', alignItems: 'flex-start', gap: '0.35rem' } : undefined}
+              style={m.role === 'assistant' ? { position: 'relative' } : undefined}
             >
-              {m.role === 'assistant' ? <CopyMessageButton content={m.content} /> : null}
               {m.kind === 'council_synthesis' && m.synthesis ? (
                 <div className="bubble synthesis">
                   <div className="bubble-text">{m.content}</div>
@@ -829,6 +830,7 @@ function App() {
                   )}
                 </div>
               )}
+              {m.role === 'assistant' ? <CopyMessageButton content={m.content} /> : null}
             </div>
             )
           })}
