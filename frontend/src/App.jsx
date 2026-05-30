@@ -40,7 +40,7 @@ import {
 } from './threadStorage.js'
 import { ProviderToolbar } from './providers/ProviderToolbar.jsx'
 import { formatChatAssistantMeta } from './providers/formatChatMeta.js'
-import { DEFAULT_SPEAKING_PROVIDER_ID } from './providers/providerRegistry.js'
+import { DEFAULT_SPEAKING_PROVIDER_ID, getSpeakingProviderById } from './providers/providerRegistry.js'
 import './App.css'
 
 const CHAT_URL = `${BEN_API_BASE}/chat`
@@ -207,6 +207,83 @@ function CopyMessageButton({ content }) {
           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
         </svg>
       )}
+    </button>
+  )
+}
+
+function conversationCopyLabel(m) {
+  if (m.role === 'user') return 'User'
+  if (m.kind === 'council_synthesis') return 'BEN Synthesis'
+  const providerLabel = getSpeakingProviderById(m.provider_id)?.label
+  if (providerLabel) return providerLabel
+  const content = String(m.content ?? '')
+  for (const [, head] of Object.entries(COUNCIL_LABEL)) {
+    if (content.startsWith(`${head}: `)) return head
+  }
+  return 'Assistant'
+}
+
+function conversationCopyBody(m) {
+  const content = String(m.content ?? '')
+  if (m.role === 'user' || m.kind === 'council_synthesis') return content
+  for (const head of Object.values(COUNCIL_LABEL)) {
+    const prefix = `${head}: `
+    if (content.startsWith(prefix)) return content.slice(prefix.length)
+  }
+  return content
+}
+
+function formatConversationForCopy(messages) {
+  return (messages ?? [])
+    .map((m) => {
+      const body = conversationCopyBody(m).trim()
+      if (!body) return null
+      return `${conversationCopyLabel(m)}: ${body}`
+    })
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+function CopyConversationButton({ messages }) {
+  const [copied, setCopied] = useState(false)
+  const timerRef = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(formatConversationForCopy(messages))
+      setCopied(true)
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => setCopied(false), 2000)
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className="copy-conversation-btn"
+      onClick={handleCopy}
+      aria-label={copied ? 'Conversation copied' : 'Copy conversation'}
+      style={{
+        alignSelf: 'flex-start',
+        margin: '0 0 0.5rem',
+        padding: '0.35rem 0.65rem',
+        fontSize: '0.8rem',
+        background: 'transparent',
+        border: '1px solid #333',
+        borderRadius: '6px',
+        color: copied ? '#6fcf97' : '#aaa',
+        cursor: 'pointer',
+      }}
+    >
+      {copied ? 'Copied ✓' : 'Copy conversation'}
     </button>
   )
 }
@@ -796,7 +873,7 @@ function App() {
             <div
               key={i}
               className={`bubble-wrap ${m.role}${m.kind === 'council_synthesis' ? ' synthesis-wrap' : ''}`}
-              style={m.role === 'assistant' ? { position: 'relative' } : undefined}
+              style={m.role === 'user' || m.role === 'assistant' ? { position: 'relative' } : undefined}
             >
               {m.kind === 'council_synthesis' && m.synthesis ? (
                 <div className="bubble synthesis">
@@ -830,12 +907,17 @@ function App() {
                   )}
                 </div>
               )}
-              {m.role === 'assistant' ? <CopyMessageButton content={m.content} /> : null}
+              {m.role === 'user' || m.role === 'assistant' ? (
+                <CopyMessageButton content={m.content} />
+              ) : null}
             </div>
             )
           })}
         </div>
         <footer className="composer-footer">
+          {(active?.messages?.length ?? 0) >= 2 ? (
+            <CopyConversationButton messages={active.messages} />
+          ) : null}
           <ProviderToolbar
             activeProviderId={activeSpeakingProviderId}
             onActiveProviderChange={setActiveSpeakingProviderId}
