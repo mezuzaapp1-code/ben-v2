@@ -18,7 +18,7 @@ from fastapi import FastAPI, HTTPException, Request
 
 from fastapi.middleware.cors import CORSMiddleware
 
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -34,7 +34,7 @@ from services.chat_language import normalize_language_code
 from services.chat_service import handle_chat
 from services.model_gateway import normalize_chat_provider_id
 
-from services.council_service import CouncilTranscriptPersistError, run_council
+from services.council_service import CouncilTranscriptPersistError, run_council, stream_council_response
 
 from services.health_service import build_health_payload, build_ready_payload
 
@@ -79,6 +79,8 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         "/chat",
 
         "/council",
+
+        "/council/stream",
 
         "/health",
 
@@ -386,7 +388,7 @@ class CouncilBody(BaseModel):
     )
 
 
-
+_COUNCIL_STREAM_EXPERTS = ("Legal Advisor", "Business Advisor", "Strategy Advisor")
 
 
 @app.post("/council")
@@ -480,7 +482,15 @@ async def council(request: Request, body: CouncilBody):
         raise
 
 
+@app.post("/council/stream")
+async def council_stream(request: Request, body: CouncilBody):
+    ctx = await _tenant_ctx_from_request(request, route_operation="POST /council/stream")
+    validate_body_tenant_matches_context(body, ctx)
 
+    return StreamingResponse(
+        stream_council_response(body.question, list(_COUNCIL_STREAM_EXPERTS), ctx.tenant_id),
+        media_type="application/x-ndjson",
+    )
 
 
 @app.get("/runtime/snapshot")
