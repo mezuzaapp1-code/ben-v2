@@ -13,6 +13,7 @@ import {
   humanizeCouncilFetchError,
   humanizeCouncilHttpError,
   postCouncil,
+  postCouncilStream,
 } from './api/council.js'
 import { fetchThreadDetail, fetchThreadList, mapApiMessage, mapThreadFromList } from './api/threads.js'
 import { logCouncilLifecycle } from './councilLifecycleLog.js'
@@ -44,6 +45,7 @@ import './App.css'
 
 const CHAT_URL = `${BEN_API_BASE}/chat`
 const HAS_CLERK_UI = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim())
+const USE_COUNCIL_STREAM = true
 
 const COUNCIL_PHASE_TIMERS = [
   { at: 0, phase: 'started', message: 'Council started…' },
@@ -491,7 +493,6 @@ function App() {
     startCouncilPhaseTimers()
 
     const controller = new AbortController()
-    const abortTimer = setTimeout(() => controller.abort(), COUNCIL_CLIENT_TIMEOUT_MS)
     setLoading(true)
 
     try {
@@ -501,76 +502,156 @@ function App() {
         hasThreadId: Boolean(apiThreadId),
       })
 
-      const { res, data } = await postCouncil({
-        question: text,
-        threadId: apiThreadId,
-        clientRequestId,
-        headers,
-        signal: controller.signal,
-      })
-      logCouncilLifecycle('council_response_received', { status: res.status })
-
-      if (!res.ok) {
-        const parsed = parseBenErrorResponse(res.status, data)
-        if (parsed?.code === CLERK_ORG_REQUIRED) {
-          setOrgBanner({ message: parsed.message, hint: parsed.hint })
-          logCouncilLifecycle('council_submit_failed', {
-            status: res.status,
-            reason: 'clerk_org_required',
-          })
-          return
-        }
-        const errText = humanizeCouncilHttpError(res.status, data)
-        logCouncilLifecycle('council_submit_failed', {
-          status: res.status,
-          reason: parsed?.code || 'http_error',
-        })
+      const appendCouncilMessage = (msg) => {
         setThreads((prev) =>
           prev.map((t) =>
             t.id === tid
-              ? {
-                  ...t,
-                  messages: [
-                    ...t.messages,
-                    { role: 'assistant', kind: 'council_error', content: errText, model_used: '', cost_usd: 0 },
-                  ],
-                }
+              ? { ...t, messages: [...t.messages, msg], loaded: true, isDraft: false }
               : t
           )
         )
-        return
       }
 
-      setOrgBanner(null)
-      clearCouncilPending()
-      const extras = councilResponseToMessages(data, councilSynthesisBubbleText)
-      applyCouncilMessages(tid, extras, apiThreadId)
-      logCouncilLifecycle('council_render_completed', {
-        messageCount: extras.length,
-        runtimeState: data.runtime_state,
-        idempotentReplay: data.idempotent_replay,
-      })
-
-      if (!apiThreadId) {
-        void (async () => {
-          try {
-            const listData = await fetchThreadList(headers)
-            const latest = listData.threads?.[0]
-            if (latest?.id) {
-              setThreads((prev) =>
-                prev.map((t) =>
-                  t.id === tid ? { ...t, id: latest.id, isDraft: false, loaded: true } : t
-                )
-              )
-              setActiveId(latest.id)
-              setStoredActiveThreadId(latest.id)
-            }
-          } catch (inner) {
-            if (inner.parsed?.code === CLERK_ORG_REQUIRED) {
-              setOrgBanner({ message: inner.parsed.message, hint: inner.parsed.hint })
+      if (USE_COUNCIL_STREAM) {
+        let streamOk = false
+        let anyExpertFailed = false
+        try {
+          for await (const event of postCouncilStream({
+            question: text,
+            threadId: apiThreadId,
+            clientRequestId,
+            headers,
+            signal: controller.signal,
+          })) {
+            if (event.type === 'expert') {
+              const head = COUNCIL_LABEL[event.role] || event.role || 'Advisor'
+              appendCouncilMessage({
+                role: 'assistant',
+                content: `${head}: ${event.content ?? ''}`,
+                model_used: event.model ?? '',
+                expert_outcome: 'ok',
+                expert_status: null,
+                cost_usd: 0,
+              })
+            } else if (event.type === 'synthesis') {
+              const syn = { next_steps: event.next_steps ?? [] }
+              appendCouncilMessage({
+                role: 'assistant',
+                kind: 'council_synthesis',
+                synthesis: syn,
+                content: event.content ?? councilSynthesisBubbleText(syn, anyExpertFailed),
+                model_used: 'synthesis',
+                cost_usd: 0,
+              })
+              streamOk = true
+            } else if (event.type === 'error') {
+              anyExpertFailed = true
+              appendCouncilMessage({
+                role: 'assistant',
+                kind: 'council_error',
+                content: event.message || 'Council failed. You can retry.',
+                model_used: '',
+                cost_usd: 0,
+              })
             }
           }
-        })()
+          if (streamOk) {
+            setOrgBanner(null)
+            clearCouncilPending()
+            logCouncilLifecycle('council_stream_completed')
+            return
+          }
+        } catch (streamErr) {
+          const parsed = parseBenErrorResponse(streamErr.status, streamErr.data)
+          if (parsed?.code === CLERK_ORG_REQUIRED) {
+            setOrgBanner({ message: parsed.message, hint: parsed.hint })
+            logCouncilLifecycle('council_submit_failed', {
+              status: streamErr.status,
+              reason: 'clerk_org_required',
+            })
+            return
+          }
+          logCouncilLifecycle('council_stream_fallback', {
+            reason: streamErr?.name || 'error',
+          })
+        }
+      }
+
+      const abortTimer = setTimeout(() => controller.abort(), COUNCIL_CLIENT_TIMEOUT_MS)
+      try {
+        const { res, data } = await postCouncil({
+          question: text,
+          threadId: apiThreadId,
+          clientRequestId,
+          headers,
+          signal: controller.signal,
+        })
+        logCouncilLifecycle('council_response_received', { status: res.status })
+
+        if (!res.ok) {
+          const parsed = parseBenErrorResponse(res.status, data)
+          if (parsed?.code === CLERK_ORG_REQUIRED) {
+            setOrgBanner({ message: parsed.message, hint: parsed.hint })
+            logCouncilLifecycle('council_submit_failed', {
+              status: res.status,
+              reason: 'clerk_org_required',
+            })
+            return
+          }
+          const errText = humanizeCouncilHttpError(res.status, data)
+          logCouncilLifecycle('council_submit_failed', {
+            status: res.status,
+            reason: parsed?.code || 'http_error',
+          })
+          setThreads((prev) =>
+            prev.map((t) =>
+              t.id === tid
+                ? {
+                    ...t,
+                    messages: [
+                      ...t.messages,
+                      { role: 'assistant', kind: 'council_error', content: errText, model_used: '', cost_usd: 0 },
+                    ],
+                  }
+                : t
+            )
+          )
+          return
+        }
+
+        setOrgBanner(null)
+        clearCouncilPending()
+        const extras = councilResponseToMessages(data, councilSynthesisBubbleText)
+        applyCouncilMessages(tid, extras, apiThreadId)
+        logCouncilLifecycle('council_render_completed', {
+          messageCount: extras.length,
+          runtimeState: data.runtime_state,
+          idempotentReplay: data.idempotent_replay,
+        })
+
+        if (!apiThreadId) {
+          void (async () => {
+            try {
+              const listData = await fetchThreadList(headers)
+              const latest = listData.threads?.[0]
+              if (latest?.id) {
+                setThreads((prev) =>
+                  prev.map((t) =>
+                    t.id === tid ? { ...t, id: latest.id, isDraft: false, loaded: true } : t
+                  )
+                )
+                setActiveId(latest.id)
+                setStoredActiveThreadId(latest.id)
+              }
+            } catch (inner) {
+              if (inner.parsed?.code === CLERK_ORG_REQUIRED) {
+                setOrgBanner({ message: inner.parsed.message, hint: inner.parsed.hint })
+              }
+            }
+          })()
+        }
+      } finally {
+        clearTimeout(abortTimer)
       }
     } catch (e) {
       const errText = humanizeCouncilFetchError(e)
@@ -591,7 +672,6 @@ function App() {
         )
       )
     } finally {
-      clearTimeout(abortTimer)
       clearCouncilPhaseTimers()
       setCouncilStatus(null)
       setLoading(false)
