@@ -487,8 +487,15 @@ async def council_stream(request: Request, body: CouncilBody):
     ctx = await _tenant_ctx_from_request(request, route_operation="POST /council/stream")
     validate_body_tenant_matches_context(body, ctx)
 
+    tid = _parse_thread_id(body.thread_id)
+
     return StreamingResponse(
-        stream_council_response(body.question, list(_COUNCIL_STREAM_EXPERTS), ctx.tenant_id),
+        stream_council_response(
+            body.question,
+            list(_COUNCIL_STREAM_EXPERTS),
+            ctx.tenant_id,
+            thread_id=tid,
+        ),
         media_type="application/x-ndjson",
     )
 

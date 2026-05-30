@@ -1091,13 +1091,16 @@ async def stream_council_response(
     question: str,
     experts: list[str],
     tenant_id: str,
+    *,
+    thread_id: uuid.UUID | None = None,
 ) -> AsyncIterator[str]:
     """
     Sequential council NDJSON stream: one expert line per role, then synthesis.
-    Yields NDJSON lines (str). Does not persist or expose HTTP.
+    Yields NDJSON lines (str). Persists transcript on successful completion.
     """
+    council_t0 = time.perf_counter()
     try:
-        room = CouncilRoom.create(question=question)
+        room = CouncilRoom.create(question=question, thread_id=thread_id)
         expert_results: list[ExpertResult] = []
         timeout = httpx.Timeout(HTTP_CLIENT_TIMEOUT_S)
         async with httpx.AsyncClient(timeout=timeout) as cx:
@@ -1133,15 +1136,20 @@ async def stream_council_response(
             any_expert_failed = any(e.outcome != "ok" for e in expert_results)
             model_syn = os.getenv("SYNTHESIS_MODEL", SYNTHESIS_MODEL_DEFAULT).strip() or SYNTHESIS_MODEL_DEFAULT
             synthesis: dict[str, Any] | None = None
+            synth_cost = 0.0
+            synthesis_outcome = "missing"
+            room.mark_synthesizing()
 
             if available == 0:
                 synthesis = _zero_expert_synthesis()
+                synthesis_outcome = "degraded"
             elif available == 1:
                 ok_expert = next(e for e in expert_results if e.outcome == "ok")
                 synthesis = _single_expert_synthesis(ok_expert)
+                synthesis_outcome = "single_expert"
             else:
                 try:
-                    raw_syn, _synth_cost = await asyncio.wait_for(
+                    raw_syn, synth_cost = await asyncio.wait_for(
                         _openai_completion(
                             cx,
                             model_syn,
@@ -1152,6 +1160,7 @@ async def stream_council_response(
                         timeout=SYNTHESIS_TIMEOUT_S,
                     )
                     synthesis = _parse_synthesis_json(raw_syn, expert_results)
+                    synthesis_outcome = "ok"
                 except (TimeoutError, asyncio.TimeoutError):
                     yield _stream_ndjson_line(
                         {"type": "error", "message": "Council synthesis timed out. Please retry."}
@@ -1167,6 +1176,8 @@ async def stream_council_response(
                     return
 
             if synthesis is not None:
+                room.attach_synthesis(synthesis)
+                room.finalize_status()
                 yield _stream_ndjson_line(
                     {
                         "type": "synthesis",
@@ -1176,6 +1187,32 @@ async def stream_council_response(
                         "next_steps": synthesis.get("next_steps") or [],
                     }
                 )
+                try:
+                    payload = _build_council_payload(
+                        question,
+                        room=room,
+                        synth_cost=synth_cost,
+                    )
+                    _schedule_background_task(_persist_synthesis_ko(tenant_id, question, synthesis))
+                    await _persist_council_thread_if_needed(
+                        tenant_id, thread_id, question, payload
+                    )
+                    await _record_council_metrics(
+                        council_t0=council_t0,
+                        expert_results=expert_results,
+                        synthesis_outcome=synthesis_outcome,
+                    )
+                except CouncilTranscriptPersistError:
+                    yield _stream_ndjson_line(
+                        {
+                            "type": "error",
+                            "message": (
+                                "Council completed but transcript persistence failed. Please retry."
+                            ),
+                            "error": "council_persistence_failed",
+                            "retryable": True,
+                        }
+                    )
     except Exception as e:
         yield _stream_ndjson_line(
             {"type": "error", "message": str(e) or "Council stream failed. Please retry."}
