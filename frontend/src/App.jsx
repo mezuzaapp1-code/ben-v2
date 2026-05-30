@@ -151,6 +151,52 @@ function ClerkAuthControls() {
   )
 }
 
+function CopyMessageButton({ content }) {
+  const [copied, setCopied] = useState(false)
+  const timerRef = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(String(content ?? ''))
+      setCopied(true)
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => setCopied(false), 2000)
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className="copy-msg-btn"
+      onClick={handleCopy}
+      aria-label={copied ? 'Copied' : 'Copy message'}
+      title={copied ? 'Copied' : 'Copy'}
+      style={{
+        flexShrink: 0,
+        marginTop: '0.35rem',
+        padding: '0.2rem 0.45rem',
+        fontSize: '0.75rem',
+        lineHeight: 1,
+        background: 'transparent',
+        border: '1px solid #333',
+        borderRadius: '4px',
+        color: copied ? '#6fcf97' : '#888',
+        cursor: 'pointer',
+      }}
+    >
+      {copied ? '✓' : '⎘'}
+    </button>
+  )
+}
+
 function App() {
   const { getToken } = useBenAuthContext()
   const [threads, setThreads] = useState([])
@@ -736,7 +782,9 @@ function App() {
             <div
               key={i}
               className={`bubble-wrap ${m.role}${m.kind === 'council_synthesis' ? ' synthesis-wrap' : ''}`}
+              style={m.role === 'assistant' ? { display: 'flex', alignItems: 'flex-start', gap: '0.35rem' } : undefined}
             >
+              {m.role === 'assistant' ? <CopyMessageButton content={m.content} /> : null}
               {m.kind === 'council_synthesis' && m.synthesis ? (
                 <div className="bubble synthesis">
                   <div className="bubble-text">{m.content}</div>
