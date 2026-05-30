@@ -185,6 +185,9 @@ function CopyMessageButton({ content }) {
         padding: '0.2rem 0.45rem',
         fontSize: '0.75rem',
         lineHeight: 1,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
         background: 'transparent',
         border: '1px solid #333',
         borderRadius: '4px',
@@ -192,7 +195,16 @@ function CopyMessageButton({ content }) {
         cursor: 'pointer',
       }}
     >
-      {copied ? '✓' : '⎘'}
+      {copied ? (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6fcf97" strokeWidth="2.5">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      ) : (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+      )}
     </button>
   )
 }
