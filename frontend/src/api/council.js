@@ -1,7 +1,14 @@
 import { BEN_API_BASE } from '../config.js'
 import { humanizeBenHttpError, parseBenErrorResponse } from './benErrors.js'
 
+/** Generous ceiling for council streams (5 minutes idle without bytes/events). */
+export const COUNCIL_STREAM_IDLE_TIMEOUT_MS = 300_000
+
+/** @deprecated Use COUNCIL_STREAM_IDLE_TIMEOUT_MS for stream paths. */
 export const COUNCIL_CLIENT_TIMEOUT_MS = 35_000
+
+/** Non-stream POST /council JSON requests. */
+export const COUNCIL_REQUEST_TIMEOUT_MS = 90_000
 
 const COUNCIL_LABEL = {
   'Legal Advisor': '⚖️ Legal Advisor',
@@ -38,7 +45,8 @@ export function humanizeCouncilHttpError(status, data) {
 
 export function humanizeCouncilFetchError(err) {
   if (err?.name === 'AbortError') {
-    return 'Council timed out. You can retry.'
+    const idleMin = Math.round(COUNCIL_STREAM_IDLE_TIMEOUT_MS / 60_000)
+    return `Council stream timed out after ${idleMin} minutes without activity. You can retry.`
   }
   if (err instanceof TypeError) {
     return 'Network error. Check your connection and try again.'
@@ -117,5 +125,6 @@ export async function postCouncil({ question, threadId, clientRequestId, headers
   } catch {
     data = {}
   }
+  console.log('[ben.next_steps]', data?.synthesis?.next_steps ?? data?.next_steps)
   return { res, data }
 }

@@ -11,7 +11,8 @@ import re
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Literal
+from collections.abc import AsyncIterator
+from typing import Any, Callable, Literal
 
 import httpx
 from sqlalchemy import text
@@ -41,6 +42,9 @@ from services.ops.timing import log_timing, measure
 from services.ben_log_service import capture_council_synthesis
 from services.thread_service import persist_council_transcript, resolve_thread_id
 from services.ops.timeouts import (
+    COUNCIL_STREAM_EXPERT_CALL_TIMEOUT_S,
+    COUNCIL_STREAM_HTTP_CLIENT_TIMEOUT_S,
+    COUNCIL_STREAM_SYNTHESIS_TIMEOUT_S,
     COUNCIL_TOTAL_TIMEOUT_S,
     DB_OPERATION_TIMEOUT_S,
     EXPERT_CALL_TIMEOUT_S,
@@ -81,7 +85,12 @@ Rules — reasoning preservation (must always hold):
 - Use domain sections to hold domain-specific priorities and risk framing (legal vs operational vs strategic vs infrastructure where relevant).
 - Be faithful: do not invent unanimous consensus when experts emphasized different risks or tradeoffs.
 - minority_or_unique_views: views articulated by one expert or clearly not shared by others (or null).
-- Omit optional keys or set them to null if not applicable."""
+- Omit optional keys or set them to null if not applicable.
+
+Rules — next_steps (required JSON field):
+- next_steps: required array. Include 2-3 objects maximum; use fewer when no clear risk exists (empty array only if nothing in the debate warrants action).
+- Each object: priority (integer, rank by operational priority starting at 1), command (imperative verb phrase — not passive), traceable_to (cite a specific disagreement, gap, or risk from this council session).
+- Omit an item when no clear risk exists; do not invent steps unrelated to the debate."""
 
 SYNTHESIS_OPTIONAL_STRING_KEYS = (
     "shared_recommendation",
@@ -371,11 +380,13 @@ async def _safe_expert(
     label: str,
     expert: str,
     model: str,
+    call_timeout_s: float | None = None,
 ) -> ExpertResult:
     t0 = time.perf_counter()
     op = f"expert_{label.lower()}"
+    limit = EXPERT_CALL_TIMEOUT_S if call_timeout_s is None else call_timeout_s
     try:
-        result = await asyncio.wait_for(coro_factory(), timeout=EXPERT_CALL_TIMEOUT_S)
+        result = await asyncio.wait_for(coro_factory(), timeout=limit)
         if not isinstance(result, ExpertResult):
             raise TypeError("expert coroutine must return ExpertResult")
         duration_ms = int((time.perf_counter() - t0) * 1000)
@@ -475,8 +486,9 @@ Tasks:
 9. infrastructure_reasoning: optional — only if an expert addressed infra/tech debt/serving (often null).
 10. minority_or_unique_views: optional — non-majority or single-expert emphasis (null if none).
 11. agreement_estimate: use available experts only (e.g. "{ok_count}/{ok_count} available" or "unknown"). Never claim full panel when any expert is not outcome=ok.
+12. next_steps: required array (2-3 items max). Each item: priority (1-based rank), command (imperative verb), traceable_to (specific disagreement/gap/risk from this session). Omit items with no clear risk; do not pad with generic advice.
 
-Return ONLY this JSON (optional keys may be null or omitted):
+Return ONLY this JSON (next_steps required; other optional keys may be null or omitted):
 {{
   "recommendation": "...",
   "shared_recommendation": null,
@@ -488,7 +500,14 @@ Return ONLY this JSON (optional keys may be null or omitted):
   "strategic_reasoning": null,
   "infrastructure_reasoning": null,
   "minority_or_unique_views": null,
-  "agreement_estimate": "{ok_count}/{ok_count} available"
+  "agreement_estimate": "{ok_count}/{ok_count} available",
+  "next_steps": [
+    {{
+      "priority": 1,
+      "command": "exact imperative action",
+      "traceable_to": "specific disagreement or risk from this council session"
+    }}
+  ]
 }}"""
 
 
@@ -573,6 +592,26 @@ def _norm_synth_optional_str(val: Any) -> str | None:
     return s or None
 
 
+def _norm_synth_next_steps(val: Any) -> list[dict[str, Any]]:
+    """Normalize next_steps array: max 3 items, require command + traceable_to."""
+    if not isinstance(val, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in val[:3]:
+        if not isinstance(item, dict):
+            continue
+        command = str(item.get("command") or "").strip()
+        traceable_to = str(item.get("traceable_to") or "").strip()
+        if not command or not traceable_to:
+            continue
+        try:
+            priority = int(item.get("priority", len(out) + 1))
+        except (TypeError, ValueError):
+            priority = len(out) + 1
+        out.append({"priority": priority, "command": command, "traceable_to": traceable_to})
+    return out
+
+
 def _parse_synthesis_json(raw: str, experts: list[ExpertResult]) -> dict[str, Any]:
     try:
         data = json.loads(raw.strip())
@@ -622,6 +661,8 @@ def _parse_synthesis_json(raw: str, experts: list[ExpertResult]) -> dict[str, An
         v = _norm_synth_optional_str(pick(key))
         if v:
             parsed[key] = v
+
+    parsed["next_steps"] = _norm_synth_next_steps(pick("next_steps"))
 
     return _honest_agreement_estimate(experts, parsed)
 
@@ -1008,3 +1049,134 @@ async def run_council(question: str, tenant_id: str, *, thread_id: uuid.UUID | N
             synthesis_outcome=syn_outcome,
         )
         return payload
+
+
+def _stream_ndjson_line(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False) + "\n"
+
+
+def _stream_expert_invocation(
+    cx: httpx.AsyncClient,
+    role: str,
+    question: str,
+    tenant_id: str,
+) -> tuple[str, str, str, Callable[[], Any]] | None:
+    """Map council role name to (_safe_expert label, provider, model, coro_factory)."""
+    legal_model = os.getenv("ANTHROPIC_MODEL", ANTHROPIC_MODEL_DEFAULT).strip() or ANTHROPIC_MODEL_DEFAULT
+    strategy_model = _strategy_gemini_model()
+    if role == "Legal Advisor":
+        return ("Legal", "anthropic", legal_model, lambda: _legal(cx, question, tenant_id))
+    if role == "Business Advisor":
+        return (
+            "Business",
+            "openai",
+            BUSINESS_MODEL,
+            lambda: _openai_expert(
+                cx, BUSINESS_MODEL, S_BIZ, question, tenant_id, expert="Business Advisor"
+            ),
+        )
+    if role == "Strategy Advisor":
+        return (
+            "Strategy",
+            "google",
+            strategy_model,
+            lambda: _gemini_expert(
+                cx, strategy_model, S_STRAT, question, tenant_id, expert="Strategy Advisor"
+            ),
+        )
+    return None
+
+
+async def stream_council_response(
+    question: str,
+    experts: list[str],
+    tenant_id: str,
+) -> AsyncIterator[str]:
+    """
+    Sequential council NDJSON stream: one expert line per role, then synthesis.
+    Yields NDJSON lines (str). Does not persist or expose HTTP.
+    """
+    try:
+        room = CouncilRoom.create(question=question)
+        expert_results: list[ExpertResult] = []
+        timeout = httpx.Timeout(HTTP_CLIENT_TIMEOUT_S)
+        async with httpx.AsyncClient(timeout=timeout) as cx:
+            room.mark_experts_running()
+            for index, role in enumerate(experts):
+                spec = _stream_expert_invocation(cx, role, question, tenant_id)
+                if spec is None:
+                    yield _stream_ndjson_line(
+                        {"type": "error", "message": f"Unknown expert role: {role}"}
+                    )
+                    continue
+                label, provider, model, coro_factory = spec
+                result = await _safe_expert(
+                    coro_factory,
+                    provider=provider,
+                    label=label,
+                    expert=role,
+                    model=model,
+                )
+                expert_results.append(result)
+                room.add_member(_expert_result_to_room_member(result, index))
+                yield _stream_ndjson_line(
+                    {
+                        "type": "expert",
+                        "role": role,
+                        "content": result.response,
+                        "model": result.model,
+                    }
+                )
+
+            room.mark_experts_complete()
+            available, _unavailable = _expert_counts(expert_results)
+            any_expert_failed = any(e.outcome != "ok" for e in expert_results)
+            model_syn = os.getenv("SYNTHESIS_MODEL", SYNTHESIS_MODEL_DEFAULT).strip() or SYNTHESIS_MODEL_DEFAULT
+            synthesis: dict[str, Any] | None = None
+
+            if available == 0:
+                synthesis = _zero_expert_synthesis()
+            elif available == 1:
+                ok_expert = next(e for e in expert_results if e.outcome == "ok")
+                synthesis = _single_expert_synthesis(ok_expert)
+            else:
+                try:
+                    raw_syn, _synth_cost = await asyncio.wait_for(
+                        _openai_completion(
+                            cx,
+                            model_syn,
+                            SYNTHESIS_SYSTEM,
+                            _synthesis_user_prompt(room),
+                            tenant_id,
+                        ),
+                        timeout=SYNTHESIS_TIMEOUT_S,
+                    )
+                    synthesis = _parse_synthesis_json(raw_syn, expert_results)
+                except (TimeoutError, asyncio.TimeoutError):
+                    yield _stream_ndjson_line(
+                        {"type": "error", "message": "Council synthesis timed out. Please retry."}
+                    )
+                    return
+                except Exception as e:
+                    yield _stream_ndjson_line(
+                        {
+                            "type": "error",
+                            "message": str(e) or "Council synthesis failed. Please retry.",
+                        }
+                    )
+                    return
+
+            if synthesis is not None:
+                yield _stream_ndjson_line(
+                    {
+                        "type": "synthesis",
+                        "content": build_synthesis_display_text(
+                            synthesis, any_expert_failed=any_expert_failed
+                        ),
+                        "next_steps": synthesis.get("next_steps") or [],
+                    }
+                )
+    except Exception as e:
+        yield _stream_ndjson_line(
+            {"type": "error", "message": str(e) or "Council stream failed. Please retry."}
+        )

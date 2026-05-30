@@ -32,6 +32,7 @@ import { BEN_API_BASE } from './config.js'
 import {
   DRAFT_PREFIX,
   getStoredActiveThreadId,
+  isDraftThreadId,
   isPersistedThreadId,
   serverThreadIdForApi,
   setStoredActiveThreadId,
@@ -427,6 +428,29 @@ function App() {
     if (!text || loading) return
     let tid = activeId
     if (!tid || !threads.some((x) => x.id === tid)) tid = newThread()
+    if (isDraftThreadId(tid)) {
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.id === tid
+            ? {
+                ...t,
+                messages: [
+                  ...t.messages,
+                  {
+                    role: 'assistant',
+                    kind: 'council_error',
+                    content:
+                      'Council requires a saved server thread. Send a chat message first.',
+                    model_used: '',
+                    cost_usd: 0,
+                  },
+                ],
+              }
+            : t
+        )
+      )
+      return
+    }
     const apiThreadId = serverThreadIdForApi(tid)
     const guard = canSubmitCouncil(text, apiThreadId)
     if (!guard.ok) {

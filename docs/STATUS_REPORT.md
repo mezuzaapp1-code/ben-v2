@@ -2,10 +2,6 @@
 
 **Last updated:** 2026-05-16
 
-**Architecture map:** [`docs/BEN_SYSTEM_MAP.md`](BEN_SYSTEM_MAP.md) — on `main` @ `20d7b96`.
-
-**Verification:** [`docs/TASK_REPORT_STABILIZATION_VERIFICATION_MATRIX.md`](TASK_REPORT_STABILIZATION_VERIFICATION_MATRIX.md) — anonymous browser matrix **PASS** (Playwright); signed-in Clerk flows **pending manual**.
-
 ## Summary
 
 `main` @ **`40bd45e`** — Tenant Mode v2 (personal + organization + anonymous) live on Railway.

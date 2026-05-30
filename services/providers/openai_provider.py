@@ -31,6 +31,4 @@ class OpenAIProvider(BaseProvider):
         d = r.json()
         u = d.get("usage") or {}
         pi, po = int(u.get("prompt_tokens", 0)), int(u.get("completion_tokens", 0))
-        return ProviderSendResult.from_token_counts(
-            str(d["choices"][0]["message"]["content"]), pi, po
-        )
+        return str(d["choices"][0]["message"]["content"]), pi + po, pi, po

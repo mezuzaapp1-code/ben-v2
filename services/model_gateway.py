@@ -9,8 +9,7 @@ import httpx
 
 from services.message_format import provider_display_label
 from services.ops.failure_classification import classify_failure
-from services.ops.structured_log import log_info, log_warning
-from services.providers.call_diagnostics import estimate_request_tokens
+from services.ops.structured_log import log_warning
 from services.ops.timeouts import CHAT_EXPLICIT_PROVIDER_TIMEOUT_S, HTTP_CLIENT_TIMEOUT_S
 from services.providers import gateway_provider_api_key_env, get_gateway_provider
 from services.providers.provider_errors import format_chat_provider_error, sanitize_provider_error_message
@@ -156,43 +155,10 @@ async def route_request(
             attempt_t0 = time.perf_counter()
             try:
                 adapter = get_gateway_provider(prov)
-                send_result = await adapter.send_message(
+                content, tok, pi, po = await adapter.send_message(
                     cx, model=model, message=message, tenant_id=tenant_id
                 )
-                content = send_result.content
-                tok = send_result.total_tokens
-                pi = send_result.prompt_tokens
-                po = send_result.completion_tokens
                 _cb_ok(prov)
-                attempt_ms = int((time.perf_counter() - attempt_t0) * 1000.0)
-                if prov != "anthropic":
-                    log_info(
-                        "chat provider adapter call completed",
-                        subsystem="model_gateway",
-                        provider=prov,
-                        model=model,
-                        duration_ms=attempt_ms,
-                        operation="provider_send_message",
-                        outcome="ok",
-                        timeout_s=timeout_s,
-                        request_chars=len(message),
-                        request_tokens_est=estimate_request_tokens(message=message),
-                        response_tokens=tok,
-                        prompt_tokens=pi,
-                        completion_tokens=po,
-                    )
-                if send_result.completion_truncated:
-                    log_info(
-                        "chat provider completion truncated",
-                        subsystem="model_gateway",
-                        provider=prov,
-                        model=model,
-                        operation="provider_send_message",
-                        outcome="truncated",
-                        completion_truncated=True,
-                        truncation_detected=True,
-                        completion_tokens=po,
-                    )
                 ms = (time.perf_counter() - t0) * 1000.0
                 return {
                     "content": content,
@@ -201,29 +167,25 @@ async def route_request(
                     "tokens": tok,
                     "cost_usd": round(_cost(prov, model, pi, po), 6),
                     "latency_ms": round(ms, 2),
-                    "completion_truncated": send_result.completion_truncated,
                 }
             except BaseException as e:
                 last = e
                 last_prov = prov
                 elapsed_ms = int((time.perf_counter() - attempt_t0) * 1000.0)
-                if prov != "anthropic":
-                    log_warning(
-                        "chat provider adapter call failed",
-                        subsystem="model_gateway",
-                        provider=prov,
-                        category=classify_failure(e),
-                        exc=e,
-                        duration_ms=elapsed_ms,
-                        operation="provider_send_message",
-                        outcome="error",
-                        model=model,
-                        timeout_s=timeout_s,
-                        request_chars=len(message),
-                        request_tokens_est=estimate_request_tokens(message=message),
-                        error_class=type(e).__name__,
-                        error_message=sanitize_provider_error_message(e),
-                    )
+                log_warning(
+                    "chat provider adapter call failed",
+                    subsystem="model_gateway",
+                    provider=prov,
+                    category=classify_failure(e),
+                    exc=e,
+                    duration_ms=elapsed_ms,
+                    operation="provider_send_message",
+                    outcome="error",
+                    model=model,
+                    timeout_s=timeout_s,
+                    error_class=type(e).__name__,
+                    error_message=sanitize_provider_error_message(e),
+                )
                 _cb_fail(prov)
     ms = (time.perf_counter() - t0) * 1000.0
     if last and last_prov:

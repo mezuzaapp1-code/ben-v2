@@ -6,8 +6,18 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/chat': { target: 'https://ben-v2-production.up.railway.app', changeOrigin: true },
-      '/council': { target: 'https://ben-v2-production.up.railway.app', changeOrigin: true },
+      '/chat': {
+        target: 'https://ben-v2-production.up.railway.app',
+        changeOrigin: true,
+        timeout: 300_000,
+        proxyTimeout: 300_000,
+      },
+      '/council': {
+        target: 'https://ben-v2-production.up.railway.app',
+        changeOrigin: true,
+        timeout: 300_000,
+        proxyTimeout: 300_000,
+      },
     },
   },
 })
