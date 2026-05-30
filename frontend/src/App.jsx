@@ -151,7 +151,39 @@ function ClerkAuthControls() {
   )
 }
 
-function CopyMessageButton({ content }) {
+function CopyIcon({ size = 14 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  )
+}
+
+function EditIcon({ size = 14 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  )
+}
+
+const messageActionBtnStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '0.35rem',
+  padding: '0.2rem 0.35rem',
+  fontSize: '0.75rem',
+  lineHeight: 1.2,
+  background: 'transparent',
+  border: 'none',
+  borderRadius: '4px',
+  color: '#888',
+  cursor: 'pointer',
+}
+
+function MessageActionBar({ role, content, onEditRequest }) {
   const [copied, setCopied] = useState(false)
   const timerRef = useRef(null)
 
@@ -173,41 +205,51 @@ function CopyMessageButton({ content }) {
   }
 
   return (
-    <button
-      type="button"
-      className="copy-msg-btn"
-      onClick={handleCopy}
-      aria-label={copied ? 'Copied' : 'Copy message'}
-      title={copied ? 'Copied' : 'Copy'}
+    <div
+      className="message-action-bar"
       style={{
-        position: 'absolute',
-        top: '0.3rem',
-        right: '0.3rem',
-        padding: '0.2rem 0.45rem',
-        fontSize: '0.75rem',
-        lineHeight: 1,
-        display: 'inline-flex',
+        display: 'flex',
         alignItems: 'center',
-        justifyContent: 'center',
-        background: 'transparent',
-        border: '1px solid #333',
-        borderRadius: '4px',
-        color: copied ? '#6fcf97' : '#888',
-        cursor: 'pointer',
-        zIndex: 1,
+        gap: '0.65rem',
+        marginTop: '0.3rem',
+        padding: '0 0.1rem',
       }}
     >
-      {copied ? (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6fcf97" strokeWidth="2.5">
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-      ) : (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-        </svg>
-      )}
-    </button>
+      {role === 'user' && onEditRequest ? (
+        <button
+          type="button"
+          style={messageActionBtnStyle}
+          onClick={() => onEditRequest(String(content ?? ''))}
+          aria-label="Edit request"
+        >
+          <EditIcon />
+          <span>עריכת בקשה</span>
+        </button>
+      ) : null}
+      <button
+        type="button"
+        style={{
+          ...messageActionBtnStyle,
+          color: copied ? '#6fcf97' : '#888',
+        }}
+        onClick={handleCopy}
+        aria-label={copied ? 'Copied' : 'Copy message'}
+      >
+        {copied ? (
+          <>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6fcf97" strokeWidth="2.5">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            <span>הועתק</span>
+          </>
+        ) : (
+          <>
+            <CopyIcon />
+            <span>העתקה</span>
+          </>
+        )}
+      </button>
+    </div>
   )
 }
 
@@ -430,6 +472,10 @@ function App() {
     setActiveId(id)
     setStoredActiveThreadId(null)
     return id
+  }, [])
+
+  const handleEditRequest = useCallback((text) => {
+    setInput(text)
   }, [])
 
   const send = useCallback(async () => {
@@ -873,8 +919,17 @@ function App() {
             <div
               key={i}
               className={`bubble-wrap ${m.role}${m.kind === 'council_synthesis' ? ' synthesis-wrap' : ''}`}
-              style={m.role === 'user' || m.role === 'assistant' ? { position: 'relative' } : undefined}
             >
+              <div
+                className="bubble-stack"
+                style={{
+                  maxWidth: 'min(72ch, 92%)',
+                  width: 'fit-content',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: m.role === 'user' ? 'flex-end' : 'flex-start',
+                }}
+              >
               {m.kind === 'council_synthesis' && m.synthesis ? (
                 <div className="bubble synthesis">
                   <div className="bubble-text">{m.content}</div>
@@ -908,8 +963,13 @@ function App() {
                 </div>
               )}
               {m.role === 'user' || m.role === 'assistant' ? (
-                <CopyMessageButton content={m.content} />
+                <MessageActionBar
+                  role={m.role}
+                  content={m.content}
+                  onEditRequest={m.role === 'user' ? handleEditRequest : undefined}
+                />
               ) : null}
+              </div>
             </div>
             )
           })}
