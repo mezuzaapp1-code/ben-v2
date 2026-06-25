@@ -81,7 +81,13 @@ def test_jwt_no_org_chat_personal_200(monkeypatch):
 
     captured: dict[str, str] = {}
 
-    async def capture_chat(message, user_id, tenant_id, tier, thread_id=None, provider_id=None, preferred_language=None):
+    async def capture_chat(
+        message, user_id, tenant_id, tier, *,
+        thread_id=None,
+        provider_id=None,
+        model_override=None,
+        preferred_language=None,
+    ):
         captured["tenant_id"] = tenant_id
         captured["user_id"] = user_id
         return {"thread_id": personal_tenant_id(USER_A), "response": "ok", "model_used": "m", "cost_usd": 0.0}
@@ -105,7 +111,7 @@ def test_jwt_no_org_council_personal(monkeypatch):
 
     captured: dict[str, str] = {}
 
-    async def capture_run(question, tenant_id, *, thread_id=None):
+    async def capture_run(question, tenant_id, *, thread_id=None, force_codebase=False):
         captured["tenant_id"] = tenant_id
         return {"question": question, "council": [], "synthesis": None, "cost_usd": 0.0}
 

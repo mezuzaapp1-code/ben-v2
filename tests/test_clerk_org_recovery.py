@@ -107,7 +107,13 @@ def test_jwt_missing_org_council_returns_403_when_require_org(monkeypatch):
 async def test_unsigned_anonymous_chat_still_works(monkeypatch):
     captured: dict[str, str] = {}
 
-    async def capture_chat(message, user_id, tenant_id, tier, thread_id=None, provider_id=None, preferred_language=None):
+    async def capture_chat(
+        message, user_id, tenant_id, tier, *,
+        thread_id=None,
+        provider_id=None,
+        model_override=None,
+        preferred_language=None,
+    ):
         captured["tenant_id"] = tenant_id
         return {"thread_id": ANON, "response": "ok", "model_used": "m", "cost_usd": 0.0}
 
@@ -125,7 +131,13 @@ async def test_signed_with_org_chat_uses_jwt_org(monkeypatch):
     def with_org(*_a, **_k):
         return {"sub": "usr", "email": "e@e.com", "org_id": ORG_A}
 
-    async def capture_chat(message, user_id, tenant_id, tier, thread_id=None, provider_id=None, preferred_language=None):
+    async def capture_chat(
+        message, user_id, tenant_id, tier, *,
+        thread_id=None,
+        provider_id=None,
+        model_override=None,
+        preferred_language=None,
+    ):
         captured["tenant_id"] = tenant_id
         return {"thread_id": ORG_A, "response": "ok", "model_used": "m", "cost_usd": 0.0}
 
@@ -146,6 +158,7 @@ def test_forged_body_tenant_still_rejected_with_org_jwt():
         tenant_id=ORG_A,
         tenant_type="organization",
         org_id=ORG_A,
+        org_role=None,
         user_id="u",
         email=None,
         auth_source="clerk_jwt",

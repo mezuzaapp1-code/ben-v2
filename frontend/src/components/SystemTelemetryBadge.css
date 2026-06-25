@@ -1,0 +1,41 @@
+.system-telemetry {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  align-self: center;
+  max-width: 100%;
+  margin: 0.35rem 0 0.5rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--ben-accent-blue) 28%, var(--ben-border-strong));
+  background: color-mix(in srgb, var(--ben-accent-blue) 8%, var(--ben-bg-elevated));
+  color: var(--ben-text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.35;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--ben-shadow-composer) 45%, transparent);
+}
+
+.system-telemetry__spinner {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--ben-accent-blue) 25%, transparent);
+  border-top-color: var(--ben-accent-blue);
+  animation: system-telemetry-spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+.system-telemetry--active .system-telemetry__text {
+  color: var(--ben-text-bright);
+}
+
+.system-telemetry__text {
+  min-width: 0;
+}
+
+@keyframes system-telemetry-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

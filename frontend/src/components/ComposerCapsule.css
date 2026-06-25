@@ -1,0 +1,438 @@
+.composer-capsule {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.45rem 0.65rem calc(0.55rem + env(safe-area-inset-bottom, 0px));
+  background: transparent;
+  overflow: visible;
+}
+
+.composer-capsule__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0 0.15rem;
+}
+
+.composer-capsule__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--ben-border-strong);
+  background: var(--ben-bg-chip);
+  color: var(--ben-text-secondary);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    border-color 0.2s ease-in-out,
+    background 0.2s ease-in-out,
+    color 0.2s ease-in-out;
+}
+
+.composer-capsule__chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-capsule__chip-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--chip-accent, var(--ben-accent-blue));
+  flex-shrink: 0;
+}
+
+.composer-capsule__chip--active {
+  border-color: color-mix(in srgb, var(--chip-accent, var(--ben-accent-blue)) 45%, var(--ben-border-strong));
+  background: color-mix(in srgb, var(--chip-accent, var(--ben-accent-blue)) 12%, var(--ben-bg-chip));
+  color: var(--ben-text-bright);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .composer-capsule__chip:hover {
+    border-color: color-mix(in srgb, var(--ben-accent-blue) 35%, var(--ben-border-strong));
+    color: var(--ben-text-bright);
+  }
+}
+
+.composer-capsule__shell {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.45rem 0.35rem 0.45rem;
+  border-radius: 1.35rem;
+  border: 1px solid var(--ben-border-strong);
+  background: var(--ben-bg-input);
+  overflow: visible;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ben-border) 60%, transparent),
+    0 8px 24px color-mix(in srgb, var(--ben-shadow-composer) 55%, transparent);
+  transition:
+    border-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out;
+}
+
+.composer-capsule--adhoc .composer-capsule__shell {
+  border-color: color-mix(in srgb, var(--capsule-accent, var(--ben-accent-blue)) 28%, var(--ben-border-strong));
+  box-shadow:
+    inset 2px 0 0 var(--capsule-accent, var(--ben-accent-blue)),
+    0 8px 24px color-mix(in srgb, var(--ben-shadow-composer) 55%, transparent);
+}
+
+.composer-capsule__shell:focus-within {
+  border-color: color-mix(in srgb, var(--ben-accent-blue) 45%, var(--ben-border-strong));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ben-accent-blue) 22%, transparent),
+    0 10px 28px color-mix(in srgb, var(--ben-shadow-composer) 65%, transparent);
+}
+
+.composer-capsule__shell--menus-open {
+  z-index: 2;
+}
+
+.composer-capsule__leading {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.1rem;
+}
+
+.composer-capsule__plus-wrap,
+.composer-capsule__settings-wrap {
+  position: relative;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.composer-capsule__settings-wrap--open {
+  z-index: 3;
+}
+
+.composer-capsule__plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ben-text-muted);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    background 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    transform 0.15s ease-in-out;
+}
+
+.composer-capsule__plus[aria-expanded='true'] {
+  background: var(--ben-bg-surface-hover);
+  color: var(--ben-text-bright);
+}
+
+.composer-capsule__plus-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.composer-capsule__settings {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ben-text-muted);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    background 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    transform 0.15s ease-in-out;
+}
+
+.composer-capsule__settings[aria-expanded='true'] {
+  background: var(--ben-bg-surface-hover);
+  color: var(--ben-text-bright);
+}
+
+.composer-capsule__settings-icon {
+  width: 1.05rem;
+  height: 1.05rem;
+  pointer-events: none;
+}
+
+.composer-capsule__engine-popover {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 0.45rem);
+  z-index: 200;
+  width: min(18.5rem, calc(100vw - 2rem));
+  padding: 0.65rem 0.7rem;
+  border-radius: 0.8rem;
+  border: 1px solid var(--ben-border-strong);
+  background: var(--ben-bg-elevated);
+  box-shadow: 0 14px 36px var(--ben-shadow-composer);
+  animation: composer-attach-menu-in 0.2s ease-in-out;
+}
+
+.composer-capsule__engine-popover-title {
+  display: block;
+  margin-bottom: 0.45rem;
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ben-text-faint);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .composer-capsule__settings:hover:not(:disabled) {
+    background: var(--ben-bg-surface-hover);
+    color: var(--ben-text-bright);
+  }
+}
+
+.composer-capsule__attach-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 0.45rem);
+  z-index: 160;
+  min-width: 11.5rem;
+  padding: 0.35rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--ben-border-strong);
+  background: var(--ben-bg-elevated);
+  box-shadow: 0 12px 32px var(--ben-shadow-composer);
+  display: grid;
+  gap: 0.15rem;
+  animation: composer-attach-menu-in 0.2s ease-in-out;
+}
+
+@keyframes composer-attach-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.composer-capsule__attach-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.48rem 0.55rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--ben-text-secondary);
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    background 0.15s ease-in-out,
+    color 0.15s ease-in-out;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .composer-capsule__plus:hover:not(:disabled) {
+    background: var(--ben-bg-surface-hover);
+    color: var(--ben-text-bright);
+  }
+
+  .composer-capsule__attach-menu-item:hover:not(:disabled) {
+    background: var(--ben-bg-surface-hover);
+    color: var(--ben-text-bright);
+  }
+}
+
+.composer-capsule__attach-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.composer-capsule__attach-menu-icon {
+  flex-shrink: 0;
+  width: 1.1rem;
+  text-align: center;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.composer-capsule__attach-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.composer-capsule__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 1.5rem;
+  max-height: 9rem;
+  margin: 0;
+  padding: 0.45rem 0.15rem;
+  border: none;
+  background: transparent;
+  color: var(--ben-text);
+  font: inherit;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  resize: none;
+  outline: none;
+  overflow-y: hidden;
+  transition: height 0.15s ease-in-out;
+}
+
+.composer-capsule__input::placeholder {
+  color: var(--ben-text-faint);
+}
+
+.composer-capsule__input:disabled {
+  opacity: 0.6;
+}
+
+.composer-capsule__actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: 0.1rem;
+}
+
+.composer-capsule__send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--ben-send-bg);
+  color: var(--ben-send-text);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    transform 0.15s ease-in-out,
+    opacity 0.2s ease-in-out,
+    background 0.2s ease-in-out;
+}
+
+.composer-capsule__send:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.composer-capsule__send:not(:disabled):active {
+  transform: scale(0.94);
+}
+
+.composer-capsule--adhoc .composer-capsule__send:not(:disabled) {
+  background: color-mix(in srgb, var(--capsule-accent, var(--ben-accent-blue)) 22%, var(--ben-send-bg));
+}
+
+.composer-capsule__send-icon {
+  width: 0.95rem;
+  height: 0.95rem;
+  fill: currentColor;
+}
+
+.composer-capsule__send-spinner {
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: composer-capsule-spin 0.65s linear infinite;
+}
+
+@keyframes composer-capsule-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.composer-capsule__action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--ben-border-strong);
+  background: transparent;
+  color: var(--ben-text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    border-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    background 0.2s ease-in-out;
+}
+
+.composer-capsule__action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .composer-capsule__action-btn:hover:not(:disabled) {
+    border-color: var(--ben-border-card);
+    color: var(--ben-text-bright);
+    background: var(--ben-bg-surface-hover);
+  }
+}
+
+@media (min-width: 721px) {
+  .composer-capsule__shell {
+    padding: 0.4rem 0.5rem 0.4rem 0.45rem;
+  }
+
+  .composer-capsule__send {
+    width: 2.05rem;
+    height: 2.05rem;
+  }
+}
+
+@media (max-width: 720px) {
+  .composer-capsule {
+    padding: 0.35rem 0.45rem calc(0.45rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .composer-capsule__input {
+    font-size: 16px;
+  }
+
+  .composer-capsule__shell {
+    border-radius: 1.2rem;
+    padding: 0.3rem 0.35rem 0.3rem 0.4rem;
+  }
+}

@@ -162,7 +162,13 @@ def test_chat_invalid_preferred_language_400(client):
 def test_chat_passes_preferred_language_to_handler(client):
     captured: dict = {}
 
-    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, preferred_language=None):
+    async def fake_chat(
+        message, user_id, tenant_id, tier, *,
+        thread_id=None,
+        provider_id=None,
+        model_override=None,
+        preferred_language=None,
+    ):
         captured["message"] = message
         captured["preferred_language"] = preferred_language
         return {
@@ -190,7 +196,7 @@ async def test_handle_chat_wraps_gateway_persists_raw(monkeypatch):
 
     captured: dict = {}
 
-    async def fake_route(message, tenant_id, tier, *, provider_id=None):
+    async def fake_route(message, tenant_id, tier, *, provider_id=None, model_override=None, system=None):
         captured["gateway_message"] = message
         return {
             "content": "ok",
@@ -212,6 +218,9 @@ async def test_handle_chat_wraps_gateway_persists_raw(monkeypatch):
         async def commit(self):
             return None
 
+        async def flush(self):
+            return None
+
         async def __aenter__(self):
             return self
 
@@ -221,6 +230,14 @@ async def test_handle_chat_wraps_gateway_persists_raw(monkeypatch):
     monkeypatch.setattr("services.chat_service.route_request", fake_route)
     monkeypatch.setattr("services.chat_service.resolve_thread_id", fake_resolve)
     monkeypatch.setattr("services.chat_service.get_db_session", lambda: _Session())
+
+    async def passthrough_context(org, tid, msg):
+        return msg
+
+    monkeypatch.setattr(
+        "services.chat_service.build_chat_message_with_thread_context",
+        passthrough_context,
+    )
 
     user_text = "Explain `const x = 1` briefly."
     await handle_chat(user_text, "u", TENANT, "free", provider_id="gpt", preferred_language="he")
@@ -236,7 +253,7 @@ async def test_handle_chat_auto_hebrew_persists_raw(monkeypatch):
 
     captured: dict = {}
 
-    async def fake_route(message, tenant_id, tier, *, provider_id=None):
+    async def fake_route(message, tenant_id, tier, *, provider_id=None, model_override=None, system=None):
         captured["gateway_message"] = message
         return {
             "content": "ok",
@@ -258,6 +275,9 @@ async def test_handle_chat_auto_hebrew_persists_raw(monkeypatch):
         async def commit(self):
             return None
 
+        async def flush(self):
+            return None
+
         async def __aenter__(self):
             return self
 
@@ -267,6 +287,14 @@ async def test_handle_chat_auto_hebrew_persists_raw(monkeypatch):
     monkeypatch.setattr("services.chat_service.route_request", fake_route)
     monkeypatch.setattr("services.chat_service.resolve_thread_id", fake_resolve)
     monkeypatch.setattr("services.chat_service.get_db_session", lambda: _Session())
+
+    async def passthrough_context(org, tid, msg):
+        return msg
+
+    monkeypatch.setattr(
+        "services.chat_service.build_chat_message_with_thread_context",
+        passthrough_context,
+    )
 
     await handle_chat(_HEBREW_PARAGRAPH, "u", TENANT, "free", provider_id="gpt")
 
@@ -282,7 +310,7 @@ async def test_handle_chat_auto_english_gateway_only(monkeypatch):
 
     captured: dict = {}
 
-    async def fake_route(message, tenant_id, tier, *, provider_id=None):
+    async def fake_route(message, tenant_id, tier, *, provider_id=None, model_override=None, system=None):
         captured["gateway_message"] = message
         return {"content": "ok", "model_used": "m", "provider_used": "openai", "cost_usd": 0.0}
 
@@ -299,6 +327,9 @@ async def test_handle_chat_auto_english_gateway_only(monkeypatch):
         async def commit(self):
             return None
 
+        async def flush(self):
+            return None
+
         async def __aenter__(self):
             return self
 
@@ -308,6 +339,14 @@ async def test_handle_chat_auto_english_gateway_only(monkeypatch):
     monkeypatch.setattr("services.chat_service.route_request", fake_route)
     monkeypatch.setattr("services.chat_service.resolve_thread_id", fake_resolve)
     monkeypatch.setattr("services.chat_service.get_db_session", lambda: _Session())
+
+    async def passthrough_context(org, tid, msg):
+        return msg
+
+    monkeypatch.setattr(
+        "services.chat_service.build_chat_message_with_thread_context",
+        passthrough_context,
+    )
 
     await handle_chat(_ENGLISH_PARAGRAPH, "u", TENANT, "free", provider_id="gpt")
 
@@ -322,7 +361,7 @@ async def test_handle_chat_unclear_no_gateway_wrap(monkeypatch):
     captured: dict = {}
     unclear = "abcdabcd" + "אבגדהוזחט"
 
-    async def fake_route(message, tenant_id, tier, *, provider_id=None):
+    async def fake_route(message, tenant_id, tier, *, provider_id=None, model_override=None, system=None):
         captured["gateway_message"] = message
         return {"content": "ok", "model_used": "m", "provider_used": "openai", "cost_usd": 0.0}
 
@@ -339,6 +378,9 @@ async def test_handle_chat_unclear_no_gateway_wrap(monkeypatch):
         async def commit(self):
             return None
 
+        async def flush(self):
+            return None
+
         async def __aenter__(self):
             return self
 
@@ -348,6 +390,14 @@ async def test_handle_chat_unclear_no_gateway_wrap(monkeypatch):
     monkeypatch.setattr("services.chat_service.route_request", fake_route)
     monkeypatch.setattr("services.chat_service.resolve_thread_id", fake_resolve)
     monkeypatch.setattr("services.chat_service.get_db_session", lambda: _Session())
+
+    async def passthrough_context(org, tid, msg):
+        return msg
+
+    monkeypatch.setattr(
+        "services.chat_service.build_chat_message_with_thread_context",
+        passthrough_context,
+    )
 
     await handle_chat(unclear, "u", TENANT, "free", provider_id="gpt")
 

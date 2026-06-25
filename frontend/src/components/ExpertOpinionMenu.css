@@ -1,0 +1,119 @@
+.expert-opinion-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.expert-opinion-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #888;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    color 0.15s ease-in-out,
+    background 0.15s ease-in-out;
+}
+
+.expert-opinion-menu__trigger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .expert-opinion-menu__trigger:hover:not(:disabled) {
+    color: var(--ben-text-bright);
+    background: var(--ben-bg-surface-hover);
+  }
+}
+
+.expert-opinion-menu__icon {
+  font-size: 0.82rem;
+  line-height: 1;
+}
+
+.expert-opinion-menu__popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.35rem);
+  z-index: 120;
+  width: min(16.5rem, calc(100vw - 2rem));
+  padding: 0.55rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--ben-border-strong);
+  background: var(--ben-bg-elevated);
+  box-shadow: 0 12px 32px var(--ben-shadow-composer);
+  display: grid;
+  gap: 0.5rem;
+}
+
+.expert-opinion-menu__title {
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ben-text-faint);
+  padding: 0 0.15rem;
+}
+
+.expert-opinion-menu__providers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.expert-opinion-menu__provider {
+  flex: 1 1 calc(33.333% - 0.35rem);
+  min-width: 4.5rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--ben-border-strong);
+  background: var(--ben-bg-surface);
+  color: var(--ben-text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.expert-opinion-menu__provider--active {
+  border-color: color-mix(in srgb, var(--engine-accent, var(--ben-accent-blue)) 45%, var(--ben-border-strong));
+  background: color-mix(in srgb, var(--engine-accent, var(--ben-accent-blue)) 10%, var(--ben-bg-surface));
+  color: var(--ben-text-bright);
+}
+
+.expert-opinion-menu__actions {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.expert-opinion-menu__action {
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border: none;
+  border-radius: 0.45rem;
+  background: var(--ben-bg-surface);
+  color: var(--ben-text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.expert-opinion-menu__action--panel {
+  color: var(--ben-accent-blue);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .expert-opinion-menu__action:hover {
+    background: var(--ben-bg-surface-hover);
+    color: var(--ben-text-bright);
+  }
+}

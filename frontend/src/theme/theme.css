@@ -1,0 +1,130 @@
+/* Basalt corporate theme tokens — dark default, light for outdoor mobile */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+  --ben-transition: 0.22s ease;
+
+  --ben-bg: #121212;
+  --ben-bg-elevated: #0c0c0c;
+  --ben-bg-surface: #141414;
+  --ben-bg-surface-hover: #1a1a1a;
+  --ben-bg-input: #111111;
+  --ben-bg-composer: #080808;
+  --ben-bg-card: #10141c;
+  --ben-bg-card-end: #0c0e14;
+  --ben-bg-card-row: #0e1218;
+  --ben-bg-card-nested: #0a0e14;
+  --ben-bg-badge: #141a28;
+  --ben-bg-chip: #1a2030;
+
+  --ben-text: #e8e8e8;
+  --ben-text-bright: #ffffff;
+  --ben-text-secondary: #bbbbbb;
+  --ben-text-muted: #888888;
+  --ben-text-faint: #666666;
+  --ben-text-card: #e8ecf4;
+  --ben-text-card-label: #7a8aa8;
+  --ben-text-card-heading: #9ab4e8;
+
+  --ben-border: #1f1f1f;
+  --ben-border-strong: #2a2a2a;
+  --ben-border-card: #2a3348;
+  --ben-border-card-soft: #1f2a3a;
+
+  --ben-accent: #6fcf97;
+  --ben-accent-cyan: #00d4aa;
+  --ben-accent-blue: #5b8cff;
+  --ben-accent-glow: rgba(111, 207, 151, 0.15);
+
+  --ben-user-bubble-bg: #1e3a5f;
+  --ben-user-bubble-border: #2a5080;
+  --ben-user-bubble-text: #f0f4fa;
+  --ben-assistant-bubble-bg: #141414;
+  --ben-assistant-bubble-border: #262626;
+
+  --ben-success: #8fdf9f;
+  --ben-success-bg: #142018;
+  --ben-success-border: #3a6a48;
+  --ben-warning: #ffb84d;
+  --ben-warning-bg: #3a2810;
+  --ben-warning-border: #c87820;
+  --ben-danger: #f0b0b0;
+  --ben-danger-bg: #281414;
+  --ben-danger-border: #6a3a3a;
+  --ben-alert-card-border: #5a3030;
+
+  --ben-send-bg: #eaeaea;
+  --ben-send-text: #0a0a0a;
+  --ben-shadow-composer: rgba(0, 0, 0, 0.42);
+  --ben-runway-gradient: linear-gradient(90deg, #4a7ac8, #6fcf97);
+  --ben-modal-scrim: rgba(0, 0, 0, 0.55);
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+
+  --ben-bg: #ffffff;
+  --ben-bg-elevated: #f8f9fb;
+  --ben-bg-surface: #f0f2f5;
+  --ben-bg-surface-hover: #e8ebf0;
+  --ben-bg-input: #ffffff;
+  --ben-bg-composer: #ffffff;
+  --ben-bg-card: #f8fafc;
+  --ben-bg-card-end: #f1f5f9;
+  --ben-bg-card-row: #ffffff;
+  --ben-bg-card-nested: #f8fafc;
+  --ben-bg-badge: #eef2ff;
+  --ben-bg-chip: #e8f0fe;
+
+  --ben-text: #1a1a1a;
+  --ben-text-bright: #0f172a;
+  --ben-text-secondary: #3d4450;
+  --ben-text-muted: #5c6370;
+  --ben-text-faint: #94a3b8;
+  --ben-text-card: #1e293b;
+  --ben-text-card-label: #64748b;
+  --ben-text-card-heading: #1d4ed8;
+
+  --ben-border: #e2e6ed;
+  --ben-border-strong: #cdd3de;
+  --ben-border-card: #cbd5e1;
+  --ben-border-card-soft: #e2e8f0;
+
+  --ben-accent: #047857;
+  --ben-accent-cyan: #0e7490;
+  --ben-accent-blue: #1d4ed8;
+  --ben-accent-glow: rgba(4, 120, 87, 0.12);
+
+  --ben-user-bubble-bg: #dbeafe;
+  --ben-user-bubble-border: #93c5fd;
+  --ben-user-bubble-text: #1e3a5f;
+  --ben-assistant-bubble-bg: #f8fafc;
+  --ben-assistant-bubble-border: #e2e8f0;
+
+  --ben-success: #047857;
+  --ben-success-bg: #ecfdf5;
+  --ben-success-border: #6ee7b7;
+  --ben-warning: #b45309;
+  --ben-warning-bg: #fffbeb;
+  --ben-warning-border: #fcd34d;
+  --ben-danger: #b91c1c;
+  --ben-danger-bg: #fef2f2;
+  --ben-danger-border: #fca5a5;
+  --ben-alert-card-border: #fca5a5;
+
+  --ben-send-bg: #1d4ed8;
+  --ben-send-text: #ffffff;
+  --ben-shadow-composer: rgba(15, 23, 42, 0.08);
+  --ben-runway-gradient: linear-gradient(90deg, #1d4ed8, #047857);
+  --ben-modal-scrim: rgba(15, 23, 42, 0.35);
+}
+
+html,
+body,
+#root,
+.app {
+  transition:
+    background-color var(--ben-transition),
+    color var(--ben-transition),
+    border-color var(--ben-transition);
+}

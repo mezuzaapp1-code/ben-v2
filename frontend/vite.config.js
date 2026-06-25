@@ -10,6 +10,8 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       port: 5173,
+      host: '127.0.0.1',
+      allowedHosts: true,
       proxy: {
         '/chat': {
           target: devApiTarget,

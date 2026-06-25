@@ -1,7 +1,6 @@
 """Council lifecycle: non-blocking persistence and error humanization."""
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sys
@@ -19,7 +18,6 @@ os.environ.setdefault("OPENAI_API_KEY", "sk-test-openai")
 from services import council_service as cs
 from services.message_format import decode_message, encode_council_expert, encode_council_synthesis
 from services.ops.idempotency import get_idempotency_registry, reset_idempotency_registry_for_tests
-from services.ops.runtime_state import finalize_council_payload
 
 
 def _humanize(status: int, data: dict) -> str:
@@ -45,21 +43,6 @@ def test_humanize_http_errors():
     assert "Organization" in _humanize(400, {})
     assert "Invalid" in _humanize(422, {})
     assert "unavailable" in _humanize(503, {})
-
-
-@pytest.mark.asyncio
-async def test_schedule_background_does_not_block_caller():
-    gate = asyncio.Event()
-
-    async def slow():
-        await gate.wait()
-
-    t0 = asyncio.get_running_loop().time()
-    cs._schedule_background_task(slow())
-    elapsed = asyncio.get_running_loop().time() - t0
-    assert elapsed < 0.05
-    gate.set()
-    await asyncio.sleep(0.05)
 
 
 def test_council_room_envelope_shared_metadata():
@@ -99,36 +82,34 @@ def test_council_room_envelope_shared_metadata():
 
 
 @pytest.mark.asyncio
-async def test_run_council_http_room_payload():
-    legal = cs.ExpertResult("Legal Advisor", "anthropic", "m", "ok", "L", 0.01)
-    biz = cs.ExpertResult("Business Advisor", "openai", "m", "ok", "B", 0.02)
-    strat = cs.ExpertResult("Strategy Advisor", "google", "m", "ok", "S", 0.03)
-    synthesis = {"recommendation": "go", "agreement_estimate": "3/3 available"}
+async def test_run_council_copy_paste_payload():
+    captured: dict = {}
 
-    async def fake_gather(*_a, **_k):
-        return [legal, biz, strat]
-
-    with (
-        patch.object(cs.asyncio, "gather", side_effect=fake_gather),
-        patch.object(cs, "_openai_completion", new_callable=AsyncMock, return_value=('{"recommendation":"go","agreement_estimate":"3/3 available"}', 0.04)),
-        patch.object(cs, "_persist_council_thread_if_needed", new_callable=AsyncMock, return_value=None),
-        patch.object(cs, "_persist_synthesis_ko", new_callable=AsyncMock),
-        patch.object(cs, "_record_council_metrics", new_callable=AsyncMock),
+    async def fake_copy_paste(
+        *,
+        org_id,
+        thread_id,
+        tenant_id,
+        tier,
+        opinion_request,
+        provider_id=None,
     ):
-        reset_idempotency_registry_for_tests()
-        await get_idempotency_registry().begin(
-            route="/council",
-            tenant_id="00000000-0000-0000-0000-000000000001",
-            client_request_id="room-http-1",
-        )
-        payload = await cs.run_council("Room test?", "00000000-0000-0000-0000-000000000001")
-        finalized = await finalize_council_payload(payload, client_request_id="room-http-1")
+        captured["opinion_request"] = opinion_request
+        captured["tenant_id"] = tenant_id
+        captured["tier"] = tier
+        return {"response": "Council copy-paste reply.", "cost_usd": 0.0, "thread_id": None}
 
-    room = finalized["room"]
+    with patch("services.council_service.run_copy_paste_opinion", new=AsyncMock(side_effect=fake_copy_paste)):
+        payload = await cs.run_council("Room test?", "00000000-0000-0000-0000-000000000001")
+
+    assert captured["opinion_request"] == "Room test?"
+    assert payload["mode"] == "copy_paste"
+    assert payload["council"] == []
+    assert payload["response"] == "Council copy-paste reply."
+    room = payload["room"]
     assert room["id"]
-    assert room["question_id"] == "room-http-1"
-    assert room["member_count"] == 3
-    assert room["status"] in ("complete", "degraded")
+    assert room["status"] == "complete"
+    assert room["member_count"] == 0
 
 
 @pytest.mark.asyncio

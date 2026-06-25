@@ -1,0 +1,21 @@
+{
+  "name": "BEN — Basalt Mission Control",
+  "short_name": "BEN",
+  "description": "Data Center Infrastructure & Mission-Critical Human Capital operations copilot",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0e14",
+  "theme_color": "#141a28",
+  "orientation": "portrait-primary",
+  "lang": "en",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "scope": "/"
+}

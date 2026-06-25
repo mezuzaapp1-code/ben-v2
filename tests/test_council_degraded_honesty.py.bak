@@ -14,8 +14,10 @@ os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-anthropic-key")
 os.environ.setdefault("GOOGLE_API_KEY", "test-google-key")
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@127.0.0.1:5432/test")
+os.environ.setdefault("BEN_FAST_TRACK_ENABLED", "0")
 
 from services.council_service import (  # noqa: E402
+    BUSINESS_MODEL,
     SYNTHESIS_SYSTEM,
     run_council,
 )
@@ -71,9 +73,13 @@ def _make_post(
             sys0 = _openai_sys(msgs)
             if SYNTHESIS_SYSTEM.splitlines()[0] in sys0:
                 body = {
+                    "deliverable_artifact": "# Shipped Brief\n\nProceed with caution.",
+                    "operational_playbook": [
+                        {"step": 1, "command": "npm test", "purpose": "verify build"},
+                        {"step": 2, "command": "git push origin main", "purpose": "deploy"},
+                        {"step": 3, "command": "curl -f /health", "purpose": "smoke check"},
+                    ],
                     "recommendation": "Proceed with caution.",
-                    "consensus_points": "Experts align on documentation.",
-                    "main_disagreement": None,
                     "agreement_estimate": synthesis_agreement,
                 }
                 return _FakeResponse(
@@ -83,7 +89,7 @@ def _make_post(
                     }
                 )
             model = jb.get("model", "")
-            if model == "gpt-4o":
+            if model == BUSINESS_MODEL:
                 if business_mode == "timeout":
                     raise httpx.ReadTimeout("business timeout")
                 return _FakeResponse(
@@ -156,8 +162,11 @@ async def test_legal_timeout_degraded_honest_synthesis():
     assert out["unavailable_experts"] == 1
     assert syn.get("consensus_available") is True
     display = build_synthesis_display_text(syn, any_expert_failed=True)
-    assert "Partial council" in display
-    assert "✅ Consensus:" not in display
+    assert "📦 Deliverable" in display
+    assert "Executive Scorecard" in display
+    assert "Work Plan" in display
+    assert "Partial council" not in display
+    assert "consensus" not in display.lower()
 
 
 @pytest.mark.asyncio
@@ -206,8 +215,9 @@ async def test_single_expert_skips_consensus_synthesis():
     assert syn.get("consensus_available") is False
     assert synthesis_calls == []
     display = build_synthesis_display_text(syn, any_expert_failed=True)
-    assert "Single expert result" in display
-    assert "✅ Consensus:" not in display
+    assert "📦 Deliverable" in display
+    assert "Work Plan" in display
+    assert "Single expert result" not in display
 
 
 @pytest.mark.asyncio
@@ -220,7 +230,7 @@ async def test_zero_experts_degraded_message():
             jb = kwargs.get("json") or {}
             if SYNTHESIS_SYSTEM.splitlines()[0] in _openai_sys(jb.get("messages") or []):
                 raise AssertionError("synthesis must not run with zero experts")
-            if (jb.get("model") or "") == "gpt-4o":
+            if (jb.get("model") or "") == BUSINESS_MODEL:
                 raise httpx.ReadTimeout("business timeout")
         raise AssertionError(f"unexpected URL: {u}")
 
@@ -254,4 +264,5 @@ async def test_three_experts_keeps_consensus_label():
     assert out["unavailable_experts"] == 0
     syn = out["synthesis"]
     display = build_synthesis_display_text(syn, any_expert_failed=False)
-    assert "✅ Consensus:" in display
+    assert "📦 Deliverable" in display
+    assert "Work Plan" in display

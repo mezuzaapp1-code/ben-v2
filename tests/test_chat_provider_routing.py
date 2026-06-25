@@ -16,13 +16,27 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@127.0.0.1:
 os.environ.setdefault("OPENAI_API_KEY", "sk-test-openai")
 
 import main  # noqa: E402
-from services.model_gateway import normalize_chat_provider_id, route_request  # noqa: E402
+from services.model_gateway import (  # noqa: E402
+    normalize_chat_provider_id,
+    normalize_model_override,
+    resolve_dispatch_model,
+    route_request,
+    route_request_stream,
+    validate_chat_model_override,
+)
 from services.providers import get_gateway_provider  # noqa: E402
 from services.providers.base_provider import ProviderSendResult  # noqa: E402
 from services.ops.idempotency import reset_idempotency_registry_for_tests  # noqa: E402
 from services.ops.load_governance import reset_load_governor_for_tests  # noqa: E402
+from services.global_service_store import connect_global_channel, init_global_service_schema  # noqa: E402
 
 TENANT = "00000000-0000-0000-0000-000000000001"
+
+_ACTIVE_ENGINE_CATALOG = (
+    ("engine-grok", "Grok Compute Grid"),
+    ("engine-claude", "Claude Reasoning Core"),
+    ("engine-gemini", "Gemini Multimodal"),
+)
 
 
 @pytest.fixture(autouse=True)
@@ -33,6 +47,21 @@ def _env(monkeypatch):
     reset_idempotency_registry_for_tests()
     reset_load_governor_for_tests()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _active_speaking_engines(tmp_path, monkeypatch):
+    """Seed org-scoped engine activations so chat routes pass the capability gate."""
+    system_db = tmp_path / "system_main.db"
+    monkeypatch.setenv("BEN_SYSTEM_DB_PATH", str(system_db))
+    init_global_service_schema()
+    for catalog_key, name in _ACTIVE_ENGINE_CATALOG:
+        connect_global_channel(
+            TENANT,
+            name=name,
+            source_type="external_library",
+            source_metadata={"catalog_key": catalog_key},
+        )
 
 
 @pytest.fixture
@@ -48,7 +77,7 @@ def test_normalize_chat_provider_id_valid():
 
 
 def test_normalize_chat_provider_id_invalid():
-    with pytest.raises(ValueError, match="gpt, claude, gemini"):
+    with pytest.raises(ValueError, match="claude, gemini, gpt"):
         normalize_chat_provider_id("openai")
 
 
@@ -65,7 +94,7 @@ def test_chat_invalid_provider_id_400(client):
 def test_chat_passes_provider_id_to_handler(client):
     captured: dict = {}
 
-    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, preferred_language=None):
+    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, model_override=None, preferred_language=None):
         captured["provider_id"] = provider_id
         return {"thread_id": str(uuid.uuid4()), "response": "ok", "model_used": "m", "cost_usd": 0.0}
 
@@ -78,7 +107,7 @@ def test_chat_passes_provider_id_to_handler(client):
 def test_chat_omitted_provider_id_defaults_none(client):
     captured: dict = {}
 
-    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, preferred_language=None):
+    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, model_override=None, preferred_language=None):
         captured["provider_id"] = provider_id
         return {"thread_id": str(uuid.uuid4()), "response": "ok", "model_used": "m", "cost_usd": 0.0}
 
@@ -96,15 +125,15 @@ async def test_route_request_explicit_provider_calls_only_that_gateway(monkeypat
 
     seen: list[str] = []
 
-    async def fake_openai(cx, *, model, message, tenant_id):
+    async def fake_openai(cx, *, model, message, tenant_id, system=None):
         seen.append("openai")
         return ProviderSendResult.from_token_counts("gpt-ok", 1, 1)
 
-    async def fake_anthropic(cx, *, model, message, tenant_id):
+    async def fake_anthropic(cx, *, model, message, tenant_id, system=None):
         seen.append("anthropic")
         return ProviderSendResult.from_token_counts("claude-ok", 1, 1)
 
-    async def fake_google(cx, *, model, message, tenant_id):
+    async def fake_google(cx, *, model, message, tenant_id, system=None):
         seen.append("google")
         return ProviderSendResult.from_token_counts("gemini-ok", 1, 1)
 
@@ -148,3 +177,126 @@ def test_council_body_rejects_provider_id(client):
         }
         r = client.post("/council", json={"question": "q?", "provider_id": "gpt"})
     assert r.status_code == 422
+
+
+def test_normalize_model_override():
+    assert normalize_model_override(" gpt-4o ") == "gpt-4o"
+    assert normalize_model_override(None) is None
+    assert normalize_model_override("") is None
+
+
+def test_chat_stream_passes_model_override(client):
+    captured: dict = {}
+
+    async def fake_stream(*args, **kwargs):
+        captured.update(kwargs)
+        yield '{"type":"done","response":"ok"}\n'
+
+    with patch.object(main, "stream_chat_response", side_effect=fake_stream):
+        r = client.post(
+            "/chat/stream",
+            json={
+                "message": "hi",
+                "tier": "free",
+                "provider_id": "gpt",
+                "model_override": "gpt-4o-mini",
+            },
+        )
+    assert r.status_code == 200
+    assert captured.get("model_override") == "gpt-4o-mini"
+    assert captured.get("provider_id") == "gpt"
+
+
+@pytest.mark.asyncio
+async def test_route_request_stream_model_override_resolves_registry(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    seen: dict[str, str] = {}
+
+    async def fake_openai(cx, *, model, message, tenant_id, system=None):
+        seen["model"] = model
+        yield "tok"
+
+    with patch.object(get_gateway_provider("openai"), "stream_message", side_effect=fake_openai):
+        chunks = []
+        async for chunk, model, prov in route_request_stream(
+            "hello",
+            TENANT,
+            "free",
+            provider_id="gpt",
+            model_override="gpt-4o",
+        ):
+            chunks.append((chunk, model, prov))
+    assert seen["model"] == resolve_dispatch_model("openai", "gpt-4o")
+    assert chunks[0][1] == "gpt-4o"
+
+
+def test_validate_chat_model_override_rejects_unknown():
+    with pytest.raises(ValueError, match="not registered"):
+        validate_chat_model_override("claude", "claude-3-5-sonnet-latest")
+
+
+def test_validate_chat_model_override_accepts_tier1():
+    validate_chat_model_override("claude", "claude-opus-4.8")
+    validate_chat_model_override("gemini", "gemini-3.5-flash")
+
+
+def test_chat_stream_rejects_unknown_model_override(client):
+    r = client.post(
+        "/chat/stream",
+        json={
+            "message": "hi",
+            "tier": "free",
+            "provider_id": "gemini",
+            "model_override": "gemini-1.5-pro",
+        },
+    )
+    assert r.status_code == 400
+    assert "not registered" in (r.json().get("detail") or "").lower()
+
+
+def test_chat_rejects_inactive_engine_via_execution_plan(client, tmp_path, monkeypatch):
+  """Phase 4 — ExecutionPlan gate blocks chat before model gateway."""
+  system_db = tmp_path / "empty_switchboard.db"
+  monkeypatch.setenv("BEN_SYSTEM_DB_PATH", str(system_db))
+  init_global_service_schema()
+
+  with patch.object(main, "handle_chat", new_callable=AsyncMock) as handle_mock:
+    response = client.post(
+      "/chat",
+      json={"message": "hi", "tier": "free", "provider_id": "claude"},
+    )
+
+  assert response.status_code == 403
+  detail = response.json().get("detail")
+  if isinstance(detail, dict):
+    assert detail.get("error") == "CapabilityInactiveException"
+  handle_mock.assert_not_called()
+
+
+def test_chat_stream_rejects_nl_routed_inactive_engine_via_execution_plan(client, tmp_path, monkeypatch):
+    """Stream HTTP gate enforces post-intent provider — not the original UI selection."""
+    system_db = tmp_path / "gpt_only_switchboard.db"
+    monkeypatch.setenv("BEN_SYSTEM_DB_PATH", str(system_db))
+    init_global_service_schema()
+    connect_global_channel(
+        TENANT,
+        name="Grok Compute Grid",
+        source_type="external_library",
+        source_metadata={"catalog_key": "engine-grok"},
+    )
+
+    with patch.object(main, "stream_chat_response", new_callable=AsyncMock) as stream_mock:
+        response = client.post(
+            "/chat/stream",
+            json={
+                "message": "Hey Claude, summarize this thread",
+                "tier": "free",
+                "provider_id": "gpt",
+            },
+        )
+
+    assert response.status_code == 403
+    detail = response.json().get("detail")
+    if isinstance(detail, dict):
+        assert detail.get("error") == "CapabilityInactiveException"
+    stream_mock.assert_not_called()

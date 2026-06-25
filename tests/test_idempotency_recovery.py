@@ -87,41 +87,41 @@ async def test_persistence_dedupe_marker():
 
 
 def test_council_api_replay(client):
-    payload = {
-        "question": "Idempotent council?",
-        "client_request_id": "api-replay-council-1",
-        "council": [],
-        "synthesis": None,
-        "cost_usd": 0.0,
-        "runtime_state": COUNCIL_COMPLETED,
-    }
+    call_count = {"n": 0}
 
-    async def fake_council(*_a, **_k):
+    async def fake_council(question, tenant_id, *, thread_id=None, force_codebase=False):
+        call_count["n"] += 1
         return {
-            "question": "Idempotent council?",
-            "council": [{"expert": "Legal Advisor", "outcome": "ok", "response": "x", "provider": "openai", "model": "m"}],
+            "question": question,
+            "council": [
+                {
+                    "expert": "Legal Advisor",
+                    "outcome": "ok",
+                    "response": "x",
+                    "provider": "openai",
+                    "model": "m",
+                }
+            ],
             "synthesis": {"recommendation": "done"},
             "cost_usd": 0.01,
+            "mode": "copy_paste",
+            "room": {"id": "r", "question_id": "q", "status": "complete", "member_count": 0},
         }
 
-    with patch.object(main, "run_council", new_callable=AsyncMock, side_effect=fake_council):
-        with patch(
-            "services.council_service._persist_council_thread_if_needed",
-            new_callable=AsyncMock,
-            return_value=None,
-        ), patch("services.council_service._persist_synthesis_ko", new_callable=AsyncMock):
-            r1 = client.post(
-                "/council",
-                json={"question": "Idempotent council?", "client_request_id": "api-replay-council-1"},
-            )
-            r2 = client.post(
-                "/council",
-                json={"question": "Idempotent council?", "client_request_id": "api-replay-council-1"},
-            )
+    with patch.object(main, "run_council", side_effect=fake_council):
+        r1 = client.post(
+            "/council",
+            json={"question": "Idempotent council?", "client_request_id": "api-replay-council-1"},
+        )
+        r2 = client.post(
+            "/council",
+            json={"question": "Idempotent council?", "client_request_id": "api-replay-council-1"},
+        )
 
     assert r1.status_code == 200
     assert r2.status_code == 200
     assert r2.json().get("idempotent_replay") is True
+    assert call_count["n"] == 1
     assert "Idempotent council?" not in str(r2.json())
 
 

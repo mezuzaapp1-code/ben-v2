@@ -40,3 +40,22 @@ async def apply_auth_policy(
     if is_enforce_auth() and outcome != "auth_valid":
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Unauthorized")
     return outcome, claims, auth_present
+
+
+async def apply_enforced_auth_policy(
+    request: Request, *, route_operation: str
+) -> tuple[AuthOutcome, dict | None, bool]:
+    """
+    Always require a valid Clerk JWT — ignores global ENFORCE_AUTH and AUTH_SHADOW_MODE
+    for authorization decisions (shadow logging may still run when enabled).
+
+    Used for project management routes where anonymous or unsigned access is forbidden.
+    """
+    outcome, claims, auth_present = authenticate_request(request)
+
+    if is_auth_shadow_mode():
+        log_shadow_auth_check(route_operation=route_operation, outcome=outcome)
+
+    if outcome != "auth_valid":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Unauthorized")
+    return outcome, claims, auth_present

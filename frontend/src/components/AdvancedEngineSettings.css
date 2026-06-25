@@ -1,0 +1,88 @@
+.engine-settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.engine-settings-panel--compact {
+  gap: 0.4rem;
+}
+
+.engine-settings-panel__engines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.engine-settings-panel__engine {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 1 1 calc(33.333% - 0.35rem);
+  min-width: 4.75rem;
+  padding: 0.42rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--ben-border-strong);
+  background: var(--ben-bg-surface);
+  color: var(--ben-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    border-color 0.2s ease-in-out,
+    background 0.2s ease-in-out,
+    color 0.2s ease-in-out;
+}
+
+.engine-settings-panel__engine--gated {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.engine-settings-panel__engine-lock {
+  font-size: 0.65rem;
+  line-height: 1;
+  opacity: 0.85;
+}
+
+.engine-settings-panel__engine:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.engine-settings-panel__engine--active {
+  border-color: color-mix(in srgb, var(--engine-accent, var(--ben-accent-blue)) 45%, var(--ben-border-strong));
+  background: color-mix(in srgb, var(--engine-accent, var(--ben-accent-blue)) 10%, var(--ben-bg-surface));
+  color: var(--ben-text-bright);
+}
+
+.engine-settings-panel__engine-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--engine-accent, var(--ben-text-muted));
+  flex-shrink: 0;
+}
+
+.engine-settings-panel__engine--active .engine-settings-panel__engine-dot {
+  box-shadow: 0 0 5px var(--engine-accent, var(--ben-accent-blue));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .engine-settings-panel__engine:hover:not(:disabled):not(.engine-settings-panel__engine--active) {
+    border-color: var(--ben-border-card);
+    color: var(--ben-text-bright);
+  }
+}
+
+.engine-settings-panel__hint {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--ben-text-faint);
+}
+
+.engine-settings-panel__select {
+  width: 100%;
+}

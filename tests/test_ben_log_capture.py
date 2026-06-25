@@ -185,61 +185,52 @@ async def test_chat_succeeds_when_ben_log_fails(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_council_persist_calls_capture(monkeypatch):
-    tid = uuid.uuid4()
-    payload = {
-        "question": "q",
-        "council": [],
-        "synthesis": {"recommendation": "go"},
-        "available_experts": 3,
-        "unavailable_experts": 0,
-        "cost_usd": 0.0,
-        "room": {"id": "r", "question_id": "qid", "status": "complete"},
-    }
-    capture = AsyncMock()
-    monkeypatch.setattr(cs, "capture_council_synthesis", capture)
-    monkeypatch.setattr(cs, "persist_council_transcript", AsyncMock())
-    monkeypatch.setattr(cs, "resolve_thread_id", AsyncMock(return_value=tid))
-    monkeypatch.setattr(cs, "get_idempotency_store_key", lambda: "k")
-    reg = AsyncMock()
-    reg.should_persist = AsyncMock(return_value=True)
-    reg.mark_persisted = AsyncMock()
-    monkeypatch.setattr(cs, "get_idempotency_registry", lambda: reg)
+async def test_run_council_copy_paste_invokes_opinion_pipeline(monkeypatch):
+    captured: dict = {}
 
-    result_tid = await cs._persist_council_thread_if_needed(str(ORG), None, "question?", payload)
-    assert result_tid == tid
-    capture.assert_awaited_once()
-    kwargs = capture.await_args.kwargs
-    assert kwargs["org_id"] == ORG
-    assert kwargs["thread_id"] == tid
+    async def fake_copy_paste(
+        *,
+        org_id,
+        thread_id,
+        tenant_id,
+        tier,
+        opinion_request,
+        provider_id=None,
+    ):
+        captured["opinion_request"] = opinion_request
+        captured["tenant_id"] = tenant_id
+        return {"response": "Council answer", "cost_usd": 0.0, "thread_id": str(THREAD)}
+
+    monkeypatch.setattr(cs, "run_copy_paste_opinion", fake_copy_paste)
+    payload = await cs.run_council("Should we deploy?", str(ORG), force_codebase=False)
+    assert captured["opinion_request"] == "Should we deploy?"
+    assert payload["mode"] == "copy_paste"
+    assert payload["response"] == "Council answer"
+    assert payload["council"] == []
+    assert payload["synthesis"] is None
 
 
 @pytest.mark.asyncio
-async def test_council_persist_succeeds_when_capture_fails(monkeypatch):
-    tid = uuid.uuid4()
-    payload = {
-        "council": [],
-        "synthesis": None,
-        "available_experts": 0,
-        "unavailable_experts": 3,
-        "cost_usd": 0.0,
-        "room": {},
-    }
+async def test_run_council_survives_ben_log_capture_failure(monkeypatch):
+    async def fake_copy_paste(
+        *,
+        org_id,
+        thread_id,
+        tenant_id,
+        tier,
+        opinion_request,
+        provider_id=None,
+    ):
+        return {"response": "ok", "cost_usd": 0.0, "thread_id": str(THREAD)}
+
+    monkeypatch.setattr(cs, "run_copy_paste_opinion", fake_copy_paste)
     monkeypatch.setattr(
         bls,
         "append_event",
         AsyncMock(side_effect=RuntimeError("ben log db down")),
     )
-    monkeypatch.setattr(cs, "persist_council_transcript", AsyncMock())
-    monkeypatch.setattr(cs, "resolve_thread_id", AsyncMock(return_value=tid))
-    monkeypatch.setattr(cs, "get_idempotency_store_key", lambda: "k")
-    reg = AsyncMock()
-    reg.should_persist = AsyncMock(return_value=True)
-    reg.mark_persisted = AsyncMock()
-    monkeypatch.setattr(cs, "get_idempotency_registry", lambda: reg)
-
-    result_tid = await cs._persist_council_thread_if_needed(str(ORG), tid, "q?", payload)
-    assert result_tid == tid
+    payload = await cs.run_council("q?", str(ORG), force_codebase=False)
+    assert payload["response"] == "ok"
 
 
 @pytest.mark.asyncio

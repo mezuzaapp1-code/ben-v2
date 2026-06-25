@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Numeric, String, Text, func, text
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Index, Numeric, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -197,6 +197,138 @@ BEN_LOG_EVENT_TYPES = (
     "note",
 )
 BEN_LOG_SOURCES = ("chat", "council", "human", "system")
+
+
+PROJECT_STATUSES = ("active", "on_hold", "completed", "archived")
+PROJECT_MEMBER_TYPES = ("EMPLOYEE", "VENDOR")
+PROJECT_TASK_STATUSES = ("todo", "in_progress", "blocked", "done")
+PROJECT_TASK_PRIORITIES = ("low", "medium", "high", "urgent")
+FINANCIAL_LEDGER_ENTRY_TYPES = ("INCOME", "EXPENSE")
+FINANCIAL_LEDGER_STATUSES = ("pending", "recorded", "paid", "cancelled")
+
+
+class Project(Base):
+    __tablename__ = "projects"
+    __table_args__ = (
+        CheckConstraint(
+            f"status IN ({','.join(repr(s) for s in PROJECT_STATUSES)})",
+            name="ck_projects_status",
+        ),
+        Index("ix_projects_org", "org_id"),
+        Index("ix_projects_org_status", "org_id", "status"),
+        Index("ix_projects_created", "created_at"),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    name: Mapped[str] = mapped_column(String(512), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ProjectMember(Base):
+    __tablename__ = "project_members"
+    __table_args__ = (
+        CheckConstraint(
+            f"member_type IN ({','.join(repr(t) for t in PROJECT_MEMBER_TYPES)})",
+            name="ck_project_members_member_type",
+        ),
+        Index("ix_project_members_org", "org_id"),
+        Index("ix_project_members_project", "project_id"),
+        Index("ix_project_members_org_project", "org_id", "project_id"),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    member_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    role: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    hourly_rate: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    contact_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ProjectTask(Base):
+    __tablename__ = "project_tasks"
+    __table_args__ = (
+        CheckConstraint(
+            f"status IN ({','.join(repr(s) for s in PROJECT_TASK_STATUSES)})",
+            name="ck_project_tasks_status",
+        ),
+        CheckConstraint(
+            f"priority IN ({','.join(repr(p) for p in PROJECT_TASK_PRIORITIES)})",
+            name="ck_project_tasks_priority",
+        ),
+        Index("ix_project_tasks_org", "org_id"),
+        Index("ix_project_tasks_project", "project_id"),
+        Index("ix_project_tasks_org_project", "org_id", "project_id"),
+        Index("ix_project_tasks_assigned_to", "assigned_to"),
+        Index("ix_project_tasks_due_date", "due_date"),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="todo")
+    priority: Mapped[str] = mapped_column(String(16), nullable=False, server_default="medium")
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    assigned_to: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.project_members.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class FinancialLedger(Base):
+    __tablename__ = "financial_ledger"
+    __table_args__ = (
+        CheckConstraint(
+            f"entry_type IN ({','.join(repr(t) for t in FINANCIAL_LEDGER_ENTRY_TYPES)})",
+            name="ck_financial_ledger_entry_type",
+        ),
+        CheckConstraint(
+            f"status IN ({','.join(repr(s) for s in FINANCIAL_LEDGER_STATUSES)})",
+            name="ck_financial_ledger_status",
+        ),
+        Index("ix_financial_ledger_org", "org_id"),
+        Index("ix_financial_ledger_project", "project_id"),
+        Index("ix_financial_ledger_org_project", "org_id", "project_id"),
+        Index("ix_financial_ledger_due_date", "due_date"),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    entry_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    amount: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, server_default="USD")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="pending")
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class BenLogEvent(Base):

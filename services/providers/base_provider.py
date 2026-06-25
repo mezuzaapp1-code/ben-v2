@@ -55,6 +55,7 @@ class BaseProvider(ABC):
         model: str,
         message: str,
         tenant_id: str,
+        system: str | None = None,
     ) -> ProviderSendResult:
         """Non-streaming completion; returns content and token counts."""
 
@@ -65,9 +66,11 @@ class BaseProvider(ABC):
         model: str,
         message: str,
         tenant_id: str,
+        system: str | None = None,
     ) -> AsyncIterator[str]:
-        """Yield response text. Default: single chunk (matches current non-SSE chat)."""
+        """Yield response text chunks from provider streaming APIs."""
         result = await self.send_message(
-            cx, model=model, message=message, tenant_id=tenant_id
+            cx, model=model, message=message, tenant_id=tenant_id, system=system
         )
-        yield result.content
+        if result.content:
+            yield result.content

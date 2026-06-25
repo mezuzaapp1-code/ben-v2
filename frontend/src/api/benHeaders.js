@@ -1,11 +1,19 @@
 /**
  * Build JSON request headers for BEN API calls.
- * Adds Clerk Bearer token when available; never logs or persists the token.
+ * Adds Clerk Bearer token when available; attaches beta sandbox session headers.
  */
 
-export async function buildBenHeaders(getToken, extraHeaders = {}) {
+import { getBetaSessionHeaders } from '../lib/betaAuth.js'
+
+export async function buildBenHeaders(
+  getToken,
+  extraHeaders = {},
+  betaContext = {},
+  betaSessionHeaders = null
+) {
   const headers = {
     'Content-Type': 'application/json',
+    ...(betaSessionHeaders ?? getBetaSessionHeaders(betaContext)),
     ...extraHeaders,
   }
   if (!getToken) {

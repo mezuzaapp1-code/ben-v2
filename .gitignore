@@ -1,3 +1,6 @@
+# Local SQLite knowledge store
+data/knowledge.db
+
 # Secrets and local env (never commit)
 .env
 .env.local
@@ -28,8 +31,8 @@ railway_shadow_logs.txt
 e -ErrorAction SilentlyContinue
 s git,python,node -ErrorAction SilentlyContinue *
 
-# Frontend build
-frontend/node_modules/
+tasks/feedback/*.json
+!tasks/feedback/.gitkeep
 frontend/dist/
 
 # OS

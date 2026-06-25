@@ -1,0 +1,153 @@
+.context-picker {
+  position: relative;
+  max-width: 100%;
+}
+
+.context-picker__trigger {
+  gap: 0.35rem;
+}
+
+.context-picker__chevron {
+  flex-shrink: 0;
+  font-size: 0.58rem;
+  color: var(--ben-text-muted);
+  transition: transform 0.2s ease-in-out;
+}
+
+.context-picker--open .context-picker__chevron {
+  transform: rotate(180deg);
+}
+
+.context-picker__menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 0.45rem);
+  z-index: 170;
+  padding: 0.55rem;
+  border-radius: 0.8rem;
+  border: 1px solid var(--ben-border-strong);
+  background: var(--ben-bg-elevated);
+  box-shadow: 0 14px 36px var(--ben-shadow-composer);
+  display: grid;
+  gap: 0.55rem;
+  animation: context-picker-in 0.2s ease-in-out;
+}
+
+@keyframes context-picker-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.context-picker__section {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.context-picker__section-title {
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ben-text-faint);
+  padding: 0 0.15rem;
+}
+
+.context-picker__list {
+  display: grid;
+  gap: 0.15rem;
+  max-height: 9rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.context-picker__option {
+  display: block;
+  width: 100%;
+  padding: 0.42rem 0.55rem;
+  border: none;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: var(--ben-text-secondary);
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    background 0.15s ease-in-out,
+    color 0.15s ease-in-out;
+}
+
+.context-picker__option--active {
+  background: color-mix(in srgb, var(--ben-accent-blue) 12%, var(--ben-bg-surface));
+  color: var(--ben-text-bright);
+}
+
+.context-picker__option--accent {
+  color: var(--ben-accent-blue);
+  font-weight: 600;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .context-picker__option:hover {
+    background: var(--ben-bg-surface-hover);
+    color: var(--ben-text-bright);
+  }
+}
+
+.context-picker__engines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.context-picker__engine {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 1 1 calc(33.333% - 0.35rem);
+  min-width: 4.75rem;
+  padding: 0.42rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--ben-border-strong);
+  background: var(--ben-bg-surface);
+  color: var(--ben-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    border-color 0.2s ease-in-out,
+    background 0.2s ease-in-out,
+    color 0.2s ease-in-out;
+}
+
+.context-picker__engine--active {
+  border-color: color-mix(in srgb, var(--engine-accent, var(--ben-accent-blue)) 45%, var(--ben-border-strong));
+  background: color-mix(in srgb, var(--engine-accent, var(--ben-accent-blue)) 10%, var(--ben-bg-surface));
+  color: var(--ben-text-bright);
+}
+
+.context-picker__engine-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--engine-accent, var(--ben-text-muted));
+}
+
+.context-picker__engine--active .context-picker__engine-dot {
+  box-shadow: 0 0 5px var(--engine-accent, var(--ben-accent-blue));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .context-picker__engine:hover:not(.context-picker__engine--active) {
+    border-color: var(--ben-border-card);
+    color: var(--ben-text-bright);
+  }
+}

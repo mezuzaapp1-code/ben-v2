@@ -24,8 +24,15 @@ from services.message_format import (  # noqa: E402
 )
 from services.ops.idempotency import reset_idempotency_registry_for_tests  # noqa: E402
 from services.ops.load_governance import reset_load_governor_for_tests  # noqa: E402
+from services.global_service_store import connect_global_channel, init_global_service_schema  # noqa: E402
 
 TENANT = "00000000-0000-0000-0000-000000000001"
+
+_ACTIVE_ENGINE_CATALOG = (
+    ("engine-grok", "Grok Compute Grid"),
+    ("engine-claude", "Claude Reasoning Core"),
+    ("engine-gemini", "Gemini Multimodal"),
+)
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +43,21 @@ def _env(monkeypatch):
     reset_idempotency_registry_for_tests()
     reset_load_governor_for_tests()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _active_speaking_engines(tmp_path, monkeypatch):
+    """Seed org-scoped engine activations so /chat passes ExecutionPlan enforcement."""
+    system_db = tmp_path / "system_main.db"
+    monkeypatch.setenv("BEN_SYSTEM_DB_PATH", str(system_db))
+    init_global_service_schema()
+    for catalog_key, name in _ACTIVE_ENGINE_CATALOG:
+        connect_global_channel(
+            TENANT,
+            name=name,
+            source_type="external_library",
+            source_metadata={"catalog_key": catalog_key},
+        )
 
 
 @pytest.fixture
@@ -72,7 +94,13 @@ def test_decode_legacy_chat_without_provider_fields():
 
 
 def test_chat_api_returns_provider_fields(client):
-    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, preferred_language=None):
+    async def fake_chat(
+        message, user_id, tenant_id, tier, *,
+        thread_id=None,
+        provider_id=None,
+        model_override=None,
+        preferred_language=None,
+    ):
         return {
             "thread_id": str(uuid.uuid4()),
             "response": "ok",
@@ -103,7 +131,7 @@ async def test_handle_chat_persists_provider_in_envelope(monkeypatch):
 
     captured: dict = {}
 
-    async def fake_route(message, tenant_id, tier, *, provider_id=None):
+    async def fake_route(message, tenant_id, tier, *, provider_id=None, model_override=None, system=None):
         return {
             "content": "answer",
             "model_used": "gpt-4o-mini",
@@ -122,6 +150,9 @@ async def test_handle_chat_persists_provider_in_envelope(monkeypatch):
             return None
 
         async def commit(self):
+            return None
+
+        async def flush(self):
             return None
 
         async def __aenter__(self):

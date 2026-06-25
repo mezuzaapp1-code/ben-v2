@@ -78,7 +78,7 @@ def _make_fake_post(*, fail_synthesis: bool):
             jb = kwargs.get("json") or {}
             msgs = jb.get("messages") or []
             sys0 = _openai_body(msgs)
-            if SYNTHESIS_SYSTEM.splitlines()[0] in sys0 or "synthesize expert opinions" in sys0:
+            if SYNTHESIS_SYSTEM.splitlines()[0] in sys0 or "Chief Product Architect" in sys0:
                 if fail_synthesis:
                     raise httpx.ReadTimeout("forced synthesis failure")
                 body = {

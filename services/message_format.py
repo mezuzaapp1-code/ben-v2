@@ -12,6 +12,7 @@ from services.providers.speaking_registry import (
 from services.providers.speaking_registry import (
     provider_label as _registry_provider_label,
 )
+from services.synthesis_delivery import build_product_delivery_display, enforce_delivery_shape
 
 
 def gateway_to_provider_id(provider_used: str) -> str:
@@ -50,6 +51,7 @@ COUNCIL_DISPLAY_LABEL = {
     "Legal Advisor": "⚖️ Legal Advisor",
     "Business Advisor": "💼 Business Advisor",
     "Strategy Advisor": "🎯 Strategy Advisor",
+    "Local Codebase Expert": "🧩 Local Codebase Expert",
 }
 
 
@@ -291,41 +293,35 @@ def _expert_status_from_outcome(outcome: str, response: str) -> str | None:
 
 
 def build_synthesis_display_text(synthesis: dict[str, Any], *, any_expert_failed: bool) -> str:
-    disagree = synthesis.get("main_disagreement")
-    disagree_s = str(disagree).strip() if disagree is not None and str(disagree).strip() else "None"
-    ae = synthesis.get("agreement_estimate") or "unknown"
-    rec = synthesis.get("recommendation") or ""
-    cons = synthesis.get("consensus_points") or ""
     available = int(synthesis.get("available_experts") or 0)
     mode = str(synthesis.get("synthesis_mode") or "").strip().lower()
-    footer = "This is a structured reasoning layer, not a final answer."
 
     if available == 0 or mode == "degraded":
         return (
             "Council unavailable: no experts responded.\n\n"
-            f"{rec}\n\n"
-            f"{footer}"
+            f"{synthesis.get('recommendation') or ''}\n\n"
+            "Retry when experts are available."
         )
 
-    if available == 1 or mode == "single_expert":
-        return (
-            "Single expert result — no consensus available.\n\n"
-            f"🧠 BEN Synthesis ({ae})\n{rec}\n\n"
-            f"{footer}"
-        )
+    delivery = build_product_delivery_display(synthesis)
+    if delivery:
+        return delivery
 
-    if available == 2:
-        prefix = "Partial council (2 experts) — limited consensus.\n\n"
-        consensus_block = f"⚡ Limited consensus: {cons}\n" if cons else ""
-        return (
-            f"{prefix}🧠 BEN Synthesis ({ae})\n{rec}\n\n"
-            f"{consensus_block}⚡ Disagreement: {disagree_s}\n\n"
-            f"{footer}"
-        )
-
-    prefix = "Based on available expert responses.\n\n" if any_expert_failed else ""
-    return (
-        f"{prefix}🧠 BEN Synthesis ({ae})\n{rec}\n\n"
-        f"✅ Consensus: {cons}\n⚡ Disagreement: {disagree_s}\n\n"
-        f"{footer}"
+    shaped = enforce_delivery_shape(
+        {
+            "recommendation": synthesis.get("recommendation") or "Fused deliverable",
+            "deliverable_artifact": synthesis.get("deliverable_artifact") or "",
+            "operational_playbook": synthesis.get("operational_playbook") or [],
+        }
     )
+    return build_product_delivery_display(shaped) or str(synthesis.get("recommendation") or "")
+
+
+def build_adhoc_synthesis_display_text(
+    synthesis: dict[str, Any],
+    *,
+    locale: str = "en",
+    any_expert_failed: bool = False,
+) -> str:
+    _ = locale
+    return build_synthesis_display_text(synthesis, any_expert_failed=any_expert_failed)

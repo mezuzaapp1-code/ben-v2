@@ -142,6 +142,24 @@ class RequestDiagnostics:
     tenant_hash: str
     dominant_language: str
     started_monotonic: float = field(default_factory=time.monotonic)
+    workspace_id: str | None = None
+    workspace_type: str | None = None
+    workspace_resolution_source: str | None = None
+    workspace_membership_verified: bool | None = None
+    workspace_project_slug: str | None = None
+    execution_capability_key: str | None = None
+    execution_requested_resource: str | None = None
+    execution_resolved_resource: str | None = None
+    execution_connector_id: str | None = None
+    execution_activation_source: str | None = None
+    execution_enforced: bool | None = None
+    execution_allowed: bool | None = None
+    execution_requested_capability: str | None = None
+    execution_workspace_context_id: str | None = None
+    execution_org_policy_allowed: bool | None = None
+    execution_workspace_intent_enabled: bool | None = None
+    execution_enforcement_owner: str | None = None
+    execution_denial_reason: str | None = None
 
 
 _request_diag: ContextVar[RequestDiagnostics | None] = ContextVar("ben_request_diag", default=None)
@@ -172,6 +190,68 @@ def begin_request_diagnostics(
         dominant_language=diag.dominant_language,
     )
     return diag
+
+
+def attach_workspace_to_request_diagnostics(workspace_ctx: Any) -> None:
+    """Attach Phase 2 workspace context to active request diagnostics (non-blocking)."""
+    from services.workspace_resolver import workspace_context_to_log_payload
+
+    payload = workspace_context_to_log_payload(workspace_ctx)
+    diag = _request_diag.get()
+    if diag is not None:
+        diag.workspace_id = payload.get("workspace_id")
+        diag.workspace_type = payload.get("workspace_type")
+        diag.workspace_resolution_source = payload.get("resolution_source")
+        diag.workspace_membership_verified = payload.get("membership_verified")
+        diag.workspace_project_slug = payload.get("project_slug")
+    log_info(
+        "workspace context attached to request diagnostics",
+        subsystem="workspace",
+        operation="attach_workspace_diagnostics",
+        outcome="ok",
+        **payload,
+    )
+
+
+def _denial_reason_for_execution_plan(execution_plan: Any) -> str | None:
+    """Structured denial label when plan.allowed is False (diagnostics only)."""
+    if getattr(execution_plan, "allowed", True):
+        return None
+    if getattr(execution_plan, "org_policy_allowed", None) is False:
+        return "org_switchboard_policy_denied"
+    return "execution_plan_denied"
+
+
+def attach_execution_plan_to_request_diagnostics(execution_plan: Any) -> None:
+    """Attach Phase 3 execution plan to active request diagnostics (non-blocking)."""
+    from services.execution_plan import execution_plan_to_log_payload
+
+    payload = {
+        **execution_plan_to_log_payload(execution_plan),
+        "denial_reason": _denial_reason_for_execution_plan(execution_plan),
+    }
+    diag = _request_diag.get()
+    if diag is not None:
+        diag.execution_capability_key = payload.get("capability_key")
+        diag.execution_requested_resource = payload.get("requested_resource")
+        diag.execution_resolved_resource = payload.get("resolved_resource")
+        diag.execution_connector_id = payload.get("connector_id")
+        diag.execution_activation_source = payload.get("activation_source")
+        diag.execution_enforced = payload.get("enforced")
+        diag.execution_allowed = payload.get("allowed")
+        diag.execution_requested_capability = payload.get("requested_capability")
+        diag.execution_workspace_context_id = payload.get("workspace_context_id")
+        diag.execution_org_policy_allowed = payload.get("org_policy_allowed")
+        diag.execution_workspace_intent_enabled = payload.get("workspace_intent_enabled")
+        diag.execution_enforcement_owner = payload.get("enforcement_owner")
+        diag.execution_denial_reason = payload.get("denial_reason")
+    log_info(
+        "execution plan attached to request diagnostics",
+        subsystem="execution_plan",
+        operation="attach_execution_plan_diagnostics",
+        outcome="ok" if payload.get("allowed", True) else "denied",
+        **{k: v for k, v in payload.items() if v is not None},
+    )
 
 
 def complete_request_diagnostics(*, outcome: str = "ok", **extra: Any) -> None:

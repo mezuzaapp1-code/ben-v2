@@ -1,4 +1,4 @@
-# BEN System Map v1
+# BEN System Map v2
 
 Architecture reference for BEN v2. Use this document to keep future work structured and scale-safe.
 
@@ -11,7 +11,7 @@ Architecture reference for BEN v2. Use this document to keep future work structu
 | Database | PostgreSQL (Railway) |
 | Auth | Clerk |
 
-**Related docs:** `docs/RISK_REGISTER.md`, `docs/TIMING_GOVERNANCE.md`, `docs/TASK_REPORT_TENANT_MODE_V2_DEPLOY.md`
+**Related docs:** `docs/RISK_REGISTER.md`, `docs/TIMING_GOVERNANCE.md`, `docs/SYSTEM_BOUNDARIES.md`, `docs/TASK_REPORT_TENANT_MODE_V2_DEPLOY.md`
 
 ---
 
@@ -37,6 +37,8 @@ flowchart TB
     Auth[auth/ tenant + shadow]
     Chat[services/chat_service]
     Council[services/council_service]
+    CopyPaste[services/copy_paste_service]
+    Rolling[services/rolling_context]
     Threads[services/thread_service]
     Ops[services/ops/ logs + timing]
   end
@@ -60,9 +62,11 @@ flowchart TB
   API --> Council
   API --> Threads
   Chat --> OAI
-  Council --> ANT
-  Council --> OAI
-  Council --> GEM
+  Chat --> ANT
+  Chat --> GEM
+  Council --> CopyPaste
+  CopyPaste --> Rolling
+  CopyPaste --> Chat
   Chat --> PG
   Council --> PG
   Threads --> PG
@@ -72,13 +76,11 @@ flowchart TB
 
 | Component | Role |
 |-----------|------|
-| **Browser / Vercel frontend** | React SPA: chat, council, thread sidebar, Clerk sign-in/org switcher. Calls API with optional `Authorization: Bearer`. |
+| **Browser / Vercel frontend** | React SPA: chat, council, ad-hoc expert opinions, thread sidebar, Clerk sign-in/org switcher. Calls API with optional `Authorization: Bearer`. |
 | **Clerk** | Identity + optional organization. JWT carries `sub`, `email`, `org_id` (when org active). Publishable key in Vercel env. |
 | **Railway FastAPI** | Single app (`main.py`): routes, tenant binding, provider orchestration, health. |
 | **PostgreSQL** | Tenant-scoped threads/messages; RLS via `set_config('app.current_org_id', …)` per request. |
-| **OpenAI** | Chat gateway, Business Advisor, council synthesis. |
-| **Anthropic** | Legal Advisor (council). |
-| **Google (Gemini)** | Strategy Advisor (council). |
+| **OpenAI / Anthropic / Gemini** | Chat gateway targets (user-selected via toolbar). Council and ad-hoc opinions use the same `model_gateway` with tier-default routing unless `provider_id` is supplied (ad-hoc only). |
 
 ---
 
@@ -99,30 +101,36 @@ HTTP Request
   → route handler
 ```
 
-### `POST /chat`
+### `POST /chat` and `POST /chat/stream`
 
 | Step | Module | Action |
 |------|--------|--------|
-| 1 | `main.py` | Parse `ChatBody` (`message`, optional `thread_id`, optional `tenant_id` ignored for binding) |
+| 1 | `main.py` | Parse `ChatBody` (`message`, optional `thread_id`, optional `provider_id`, optional `preferred_language`) |
 | 2 | `auth/tenant_binding.py` | Resolve `TenantContext` |
 | 3 | `services/chat_service.py` | `resolve_thread_id()` → create or load thread |
-| 4 | `services/model_gateway.py` | Route by `tier` → OpenAI completion |
+| 4 | `services/model_gateway.py` | Route to selected or tier-default provider |
 | 5 | `chat_service` | Persist user + assistant rows in `ben.messages` |
-| 6 | Response | `{ thread_id, response, model_used, cost_usd, request_id }` |
+| 6 | Response | `{ thread_id, response, model_used, cost_usd, request_id }` or NDJSON stream (`chunk` / `done`) |
 
-### `POST /council`
+### `POST /council` and `POST /council/stream`
+
+Council is a **rolling-context opinion** — not a multi-model panel. One gateway call over the full thread transcript plus the latest question.
 
 | Step | Module | Action |
 |------|--------|--------|
 | 1 | `main.py` | Parse `CouncilBody` (`question`, optional `thread_id`) |
 | 2 | Tenant bind | Same as chat |
-| 3 | `services/council_service.py` | Outer `asyncio.wait_for` **25s** (`COUNCIL_TOTAL_TIMEOUT_S`) |
-| 4 | Parallel experts | Legal (Anthropic), Business (OpenAI), Strategy (Gemini) — **12s** each |
-| 5 | Synthesis | OpenAI JSON synthesis — **10s** budget |
-| 6 | Response | `{ question, council[], synthesis, cost_usd, request_id }` — returned before all DB writes finish |
-| 7 | Background | `_schedule_background_task`: KO persist + council transcript to thread |
+| 3 | `services/council_service.py` | Delegate to `copy_paste_service` |
+| 4 | `services/rolling_context.py` | Load all prior thread turns; append opinion request |
+| 5 | `services/model_gateway.py` | Single completion with `RAW_STREAM_SYSTEM` (markdown, no JSON committee format) |
+| 6 | Persist | Stream path persists via `chat_service` NDJSON pipeline; non-stream via `route_request` + thread resolve |
+| 7 | Response | `{ question, mode: "copy_paste", response, council: [], synthesis: null, cost_usd, thread_id, request_id }` or NDJSON stream |
 
-Frontend: **35s** client abort, progress phases, humanized errors (`frontend/src/api/council.js`).
+Frontend: **300s** stream idle ceiling (`COUNCIL_STREAM_IDLE_TIMEOUT_MS`); humanized errors (`frontend/src/api/council.js`). No expert-phase progress UI.
+
+### `POST /api/threads/{id}/adhoc/expert[/stream]`
+
+Same rolling-context pipeline as council, but **`provider_id` is required** (toolbar-selected model). Persists as `adhoc_expert` envelope. Ad-hoc synthesis route **removed** (404).
 
 ### `GET /api/threads` and `GET /api/threads/{id}`
 
@@ -131,7 +139,7 @@ Frontend: **35s** client abort, progress phases, humanized errors (`frontend/src
 | 1 | Tenant bind |
 | 2 | `list_threads(tenant_uuid)` or `get_thread_detail(tenant_uuid, thread_id)` |
 | 3 | RLS: `app.current_org_id` = effective `tenant_id` (UUID) |
-| 4 | Return thread list or messages (decoded JSON envelopes for council rows) |
+| 4 | Return thread list or messages (decoded JSON envelopes where applicable) |
 
 ### `GET /health` and `GET /ready`
 
@@ -164,7 +172,7 @@ Logical personal id: `user:{sub}`. Storage uses deterministic UUID (`auth/tenant
 |-----|---------|--------|
 | `REQUIRE_ORG_FOR_SIGNED_IN` | `false` | If `true`, signed-in user without org → **403** `clerk_org_required` |
 | `TENANT_MODES_ENABLED` | `true` | Exposed on `/health` (informational) |
-| `ENFORCE_AUTH` | `false` | If `true`, invalid/missing JWT → **401** on `/chat` and `/council` |
+| `ENFORCE_AUTH` | `false` | If `true`, invalid/missing JWT → **401** on protected routes |
 | `AUTH_SHADOW_MODE` | `true` | Log auth outcomes without blocking |
 
 ### Client `tenant_id` rule
@@ -187,14 +195,23 @@ sequenceDiagram
   participant UI as Frontend
   participant API as FastAPI
   participant TS as thread_service
+  participant RC as rolling_context
+  participant GW as model_gateway
   participant DB as PostgreSQL
 
-  UI->>API: POST /chat (optional thread_id)
+  UI->>API: POST /chat (optional thread_id, provider_id)
   API->>TS: resolve_thread_id
   TS->>DB: INSERT thread if new
-  API->>API: model_gateway
+  API->>GW: single provider call
   API->>DB: INSERT messages
   API-->>UI: thread_id + response
+
+  UI->>API: POST /council/stream (saved thread_id)
+  API->>RC: build_rolling_stream_prompt
+  RC->>DB: load thread history
+  API->>GW: single provider call (markdown)
+  API->>DB: persist assistant row
+  API-->>UI: NDJSON chunk/done
 
   Note over UI: localStorage active thread id
 
@@ -209,18 +226,21 @@ sequenceDiagram
 
 ### Thread creation
 
-- **Draft threads:** client-only id prefix until first successful `POST /chat` or council persist.
+- **Draft threads:** client-only id prefix until first successful `POST /chat` or council/ad-hoc persist.
 - **Server thread:** created in `resolve_thread_id()` when no `thread_id` or unknown id for tenant.
+- **Council requirement:** council on a draft thread is rejected client-side; server thread must exist.
 
 ### `thread_id` continuation
 
-- Client sends `thread_id` on follow-up `POST /chat` or `POST /council`.
+- Client sends `thread_id` on follow-up `POST /chat`, `POST /council`, or ad-hoc expert routes.
 - Server validates thread belongs to bound `tenant_id` (404 if wrong tenant).
 
 ### Message persistence
 
-- **Chat:** plain text + JSON assistant envelope (`services/message_format.py`).
-- **Council:** expert rows + synthesis envelope with `kind`, `expert_outcome`, optional reasoning fields.
+- **Chat:** plain user text + JSON assistant envelope (`kind=chat`) with `provider_id` and `model_used`.
+- **Council (stream):** assistant markdown via the chat stream persist path.
+- **Ad-hoc expert:** `kind=adhoc_expert` envelope with `provider_id` and session id.
+- **Historical rows:** older threads may still contain legacy envelope kinds from prior releases; runtime no longer produces them.
 
 ### Rehydration after refresh
 
@@ -229,16 +249,10 @@ sequenceDiagram
 3. `GET /api/threads/{id}` → map messages into UI.
 4. On `clerk_org_required`, keep local thread; show banner (no wipe).
 
-### Council transcript persistence
-
-- HTTP response returns before background persist completes.
-- Background: `persist_council_transcript()` appends user question + expert bubbles + synthesis.
-- Parallel: synthesis may also write `knowledge_objects` (dual store — see R-027).
-
 ### Persistence integrity (v1)
 
-- **Ownership:** threads/messages = conversation truth; `knowledge_objects` = optional synthesis archive; cognitive_events unused at runtime.
-- **Invariants:** `services/ops/persistence_integrity.py` — tenant/thread checks, council envelope validation, duplicate synthesis detection.
+- **Ownership:** threads/messages = conversation truth; `knowledge_objects` schema exists but is not on the council hot path.
+- **Invariants:** `services/ops/persistence_integrity.py` — tenant/thread checks, envelope validation.
 - **Rehydrate:** `GET /api/threads/{id}` audits rows; may include `integrity_warnings` (codes only).
 - **Governance doc:** `docs/DATA_GOVERNANCE.md`.
 
@@ -253,57 +267,57 @@ flowchart TB
     IDEM[idempotency registry]
     MET[runtime metrics]
   end
-  Council -->|background| M
-  Council -->|background optional| KO
+  Council -->|stream persist| M
+  Chat --> M
   Council --> IDEM
   UI -->|GET thread| M
 ```
 
 ---
 
-## 5. Council lifecycle
+## 5. Council lifecycle (copy-paste / rolling context)
 
 ```mermaid
 flowchart LR
-  Q[question] --> L[Legal Advisor\nAnthropic 12s]
-  Q --> B[Business Advisor\nOpenAI 12s]
-  Q --> S[Strategy Advisor\nGemini 12s]
-  L --> Syn[Synthesis\nOpenAI 10s]
-  B --> Syn
-  S --> Syn
-  Syn --> R[JSON response]
-  R --> BG[Background DB persist]
+  Q[question] --> H[Load thread history]
+  H --> P[build_rolling_context_prompt]
+  P --> G[model_gateway single call]
+  G --> R[markdown response]
+  R --> S[NDJSON stream or JSON body]
+  S --> DB[(ben.messages)]
 ```
 
-### Experts
+### Pipeline modules
 
-| Expert | Provider | Model (env-driven) |
-|--------|----------|-------------------|
-| Legal Advisor | Anthropic | `ANTHROPIC_MODEL` (e.g. claude-sonnet-4-6) |
-| Business Advisor | OpenAI | `BUSINESS_MODEL` |
-| Strategy Advisor | Google | `GEMINI_MODEL` (e.g. gemini-2.5-flash) |
+| Module | Responsibility |
+|--------|----------------|
+| `services/council_service.py` | HTTP-facing council API; returns `mode: "copy_paste"` |
+| `services/copy_paste_service.py` | Bridges council/ad-hoc to chat stream or `route_request` |
+| `services/rolling_context.py` | Sequential append of all prior turns + opinion request |
+| `services/chat_service.py` | Stream persist and gateway dispatch (shared with chat) |
+| `services/model_gateway.py` | Tier routing, circuit breaker, provider adapters |
 
-### Synthesis
+### API response shape (non-stream)
 
-- OpenAI (`SYNTHESIS_MODEL`) produces structured JSON: recommendation, consensus, disagreement, optional domain reasoning fields.
-- **`_honest_agreement_estimate`:** post-process; never claim full panel if any expert `outcome != ok`.
-- Prompt rules: unavailable experts excluded from agreement counts; preserve rationale differences (R-022, R-024).
+| Field | Value |
+|-------|-------|
+| `mode` | `"copy_paste"` |
+| `response` | Markdown string from the single model call |
+| `council` | `[]` (legacy field; always empty) |
+| `synthesis` | `null` (legacy field; always null) |
+| `room.member_count` | `0` (legacy metadata stub) |
+| `thread_id` | Resolved or created server thread |
 
-### Timeout / degraded handling
+### Timeout / failure handling
 
 | Layer | Budget | Behavior |
 |-------|--------|----------|
-| Per expert | 12s | `outcome`: `ok`, `timeout`, `degraded`, `error` |
-| Synthesis | 10s | May be `null`; council still 200 with partial experts |
-| Total `/council` | 25s | Partial payload if outer timeout |
-| Client | 35s | Abort + humanized error bubble |
-| DB persist | 5s (background) | Failure logged; does not block HTTP |
+| Gateway (tier default) | 12s (`PRO_HARD_TIMEOUT_S`) | Provider error surfaced; no partial panel |
+| Gateway (explicit `provider_id`, chat only) | 25s (`CHAT_EXPLICIT_PROVIDER_TIMEOUT_S`) | Same single-hop semantics |
+| Council stream (client idle) | 300s | Abort if no bytes/events |
+| Load governance | 2 concurrent council | 503 `council_busy` when saturated |
 
-### Agreement honesty
-
-- UI shows expert status labels for non-ok outcomes.
-- Synthesis bubble text reflects degraded panel when experts failed.
-- `agreement_estimate` uses `{ok}/{ok} available` pattern, not `3/3` when Legal timed out.
+Council does **not** run per-model evaluation budgets or merge steps. One provider, one response.
 
 ---
 
@@ -314,8 +328,8 @@ flowchart LR
 | **request_id** | `RequestIdMiddleware`, `attach_request_id()` | Correlate logs and API responses |
 | **JSON logs** | `BenOpsJsonFormatter`, `structured_log.py` | Machine-parseable ops logs |
 | **Timeout budgets** | `services/ops/timeouts.py` | FAST 5s / PRO 12s / DELIBERATE 25s tiers |
-| **Graceful degradation** | `council_service._safe_expert`, synthesis fallback | Partial council on provider failure |
-| **Background persistence** | `_schedule_background_task` | Don’t block council HTTP on DB/KO |
+| **Load governance** | `services/ops/load_governance.py` | Chat 8 / council 2 / total 12 inflight caps |
+| **Idempotency** | `services/ops/idempotency.py` | In-process replay for chat + council |
 | **Risk register** | `docs/RISK_REGISTER.md` | Track open issues; mark FIXED only after verification |
 | **Health flags** | `/health`, `/ready` | Deploy verification, tenant mode visibility |
 | **Tenant bind logs** | `operation=tenant_bind` | `tenant_type`, `auth_source`, `org_bound` (no JWT) |
@@ -328,20 +342,21 @@ flowchart LR
 
 | ID | Topic | Status |
 |----|-------|--------|
-| **R-015** | No rate limiting on `/chat`, `/council` | OPEN |
+| **R-015** | Load governance browser verification | PARTIAL |
 | **R-019** | Auth shadow / `tenant_bind` prod log baseline | OPEN |
 | **R-026** | Browser refresh rehydration E2E | PARTIAL |
 | **R-028** | Council lifecycle UI recovery in browser | PARTIAL |
 | **R-032** | Personal vs org ambiguity, billing/plan wiring | OPEN |
 
-Also: R-013 (ENFORCE_AUTH), R-014 (signed forge prod test), R-025 (Legal timeout tail), R-027 (dual KO + thread store).
+Also: R-013 (ENFORCE_AUTH), R-014 (signed forge prod test).
 
 ### Future layers (not implemented)
 
 | Layer | Notes |
 |-------|-------|
+| **Project management DB** | Task `004` — Project, Member, Task, Ledger models |
 | **Progressive UX** | Richer loading states, offline hints, tier-aware UI |
-| **Memory graph** | Long-horizon memory beyond thread rows — requires tenant-stable identity first |
+| **Memory graph** | Long-horizon memory beyond thread rows |
 | **Agents** | Autonomous multi-step workflows — after memory + rate limits |
 
 Do not skip verification when adding layers.
@@ -352,11 +367,11 @@ Do not skip verification when adding layers.
 
 1. **Tenant identity before memory** — All persistence keys off server `tenant_id`; no cross-tenant reads.
 2. **Memory before agents** — Durable threads/messages must be correct before agent orchestration.
-3. **Rate limits before scale** — Add R-015-style protection before marketing scale (R-010, R-011).
+3. **Rate limits before scale** — Load governance caps before marketing scale.
 4. **No client-trusted `tenant_id`** — Body field is validate-only; JWT + policy derive scope.
 5. **No new layer before verification** — Pytest + prod smoke + browser matrix; update risk register honestly.
-6. **Return fast, persist async** — Council responds before slow DB/KO paths complete.
-7. **Degrade, don’t lie** — Agreement and synthesis must reflect unavailable experts.
+6. **Single-hop opinions** — Council and ad-hoc paths are one gateway call over rolling context, not multi-model orchestration.
+7. **Provider-first transparency** — Chat and ad-hoc show which model spoke; council uses tier-default routing.
 8. **Feature flags over forks** — `ENFORCE_AUTH`, `REQUIRE_ORG_FOR_SIGNED_IN`, env-driven models.
 
 ---
@@ -369,12 +384,14 @@ Do not skip verification when adding layers.
 | Tenant | `auth/tenant_binding.py`, `auth/tenant_policy.py`, `auth/tenant_ids.py` |
 | Auth policy | `auth/shadow_auth.py`, `auth/config.py` |
 | Chat | `services/chat_service.py`, `services/model_gateway.py` |
-| Council | `services/council_service.py` |
+| Council | `services/council_service.py`, `services/copy_paste_service.py`, `services/rolling_context.py` |
+| Ad-hoc expert | `services/adhoc_council_service.py` |
 | Threads | `services/thread_service.py`, `services/message_format.py` |
 | Frontend | `frontend/src/App.jsx`, `frontend/src/api/*.js` |
-| Ops | `services/ops/timeouts.py`, `services/ops/structured_log.py` |
+| Ops | `services/ops/timeouts.py`, `services/ops/load_governance.py`, `services/ops/structured_log.py` |
 | DB | `database/models.py`, `database/connection.py` |
+| Boundaries | `docs/SYSTEM_BOUNDARIES.md` |
 
 ---
 
-*Last updated: 2026-05-16 — Tenant Mode v2 on `main` @ `40bd45e`.*
+*Last updated: 2026-06-06 — Council copy-paste / rolling context architecture; tasks 001–002 complete.*

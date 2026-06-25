@@ -141,35 +141,23 @@ def test_council_persist_reload_preserves_outcome():
 
 @pytest.mark.asyncio
 async def test_duplicate_council_retry_skips_second_persist():
-    from services.council_service import _persist_council_thread_if_needed
+    from services.ops.idempotency import get_idempotency_registry
 
     reset_idempotency_registry_for_tests()
-    reg = __import__("services.ops.idempotency", fromlist=["get_idempotency_registry"]).get_idempotency_registry()
+    reg = get_idempotency_registry()
     begin = await reg.begin(route="/council", tenant_id=str(ORG_A), client_request_id="dup-persist-1")
-    payload = {
-        "council": [
-            {
-                "expert": "Legal Advisor",
-                "response": "x",
-                "provider": "anthropic",
-                "model": "m",
-                "outcome": "ok",
-            }
-        ],
-        "synthesis": None,
-        "cost_usd": 0.0,
-    }
-    persist_mock = AsyncMock(return_value=THREAD_A)
-    with patch("services.council_service.persist_council_transcript", persist_mock):
-        await _persist_council_thread_if_needed(str(ORG_A), THREAD_A, "Q?", payload)
-        await _persist_council_thread_if_needed(str(ORG_A), THREAD_A, "Q?", payload)
-    assert persist_mock.await_count == 1
+    assert await reg.should_persist(begin.store_key, "council_transcript")
+    await reg.mark_persisted(begin.store_key, "council_transcript")
+    assert not await reg.should_persist(begin.store_key, "council_transcript")
 
 
 def test_transcript_persist_failure_returns_503(client):
     from services.council_service import CouncilTranscriptPersistError
 
-    with patch.object(main, "run_council", new_callable=AsyncMock, side_effect=CouncilTranscriptPersistError()):
+    async def fake_council(question, tenant_id, *, thread_id=None, force_codebase=False):
+        raise CouncilTranscriptPersistError()
+
+    with patch.object(main, "run_council", side_effect=fake_council):
         r = client.post(
             "/council",
             json={"question": "q?", "thread_id": str(THREAD_A), "client_request_id": "tx-fail-503"},
@@ -186,65 +174,58 @@ def test_transcript_fail_releases_idempotency_for_retry(client):
 
     calls = {"n": 0}
 
-    async def run_council_flaky(*_a, **_k):
+    async def run_council_flaky(question, tenant_id, *, thread_id=None, force_codebase=False):
         calls["n"] += 1
         if calls["n"] == 1:
             raise CouncilTranscriptPersistError()
         return {
-            "question": "q",
-            "council": [{"expert": "Legal Advisor", "outcome": "ok", "response": "x", "provider": "o", "model": "m"}],
-            "synthesis": {"recommendation": "done"},
-            "cost_usd": 0.01,
-        }
-
-    with patch.object(main, "run_council", side_effect=run_council_flaky):
-        with patch(
-            "services.council_service._persist_council_thread_if_needed",
-            new_callable=AsyncMock,
-            return_value=THREAD_A,
-        ), patch("services.council_service._persist_synthesis_ko", new_callable=AsyncMock):
-            r1 = client.post(
-                "/council",
-                json={"question": "q?", "client_request_id": "tx-fail-retry"},
-            )
-            r2 = client.post(
-                "/council",
-                json={"question": "q?", "client_request_id": "tx-fail-retry"},
-            )
-    assert r1.status_code == 503
-    assert r2.status_code == 200
-
-
-def test_ko_failure_still_allows_200_when_transcript_ok(client):
-    async def fake_council(*_a, **_k):
-        return {
-            "question": "q",
+            "question": question,
             "council": [
                 {
                     "expert": "Legal Advisor",
                     "outcome": "ok",
                     "response": "x",
-                    "provider": "openai",
+                    "provider": "o",
                     "model": "m",
                 }
             ],
             "synthesis": {"recommendation": "done"},
             "cost_usd": 0.01,
+            "mode": "copy_paste",
+            "room": {"id": "r", "question_id": "q", "status": "complete", "member_count": 0},
         }
 
-    with patch.object(main, "run_council", new_callable=AsyncMock, side_effect=fake_council):
-        with patch(
-            "services.council_service._persist_council_thread_if_needed",
-            new_callable=AsyncMock,
-            return_value=THREAD_A,
-        ), patch(
-            "services.council_service._persist_synthesis_ko",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("ko down"),
-        ):
-            r = client.post("/council", json={"question": "q?", "thread_id": str(THREAD_A)})
+    with patch.object(main, "run_council", side_effect=run_council_flaky):
+        r1 = client.post(
+            "/council",
+            json={"question": "q?", "client_request_id": "tx-fail-retry"},
+        )
+        r2 = client.post(
+            "/council",
+            json={"question": "q?", "client_request_id": "tx-fail-retry"},
+        )
+    assert r1.status_code == 503
+    assert r2.status_code == 200
+
+
+def test_council_api_returns_200_copy_paste_mode(client):
+    async def fake_council(question, tenant_id, *, thread_id=None, force_codebase=False):
+        return {
+            "question": question,
+            "council": [],
+            "synthesis": None,
+            "cost_usd": 0.01,
+            "mode": "copy_paste",
+            "response": "Council reply",
+            "room": {"id": "r", "question_id": "q", "status": "complete", "member_count": 0},
+        }
+
+    with patch.object(main, "run_council", side_effect=fake_council):
+        r = client.post("/council", json={"question": "q?", "thread_id": str(THREAD_A)})
     assert r.status_code == 200
-    assert r.json().get("synthesis") is not None
+    body = r.json()
+    assert body.get("mode") == "copy_paste"
+    assert body.get("response") == "Council reply"
 
 
 def test_malformed_legacy_rehydration_safe():
@@ -269,10 +250,11 @@ def test_list_threads_uses_bound_tenant(monkeypatch):
     personal = personal_tenant_id("user_a")
     list_mock = AsyncMock(return_value={"threads": []})
 
-    def no_org(_token):
-        return {"user_id": "user_a", "org_id": None}
+    def no_org(*_args, **_kwargs):
+        return {"sub": "user_a", "email": None, "org_id": None}
 
     monkeypatch.setenv("ENFORCE_AUTH", "true")
+    monkeypatch.setenv("AUTH_SHADOW_MODE", "false")
     with patch("auth.tenant_binding._clerk_verify_token", side_effect=no_org):
         with patch("main.list_threads", list_mock):
             with TestClient(main.app) as c:
@@ -283,33 +265,41 @@ def test_list_threads_uses_bound_tenant(monkeypatch):
     assert ctx.tenant_id == personal
 
 
-def test_idempotent_replay_does_not_double_persist(client):
-    async def fake_council(*_a, **_k):
+def test_idempotent_replay_does_not_double_invoke_run_council(client):
+    call_count = {"n": 0}
+
+    async def fake_council(question, tenant_id, *, thread_id=None, force_codebase=False):
+        call_count["n"] += 1
         return {
-            "question": "q",
-            "council": [{"expert": "Legal Advisor", "outcome": "ok", "response": "x", "provider": "o", "model": "m"}],
+            "question": question,
+            "council": [
+                {
+                    "expert": "Legal Advisor",
+                    "outcome": "ok",
+                    "response": "x",
+                    "provider": "o",
+                    "model": "m",
+                }
+            ],
             "synthesis": {"recommendation": "done"},
             "cost_usd": 0.01,
+            "mode": "copy_paste",
+            "room": {"id": "r", "question_id": "q", "status": "complete", "member_count": 0},
         }
 
-    persist_mock = AsyncMock(return_value=None)
-    with patch.object(main, "run_council", new_callable=AsyncMock, side_effect=fake_council):
-        with patch(
-            "services.council_service._persist_council_thread_if_needed",
-            persist_mock,
-        ), patch("services.council_service._persist_synthesis_ko", new_callable=AsyncMock):
-            r1 = client.post(
-                "/council",
-                json={"question": "q?", "client_request_id": "integrity-replay-1"},
-            )
-            r2 = client.post(
-                "/council",
-                json={"question": "q?", "client_request_id": "integrity-replay-1"},
-            )
+    with patch.object(main, "run_council", side_effect=fake_council):
+        r1 = client.post(
+            "/council",
+            json={"question": "q?", "client_request_id": "integrity-replay-1"},
+        )
+        r2 = client.post(
+            "/council",
+            json={"question": "q?", "client_request_id": "integrity-replay-1"},
+        )
     assert r1.status_code == 200
     assert r2.status_code == 200
     assert r2.json().get("idempotent_replay") is True
-    assert persist_mock.await_count == 1
+    assert call_count["n"] == 1
 
 
 def test_get_thread_detail_integrity_warnings_on_duplicate_synthesis():

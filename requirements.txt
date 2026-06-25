@@ -4,6 +4,7 @@ alembic==1.14.0
 python-dotenv==1.0.1
 clerk-backend-api
 fastapi
+python-multipart==0.0.20
 httpx
 uvicorn[standard]
 stripe

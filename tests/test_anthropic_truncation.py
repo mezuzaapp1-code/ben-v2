@@ -59,15 +59,15 @@ async def test_route_request_includes_completion_truncated(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.setenv("OPENAI_API_KEY", "")
 
-    async def truncated_send(cx, *, model, message, tenant_id):
+    async def truncated_send(cx, *, model, message, tenant_id, system=None):
         return ProviderSendResult.from_token_counts(
             "clip", 1, 1024, completion_truncated=True
         )
 
+    from services.providers import get_gateway_provider
+
     with patch.object(
-        __import__("services.providers", fromlist=["get_gateway_provider"]).get_gateway_provider(
-            "anthropic"
-        ),
+        get_gateway_provider("anthropic"),
         "send_message",
         side_effect=truncated_send,
     ):

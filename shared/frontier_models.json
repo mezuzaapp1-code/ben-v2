@@ -1,0 +1,36 @@
+{
+  "version": "2026-05",
+  "description": "Authoritative BEN frontier model allowlist and token rate hints.",
+  "providers": {
+    "openai": {
+      "chat_fast": "gpt-5.5-instant",
+      "reasoning": "gpt-5.5-pro",
+      "legacy": ["gpt-4o", "gpt-4o-mini", "o1", "o1-mini", "o3-mini"]
+    },
+    "anthropic": {
+      "flagship": "claude-opus-4.8",
+      "fast": "claude-sonnet-4.6",
+      "legacy": ["claude-sonnet-4-6", "claude-3-5-sonnet-20241022"]
+    },
+    "google": {
+      "fast": "gemini-3.5-flash",
+      "legacy": ["gemini-2.5-flash", "gemini-1.5-flash"]
+    }
+  },
+  "token_rates_usd_per_token": {
+    "openai:gpt-5.5-instant": [0.15e-6, 0.60e-6],
+    "openai:gpt-5.5-pro": [2.5e-6, 10e-6],
+    "openai:gpt-4o-mini": [0.15e-6, 0.60e-6],
+    "openai:gpt-4o": [2.5e-6, 10e-6],
+    "anthropic:claude-opus-4.8": [3e-6, 15e-6],
+    "anthropic:claude-sonnet-4.6": [1e-6, 5e-6],
+    "google:gemini-3.5-flash": [0.1e-6, 0.4e-6]
+  },
+  "api_env_overrides": {
+    "openai:gpt-5.5-instant": ["OPENAI_CHAT_MODEL", "OPENAI_MODEL"],
+    "openai:gpt-5.5-pro": ["OPENAI_REASONING_API_MODEL", "SYNTHESIS_MODEL", "OPENAI_MODEL"],
+    "anthropic:claude-opus-4.8": ["ANTHROPIC_MODEL"],
+    "anthropic:claude-sonnet-4.6": ["ANTHROPIC_MODEL"],
+    "google:gemini-3.5-flash": ["GEMINI_MODEL", "GOOGLE_MODEL"]
+  }
+}

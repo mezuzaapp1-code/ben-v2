@@ -294,6 +294,7 @@ async def test_api_route_delegates(monkeypatch):
         tenant_id=str(ORG_A),
         tenant_type="organization",
         org_id=str(ORG_A),
+        org_role=None,
         user_id="u",
         email=None,
         auth_source="clerk_jwt",

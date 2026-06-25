@@ -121,12 +121,12 @@ def test_api_council_returns_structured_overload(client):
 
     hold = threading.Event()
 
-    async def slow_council(*_a, **_k):
+    async def slow_council(question, tenant_id, *, thread_id=None, force_codebase=False):
         for _ in range(150):
             if hold.is_set():
                 break
             await asyncio.sleep(0.02)
-        return {"council": [], "cost_usd": 0.0}
+        return {"question": question, "council": [], "cost_usd": 0.0}
 
     with patch.object(main, "run_council", new_callable=AsyncMock, side_effect=slow_council):
         import threading
@@ -152,12 +152,12 @@ def test_api_duplicate_council_same_question(client):
 
     hold = threading.Event()
 
-    async def slow_council(*_a, **_k):
+    async def slow_council(question, tenant_id, *, thread_id=None, force_codebase=False):
         for _ in range(150):
             if hold.is_set():
                 break
             await asyncio.sleep(0.02)
-        return {"council": [], "cost_usd": 0.0}
+        return {"question": question, "council": [], "cost_usd": 0.0}
 
     with patch.object(main, "run_council", new_callable=AsyncMock, side_effect=slow_council):
         import threading

@@ -79,7 +79,13 @@ def test_encode_decode_council_synthesis():
 def test_chat_passes_thread_id_to_handler():
     captured: dict = {}
 
-    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, preferred_language=None):
+    async def fake_chat(
+        message, user_id, tenant_id, tier, *,
+        thread_id=None,
+        provider_id=None,
+        model_override=None,
+        preferred_language=None,
+    ):
         captured["thread_id"] = thread_id
         return {"thread_id": THREAD_A, "response": "ok", "model_used": "m", "cost_usd": 0.0}
 
@@ -96,7 +102,7 @@ def test_chat_passes_thread_id_to_handler():
 def test_council_passes_thread_id():
     captured: dict = {}
 
-    async def fake_council(question, tenant_id, *, thread_id=None):
+    async def fake_council(question, tenant_id, *, thread_id=None, force_codebase=False):
         captured["thread_id"] = thread_id
         return {
             "question": question,
@@ -110,6 +116,25 @@ def test_council_passes_thread_id():
             r = client.post("/council", json={"question": "q?", "thread_id": THREAD_A})
     assert r.status_code == 200
     assert captured["thread_id"] == uuid.UUID(THREAD_A)
+
+
+def test_council_passes_force_codebase_to_handler():
+    captured: dict = {}
+
+    async def fake_council(question, tenant_id, *, thread_id=None, force_codebase=False):
+        captured["force_codebase"] = force_codebase
+        return {
+            "question": question,
+            "council": [],
+            "synthesis": None,
+            "cost_usd": 0.0,
+        }
+
+    with patch.object(main, "run_council", side_effect=fake_council):
+        with TestClient(main.app) as client:
+            r = client.post("/council", json={"question": "q?", "force_codebase": True})
+    assert r.status_code == 200
+    assert captured["force_codebase"] is True
 
 
 def test_list_threads_api():

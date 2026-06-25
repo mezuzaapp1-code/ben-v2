@@ -15,7 +15,7 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "test-anthropic-key")
 os.environ.setdefault("GOOGLE_API_KEY", "test-google-key")
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@127.0.0.1:5432/test")
 
-from services.council_service import SYNTHESIS_SYSTEM, run_council  # noqa: E402
+from services.council_service import BUSINESS_MODEL, SYNTHESIS_SYSTEM, run_council  # noqa: E402
 
 TENANT = "00000000-0000-0000-0000-000000000001"
 
@@ -40,26 +40,27 @@ def _openai_sys(msgs: list[dict[str, Any]] | None) -> str:
 
 
 def _synthesis_body(*, with_domains: bool, agreement: str = "3/3 available") -> dict[str, Any]:
+    artifact = (
+        "## Executive Scorecard\n\n"
+        "| Dimension | Status | Notes |\n"
+        "|-----------|--------|-------|\n"
+        "| Open-core strategy | Approved | Hybrid closed core with open interfaces |\n\n"
+        "## Production Artifact\n\n"
+        "Adopt hybrid: closed core with open interfaces."
+    )
     base = {
-        "recommendation": "Adopt hybrid: closed core with open interfaces.",
-        "consensus_points": "All agree on auditability.",
-        "main_disagreement": None,
+        "deliverable_artifact": artifact,
+        "operational_playbook": [
+            {"step": 1, "command": "npm test", "purpose": "verify build"},
+            {"step": 2, "command": "git push origin main", "purpose": "deploy"},
+            {"step": 3, "command": "curl -f /health", "purpose": "smoke check"},
+        ],
+        "recommendation": "Hybrid open-core governance package",
         "agreement_estimate": agreement,
     }
     if not with_domains:
         return base
-    return {
-        **base,
-        "shared_recommendation": "Same as recommendation but explicit shared line.",
-        "disagreement_points": (
-            "Legal prioritizes liability caps; Strategy prioritizes speed-to-market rationale."
-        ),
-        "legal_reasoning": "License exposure favors documented boundaries.",
-        "operational_reasoning": "Vendor cadence and support SLAs dominate run cost.",
-        "strategic_reasoning": "Ecosystem adoption beats short-term margin.",
-        "infrastructure_reasoning": None,
-        "minority_or_unique_views": "One advisor stressed federated audit trails earlier.",
-    }
+    return base
 
 
 def _make_post(*, with_domains: bool, gemini_fail: bool = False):
@@ -93,7 +94,7 @@ def _make_post(*, with_domains: bool, gemini_fail: bool = False):
                         "usage": {"prompt_tokens": 60, "completion_tokens": 40},
                     }
                 )
-            if jb.get("model") == "gpt-4o":
+            if jb.get("model") == BUSINESS_MODEL:
                 return _FakeResponse(
                     {
                         "choices": [{"message": {"content": "Business: operational overhead of hybrid."}}],
@@ -122,10 +123,11 @@ async def test_three_provider_synthesis_preserves_domain_reasoning():
 
     assert out["synthesis"] is not None
     syn = out["synthesis"]
-    assert syn.get("legal_reasoning")
-    assert syn.get("strategic_reasoning")
-    assert syn.get("operational_reasoning")
-    assert syn.get("disagreement_points")
+    assert syn.get("deliverable_artifact")
+    assert "Executive Scorecard" in syn["deliverable_artifact"]
+    assert len(syn.get("operational_playbook") or []) == 3
+    assert "consensus_points" not in syn
+    assert "legal_reasoning" not in syn
     assert "HTTPStatusError" not in json.dumps(out)
     assert isinstance(out.get("request_id"), (str, type(None)))
 
@@ -170,7 +172,7 @@ async def test_backward_compat_minimal_synthesis_json():
                 return _FakeResponse(
                     {
                         "choices": [
-                            {"message": {"content": json.dumps({"recommendation": "R", "consensus_points": "C", "main_disagreement": None, "agreement_estimate": "3/3 available"})}}
+                            {"message": {"content": json.dumps({"recommendation": "R", "agreement_estimate": "3/3 available"})}}
                         ],
                         "usage": {"prompt_tokens": 5, "completion_tokens": 5},
                     }
@@ -192,5 +194,7 @@ async def test_backward_compat_minimal_synthesis_json():
 
     syn = out["synthesis"]
     assert syn["recommendation"] == "R"
-    assert "legal_reasoning" not in syn or syn.get("legal_reasoning") is None
+    assert syn.get("deliverable_artifact")
+    assert "Executive Scorecard" in syn["deliverable_artifact"]
+    assert "consensus_points" not in syn
     assert out["cost_usd"] is not None

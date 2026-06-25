@@ -14,6 +14,7 @@ const COUNCIL_LABEL = {
   'Legal Advisor': '⚖️ Legal Advisor',
   'Business Advisor': '💼 Business Advisor',
   'Strategy Advisor': '🎯 Strategy Advisor',
+  'Local Codebase Expert': '🧩 Local Codebase Expert',
 }
 
 export function humanizeCouncilHttpError(status, data) {
@@ -108,10 +109,11 @@ export function councilResponseToMessages(data, synthesisTextFn) {
 /**
  * POST /council with AbortController timeout.
  */
-export async function postCouncil({ question, threadId, clientRequestId, headers, signal }) {
+export async function postCouncil({ question, threadId, clientRequestId, headers, signal, forceCodebase = false }) {
   const body = { question }
   if (threadId) body.thread_id = threadId
   if (clientRequestId) body.client_request_id = clientRequestId
+  if (forceCodebase) body.force_codebase = true
   const url = `${BEN_API_BASE}/council`
   const res = await fetch(url, {
     method: 'POST',
@@ -145,10 +147,12 @@ export async function* postCouncilStream({
   clientRequestId,
   headers,
   signal,
+  forceCodebase = false,
 }) {
   const body = { question }
   if (threadId) body.thread_id = threadId
   if (clientRequestId) body.client_request_id = clientRequestId
+  if (forceCodebase) body.force_codebase = true
 
   const controller = new AbortController()
   if (signal) {

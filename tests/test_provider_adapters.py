@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from services.providers import get_gateway_provider
 from services.providers.anthropic_provider import AnthropicProvider
-from services.providers.base_provider import BaseProvider, ProviderSendResult
+from services.providers.base_provider import BaseProvider
 from services.providers.gemini_provider import GeminiProvider
 from services.providers.openai_provider import OpenAIProvider
 
@@ -28,12 +28,36 @@ def test_adapter_types():
 
 
 @pytest.mark.asyncio
-async def test_stream_message_yields_single_chunk():
+async def test_stream_message_yields_single_chunk(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    class _FakeStreamResponse:
+        def raise_for_status(self):
+            return None
+
+        async def aiter_lines(self):
+            yield 'data: {"choices":[{"delta":{"content":"hello"}}]}'
+            yield "data: [DONE]"
+
+    class _FakeStreamContext:
+        async def __aenter__(self):
+            return _FakeStreamResponse()
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class _FakeAsyncClient:
+        def stream(self, *_args, **_kwargs):
+            return _FakeStreamContext()
+
     adapter = OpenAIProvider()
-
-    async def fake_send(cx, *, model, message, tenant_id):
-        return ProviderSendResult.from_token_counts("hello", 1, 1)
-
-    adapter.send_message = fake_send  # type: ignore[method-assign]
-    chunks = [c async for c in adapter.stream_message(None, model="m", message="x", tenant_id="t")]
+    chunks = [
+        c
+        async for c in adapter.stream_message(
+            _FakeAsyncClient(),  # type: ignore[arg-type]
+            model="m",
+            message="x",
+            tenant_id="t",
+        )
+    ]
     assert chunks == ["hello"]

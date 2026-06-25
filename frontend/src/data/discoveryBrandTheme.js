@@ -86,9 +86,9 @@ export function resolveCapabilityActionLabel({ loading, active, sectionId = 'dat
     return 'Connecting channel…'
   }
   if (active) {
-    if (sectionId === 'compute') return 'Engine active in workspace'
-    if (sectionId === 'sonar') return 'Capability armed in workspace'
-    return 'Channel ready in workspace'
+    if (sectionId === 'compute') return 'Engine active platform-wide'
+    if (sectionId === 'sonar') return 'Capability armed platform-wide'
+    return 'Channel ready platform-wide'
   }
   if (sectionId === 'compute') return 'Activate Engine'
   if (sectionId === 'sonar') return 'Enable Capability'

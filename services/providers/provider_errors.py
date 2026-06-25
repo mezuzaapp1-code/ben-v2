@@ -49,6 +49,13 @@ def format_chat_provider_error(
     if category == FAILURE_AUTH_ERROR:
         return f"{label} authentication failed"
     if category == FAILURE_CONFIG_ERROR:
+        detail = sanitize_provider_error_message(exc)
+        if (
+            "model" in detail.lower()
+            or "not_found" in detail.lower()
+            or detail.startswith("HTTP 4")
+        ):
+            return f"{label} model is not available ({detail})"
         return f"{label} configuration error"
     if category == FAILURE_PROVIDER_UNAVAILABLE:
         detail = sanitize_provider_error_message(exc)

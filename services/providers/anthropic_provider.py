@@ -4,12 +4,18 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 
+from services.chat_prompt import GLOBAL_CHAT_SYSTEM
 from services.providers.base_provider import BaseProvider, ProviderSendResult, tenant_header
 from services.providers.call_diagnostics import estimate_request_tokens, log_chat_provider_call
+
+# May 2026 frontier defaults (enforced when callers omit explicit model env overrides).
+ANTHROPIC_FLAGSHIP_MODEL = "claude-opus-4.8"
+ANTHROPIC_FAST_MODEL = "claude-sonnet-4.6"
 
 
 def _chat_max_tokens() -> int:
@@ -37,6 +43,19 @@ class AnthropicProvider(BaseProvider):
     def provider_name(self) -> str:
         return "anthropic"
 
+    def _body(self, model: str, message: str, system: str | None, *, stream: bool) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "model": model,
+            "max_tokens": _chat_max_tokens(),
+            "messages": [{"role": "user", "content": message}],
+        }
+        sys_text = (system or GLOBAL_CHAT_SYSTEM).strip()
+        if sys_text:
+            body["system"] = sys_text
+        if stream:
+            body["stream"] = True
+        return body
+
     async def send_message(
         self,
         cx: httpx.AsyncClient,
@@ -44,6 +63,7 @@ class AnthropicProvider(BaseProvider):
         model: str,
         message: str,
         tenant_id: str,
+        system: str | None = None,
     ) -> ProviderSendResult:
         api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
         max_tokens = _chat_max_tokens()
@@ -60,11 +80,7 @@ class AnthropicProvider(BaseProvider):
                     "content-type": "application/json",
                     **tenant_header(tenant_id),
                 },
-                json={
-                    "model": model,
-                    "max_tokens": max_tokens,
-                    "messages": [{"role": "user", "content": message}],
-                },
+                json=self._body(model, message, system, stream=False),
             ) as response:
                 ttfb_ms = int((time.perf_counter() - t0) * 1000.0)
                 response.raise_for_status()
@@ -110,3 +126,40 @@ class AnthropicProvider(BaseProvider):
                 error_message=sanitize_provider_error_message(e),
             )
             raise
+
+    async def stream_message(
+        self,
+        cx: httpx.AsyncClient,
+        *,
+        model: str,
+        message: str,
+        tenant_id: str,
+        system: str | None = None,
+    ) -> AsyncIterator[str]:
+        api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+        async with cx.stream(
+            "POST",
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+                **tenant_header(tenant_id),
+            },
+            json=self._body(model, message, system, stream=True),
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line or not line.startswith("data:"):
+                    continue
+                payload = line[5:].strip()
+                if not payload or payload == "[DONE]":
+                    continue
+                try:
+                    event = json.loads(payload)
+                except json.JSONDecodeError:
+                    continue
+                if event.get("type") == "content_block_delta":
+                    text = (event.get("delta") or {}).get("text")
+                    if text:
+                        yield str(text)

@@ -1,0 +1,124 @@
+.chat-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.35rem 0 0.85rem;
+  margin-bottom: 0.15rem;
+  background: var(--ben-bg);
+  border-bottom: 1px solid var(--ben-border);
+  box-shadow: 0 1px 0 var(--ben-border), 0 6px 16px rgba(0, 0, 0, 0.18);
+  flex-shrink: 0;
+}
+
+.chat-header__title {
+  margin: 0;
+  min-width: 0;
+  flex: 1;
+  font-size: 0.92rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--ben-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-header__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+
+.chat-header__promote {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--ben-border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ben-text-muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    color var(--ben-transition),
+    border-color var(--ben-transition),
+    background var(--ben-transition);
+}
+
+.chat-header__promote:hover:not(:disabled) {
+  color: var(--ben-accent);
+  border-color: var(--ben-accent);
+  background: var(--ben-accent-glow);
+}
+
+.chat-header__promote:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.chat-header__promote-icon {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.chat-header__delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--ben-border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ben-text-muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    color var(--ben-transition),
+    border-color var(--ben-transition),
+    background var(--ben-transition);
+}
+
+.chat-header__delete:hover:not(:disabled) {
+  color: var(--ben-danger);
+  border-color: var(--ben-danger-border);
+  background: var(--ben-danger-bg);
+}
+
+.chat-header__delete:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.chat-header__delete-icon {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.chat-header__delete-label {
+  letter-spacing: 0.02em;
+}
+
+@media (max-width: 480px) {
+  .chat-header__delete-label,
+  .chat-header__promote-label {
+    display: none;
+  }
+
+  .chat-header__delete,
+  .chat-header__promote {
+    padding: 0.4rem 0.55rem;
+  }
+}

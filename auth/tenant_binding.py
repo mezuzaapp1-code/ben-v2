@@ -33,8 +33,9 @@ class TenantContext:
     tenant_type: TenantType
     user_id: str | None
     org_id: str | None
+    org_role: str | None
     email: str | None
-    auth_source: Literal["clerk_jwt", "anonymous"]
+    auth_source: Literal["clerk_jwt", "anonymous", "beta_passcode"]
     auth_present: bool
     org_bound: bool
 
@@ -76,10 +77,12 @@ def authenticate_from_authorization(
         p = _clerk_verify_token(token, VerifyTokenOptions(secret_key=sk))
         o = p.get("o")
         org_id = p.get("org_id") or (o.get("id") if isinstance(o, dict) else None)
+        org_role = p.get("org_role") or (o.get("rol") if isinstance(o, dict) else None)
         claims: dict[str, Any] = {
             "user_id": p.get("sub"),
             "email": p.get("email"),
             "org_id": org_id,
+            "org_role": org_role,
         }
         return "auth_valid", claims, auth_present
     except TokenVerificationError:
@@ -116,6 +119,8 @@ def build_tenant_context(
         uid_str = str(uid).strip()
         em = c.get("email")
         email = str(em) if em is not None else None
+        role_raw = c.get("org_role")
+        org_role = str(role_raw).strip() if role_raw is not None else None
 
         oid = c.get("org_id")
         if oid and str(oid).strip():
@@ -125,6 +130,7 @@ def build_tenant_context(
                 tenant_type="organization",
                 user_id=uid_str,
                 org_id=oid_str,
+                org_role=org_role,
                 email=email,
                 auth_source="clerk_jwt",
                 auth_present=auth_present,
@@ -147,6 +153,7 @@ def build_tenant_context(
             tenant_type="personal",
             user_id=uid_str,
             org_id=None,
+            org_role=None,
             email=email,
             auth_source="clerk_jwt",
             auth_present=auth_present,
@@ -161,6 +168,7 @@ def build_tenant_context(
         tenant_type="anonymous",
         user_id=None,
         org_id=None,
+        org_role=None,
         email=None,
         auth_source="anonymous",
         auth_present=auth_present,
@@ -185,6 +193,22 @@ def validate_body_tenant_matches_context(body: Any, ctx: TenantContext) -> None:
             status_code=422,
             detail="tenant_id does not match authenticated tenant scope",
         )
+
+
+async def build_enforced_tenant_context_from_request(
+    request: Request, *, route_operation: str
+) -> TenantContext:
+    """Server-authoritative tenant for routes that always require a signed-in Clerk user."""
+    from auth.shadow_auth import apply_enforced_auth_policy
+
+    outcome, claims, auth_present = await apply_enforced_auth_policy(
+        request, route_operation=route_operation
+    )
+    ctx = build_tenant_context(outcome, claims, auth_present)
+    if ctx.auth_source != "clerk_jwt" or ctx.tenant_type == "anonymous":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Unauthorized")
+    log_tenant_bound(route_operation=route_operation, ctx=ctx)
+    return ctx
 
 
 def log_tenant_bound(*, route_operation: str, ctx: TenantContext) -> None:
