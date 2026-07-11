@@ -2,7 +2,20 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Index, Numeric, String, Text, func, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -361,4 +374,51 @@ class BenLogEvent(Base):
     provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
     model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     actor_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class NewsSource(Base):
+    """System-managed RSS/Atom feed registry row (metadata only; no collector logic)."""
+
+    __tablename__ = "news_sources"
+    __table_args__ = (
+        UniqueConstraint("feed_url", name="uq_news_sources_feed_url"),
+        Index("ix_news_sources_enabled", "enabled"),
+        Index("ix_news_sources_category", "category"),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    feed_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    language: Mapped[str] = mapped_column(String(8), nullable=False, server_default=text("'en'"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class NewsArticle(Base):
+    """Ingested feed item metadata only — no full article body storage."""
+
+    __tablename__ = "news_articles"
+    __table_args__ = (
+        UniqueConstraint("source_id", "guid", name="uq_news_articles_source_guid"),
+        Index("ix_news_articles_published_id", "published_at", "id"),
+        Index("ix_news_articles_category_published_id", "category", "published_at", "id"),
+        Index("ix_news_articles_source_published_id", "source_id", "published_at", "id"),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.news_sources.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    guid: Mapped[str] = mapped_column(String(1024), nullable=False)
+    title: Mapped[str] = mapped_column(String(1024), nullable=False)
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
