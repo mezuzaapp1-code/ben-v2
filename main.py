@@ -95,6 +95,7 @@ from database.thread_store import init_thread_store
 from routers.knowledge import project_knowledge_router, router as knowledge_router
 from routers.platform_capabilities import router as platform_capabilities_router
 from routers.repositories import router as project_repositories_router
+from routers.news_sources import router as news_sources_router
 from routers.projects import router as projects_router
 from routers.public_basalt import router as public_basalt_router
 
@@ -190,6 +191,7 @@ app.include_router(project_repositories_router)
 app.include_router(platform_capabilities_router)
 app.include_router(beta_session_router)
 app.include_router(public_basalt_router)
+app.include_router(news_sources_router)
 
 app.add_middleware(RequestIdMiddleware)
 
