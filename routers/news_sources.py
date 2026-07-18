@@ -6,12 +6,15 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Query, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from auth.beta_gate import build_project_tenant_context_from_request
 from auth.news_registry_privileges import assert_can_manage_news_sources
+from services.news.collect_service import collect_source
 from services.news.feed_url import validate_feed_url
 from services.news import source_registry
+from services.ops.request_context import get_request_id
 
 router = APIRouter(prefix="/api/internal/news", tags=["news-sources"])
 
@@ -159,3 +162,32 @@ async def enable_news_source(request: Request, source_id: uuid.UUID):
 async def disable_news_source(request: Request, source_id: uuid.UUID):
     await _require_news_admin(request, route_operation="news_sources_disable")
     return await source_registry.set_enabled(source_id, enabled=False)
+
+
+def _collect_http_status(result) -> int:
+    if result.status == "succeeded":
+        return status.HTTP_200_OK
+    err = result.error
+    error_class = err.error_class if err else "internal_error"
+    if result.status == "rejected":
+        if error_class == "source_not_found":
+            return status.HTTP_404_NOT_FOUND
+        if error_class == "source_disabled":
+            return status.HTTP_409_CONFLICT
+        return status.HTTP_422_UNPROCESSABLE_ENTITY
+    if error_class == "concurrency_conflict":
+        return status.HTTP_409_CONFLICT
+    if error_class in ("timeout",) or (
+        error_class == "http_error" and err and err.retryable
+    ):
+        return status.HTTP_502_BAD_GATEWAY
+    if error_class in ("persist_error", "internal_error"):
+        return status.HTTP_500_INTERNAL_SERVER_ERROR
+    return status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@router.post("/sources/{source_id}/collect")
+async def collect_news_source(request: Request, source_id: uuid.UUID):
+    await _require_news_admin(request, route_operation="news_sources_collect")
+    result = await collect_source(source_id, request_id=get_request_id())
+    return JSONResponse(status_code=_collect_http_status(result), content=result.to_dict())
