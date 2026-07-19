@@ -1,1 +1,1 @@
-"""BEN News v0.1 — source registry (N2) and manual collect orchestration (N3.0)."""
+"""BEN News v0.1 — registry (N2), collect (N3.0), and article read (N4.0)."""

@@ -1,4 +1,4 @@
-"""Internal admin News Source Registry (N2) — no collector, no public product routes."""
+"""Internal admin News API — source registry (N2), collect (N3), article read (N4)."""
 from __future__ import annotations
 
 import uuid
@@ -11,9 +11,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from auth.beta_gate import build_project_tenant_context_from_request
 from auth.news_registry_privileges import assert_can_manage_news_sources
+from services.news import article_read_service, source_registry
 from services.news.collect_service import collect_source
 from services.news.feed_url import validate_feed_url
-from services.news import source_registry
 from services.ops.request_context import get_request_id
 
 router = APIRouter(prefix="/api/internal/news", tags=["news-sources"])
@@ -91,6 +91,21 @@ class NewsSourceOut(BaseModel):
     enabled: bool
     created_at: datetime | str | None = None
     updated_at: datetime | str | None = None
+
+
+class NewsArticleOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    source_id: str
+    guid: str
+    title: str
+    url: str
+    summary: str | None = None
+    image_url: str | None = None
+    published_at: datetime | str | None = None
+    category: str
+    created_at: datetime | str | None = None
 
 
 async def _require_news_admin(request: Request, *, route_operation: str):
@@ -191,3 +206,26 @@ async def collect_news_source(request: Request, source_id: uuid.UUID):
     await _require_news_admin(request, route_operation="news_sources_collect")
     result = await collect_source(source_id, request_id=get_request_id())
     return JSONResponse(status_code=_collect_http_status(result), content=result.to_dict())
+
+
+@router.get("/articles")
+async def list_news_articles(
+    request: Request,
+    limit: int = Query(20, ge=1, le=100),
+    cursor: str | None = Query(None),
+    source_id: uuid.UUID | None = Query(None),
+    category: str | None = Query(None, max_length=64),
+):
+    await _require_news_admin(request, route_operation="news_articles_list")
+    return await article_read_service.list_articles(
+        limit=limit,
+        cursor=cursor,
+        source_id=source_id,
+        category=category,
+    )
+
+
+@router.get("/articles/{article_id}")
+async def get_news_article(request: Request, article_id: uuid.UUID):
+    await _require_news_admin(request, route_operation="news_articles_get")
+    return await article_read_service.get_article(article_id)
