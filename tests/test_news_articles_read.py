@@ -143,11 +143,12 @@ def test_article_read_service_has_no_network_or_acquisition_imports():
         assert banned not in src
 
 
-def test_no_news_migration_added_for_n4():
-    versions = Path(__file__).resolve().parents[1] / "database" / "migrations" / "versions"
-    assert (versions / "006_news_v0_1.py").is_file()
-    news_migrations = [p.name for p in versions.glob("*news*")]
-    assert news_migrations == ["006_news_v0_1.py"]
+def test_article_read_service_has_no_migration_side_effects():
+    """N4 article read path does not own schema migrations."""
+    root = Path(__file__).resolve().parents[1]
+    src = (root / "services/news/article_read_service.py").read_text(encoding="utf-8")
+    assert "alembic" not in src.lower()
+    assert (root / "database" / "migrations" / "versions" / "006_news_v0_1.py").is_file()
 
 
 # --- cursor unit tests ---

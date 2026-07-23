@@ -1,18 +1,23 @@
-"""Internal admin News API — source registry (N2), collect (N3), article read (N4)."""
+"""Internal News API — registry (N2), collect (N3), article ops (N4), EventPackage consumers (E0).
+
+Product consumers (Feed, Ask BEN, Alerts, Daily Brief) MUST use EventPackage routes only.
+Raw article list/detail is operator/acquisition inspection — not a product feed source.
+"""
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from auth.beta_gate import build_project_tenant_context_from_request
 from auth.news_registry_privileges import assert_can_manage_news_sources
-from services.news import article_read_service, source_registry
+from services.news import article_read_service, event_package_service, source_registry
 from services.news.collect_service import collect_source
+from services.news.event_package import EventPackage
 from services.news.feed_url import validate_feed_url
 from services.ops.request_context import get_request_id
 
@@ -216,6 +221,7 @@ async def list_news_articles(
     source_id: uuid.UUID | None = Query(None),
     category: str | None = Query(None, max_length=64),
 ):
+    """Operator inspection of raw articles — not a product consumer path."""
     await _require_news_admin(request, route_operation="news_articles_list")
     return await article_read_service.list_articles(
         limit=limit,
@@ -227,5 +233,51 @@ async def list_news_articles(
 
 @router.get("/articles/{article_id}")
 async def get_news_article(request: Request, article_id: uuid.UUID):
+    """Operator inspection of raw articles — not a product consumer path."""
     await _require_news_admin(request, route_operation="news_articles_get")
     return await article_read_service.get_article(article_id)
+
+
+@router.get("/events")
+async def list_news_event_packages(
+    request: Request,
+    limit: int = Query(20, ge=1, le=100),
+    lifecycle: str | None = Query(None, max_length=32),
+    brief_eligible: bool | None = Query(None),
+    alert_worthy: bool | None = Query(None),
+):
+    """Product-consumer list: current EventPackage v1 payloads only."""
+    await _require_news_admin(request, route_operation="news_events_list")
+    return await event_package_service.list_event_packages(
+        limit=limit,
+        lifecycle=lifecycle,
+        brief_eligible=brief_eligible,
+        alert_worthy=alert_worthy,
+    )
+
+
+@router.get("/events/{event_id}")
+async def get_news_event_package(request: Request, event_id: uuid.UUID):
+    """Product-consumer detail: current EventPackage v1 for an event."""
+    await _require_news_admin(request, route_operation="news_events_get")
+    return await event_package_service.get_event_package(event_id)
+
+
+@router.put("/events/{event_id}/package")
+async def publish_news_event_package(
+    request: Request,
+    event_id: uuid.UUID,
+    body: dict[str, Any],
+):
+    """Pipeline/admin write: validate and publish next EventPackage version."""
+    await _require_news_admin(request, route_operation="news_events_publish_package")
+    payload = dict(body)
+    payload["event_id"] = str(event_id)
+    try:
+        EventPackage.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.errors(),
+        ) from exc
+    return await event_package_service.publish_event_package(payload)

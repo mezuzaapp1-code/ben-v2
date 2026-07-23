@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     Numeric,
     String,
     Text,
@@ -421,4 +422,43 @@ class NewsArticle(Base):
     image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     category: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class NewsEvent(Base):
+    """Canonical News event (clustering unit). Consumers read EventPackages, not this row alone."""
+
+    __tablename__ = "news_events"
+    __table_args__ = (
+        Index("ix_news_events_lifecycle_updated", "lifecycle", "material_updated_at", "id"),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    lifecycle: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'open'"))
+    headline: Mapped[str] = mapped_column(String(1024), nullable=False)
+    happened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    material_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    current_package_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class NewsEventPackage(Base):
+    """Versioned EventPackage v1 payload (JSONB). Product consumers read this contract only."""
+
+    __tablename__ = "news_event_packages"
+    __table_args__ = (
+        UniqueConstraint("event_id", "package_version", name="uq_news_event_packages_event_version"),
+        Index("ix_news_event_packages_event_version", "event_id", "package_version"),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.news_events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    package_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
