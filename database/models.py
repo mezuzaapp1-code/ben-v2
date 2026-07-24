@@ -462,3 +462,92 @@ class NewsEventPackage(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class NewsClaimExtraction(Base):
+    """Per-article claim extraction run status (E1). Operator inspection only."""
+
+    __tablename__ = "news_claim_extractions"
+    __table_args__ = (
+        UniqueConstraint(
+            "article_id",
+            "extractor_version",
+            name="uq_news_claim_extractions_article_version",
+        ),
+        Index("ix_news_claim_extractions_article_status", "article_id", "status"),
+        CheckConstraint(
+            "status IN ('pending','succeeded','failed','skipped')",
+            name="ck_news_claim_extractions_status",
+        ),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    article_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.news_articles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    extractor_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'pending'"))
+    provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    claim_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    error_class: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class NewsClaim(Base):
+    """Atomic article-scoped claim (E1). Not an Event; not a product feed source."""
+
+    __tablename__ = "news_claims"
+    __table_args__ = (
+        UniqueConstraint(
+            "article_id",
+            "extractor_version",
+            "claim_fingerprint",
+            name="uq_news_claims_article_version_fingerprint",
+        ),
+        Index("ix_news_claims_article_version", "article_id", "extractor_version"),
+        Index("ix_news_claims_article_status", "article_id", "status"),
+        CheckConstraint(
+            "claim_type IN ('occurrence','metric','market','implication')",
+            name="ck_news_claims_claim_type",
+        ),
+        CheckConstraint(
+            "role IN ('factual','interpretive')",
+            name="ck_news_claims_role",
+        ),
+        CheckConstraint(
+            "status IN ('extracted','failed','superseded')",
+            name="ck_news_claims_status",
+        ),
+        CheckConstraint(
+            "source_field IN ('title','summary')",
+            name="ck_news_claims_source_field",
+        ),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    article_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.news_articles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    claim_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    claim_text: Mapped[str] = mapped_column(Text, nullable=False)
+    claim_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_field: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_excerpt: Mapped[str] = mapped_column(Text, nullable=False)
+    source_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attribution: Mapped[str | None] = mapped_column(Text, nullable=True)
+    uncertainty: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'extracted'"))
+    extractor_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))

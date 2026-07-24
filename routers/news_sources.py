@@ -1,7 +1,8 @@
-"""Internal News API — registry (N2), collect (N3), article ops (N4), EventPackage consumers (E0).
+"""Internal News API — registry (N2), collect (N3), article ops (N4), EventPackage (E0), claims (E1).
 
 Product consumers (Feed, Ask BEN, Alerts, Daily Brief) MUST use EventPackage routes only.
-Raw article list/detail is operator/acquisition inspection — not a product feed source.
+Raw article list/detail and claim extraction are operator/acquisition inspection —
+not product feed sources. E1 does not create Events from claims.
 """
 from __future__ import annotations
 
@@ -15,7 +16,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from auth.beta_gate import build_project_tenant_context_from_request
 from auth.news_registry_privileges import assert_can_manage_news_sources
-from services.news import article_read_service, event_package_service, source_registry
+from services.news import (
+    article_read_service,
+    claim_extraction_service,
+    event_package_service,
+    source_registry,
+)
 from services.news.collect_service import collect_source
 from services.news.event_package import EventPackage
 from services.news.feed_url import validate_feed_url
@@ -237,6 +243,33 @@ async def get_news_article(request: Request, article_id: uuid.UUID):
     await _require_news_admin(request, route_operation="news_articles_get")
     return await article_read_service.get_article(article_id)
 
+
+@router.post("/articles/{article_id}/claims/extract")
+async def extract_news_article_claims(request: Request, article_id: uuid.UUID):
+    """Operator: extract atomic claims for one article (E1). Does not create Events."""
+    await _require_news_admin(request, route_operation="news_claims_extract")
+    return await claim_extraction_service.extract_article_claims(article_id)
+
+
+@router.get("/articles/{article_id}/claims/extraction")
+async def get_news_article_claim_extraction(request: Request, article_id: uuid.UUID):
+    """Operator: inspect claim extraction status/errors for one article."""
+    await _require_news_admin(request, route_operation="news_claims_extraction_status")
+    return await claim_extraction_service.get_article_extraction(article_id)
+
+
+@router.get("/articles/{article_id}/claims")
+async def list_news_article_claims(
+    request: Request,
+    article_id: uuid.UUID,
+    include_superseded: bool = Query(False),
+):
+    """Operator: list claims for one article. Not a product consumer path."""
+    await _require_news_admin(request, route_operation="news_claims_list")
+    return await claim_extraction_service.list_article_claims(
+        article_id,
+        include_superseded=include_superseded,
+    )
 
 @router.get("/events")
 async def list_news_event_packages(
