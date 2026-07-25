@@ -90,9 +90,15 @@ SOURCE_STRENGTHS: frozenset[str] = frozenset(
     }
 )
 
-# Epistemic types that must never be treated as corroborated facts.
+# Epistemic types that must never be treated as corroborated / current facts.
 INTERPRETIVE_EPISTEMIC: frozenset[str] = frozenset({"prediction", "opinion"})
 ATTRIBUTION_REQUIRED: frozenset[str] = frozenset({"attributed_statement", "allegation"})
+# Event Builder fact-candidate gate (epistemic SoR — not derived_role).
+FACT_CANDIDATE_EPISTEMIC: frozenset[str] = frozenset({"fact", "correction"})
+# Never auto-promote to corroborated current fact without independent evidence path.
+NEVER_AUTO_CORROBORATE: frozenset[str] = frozenset(
+    {"allegation", "attributed_statement", "prediction", "opinion"}
+)
 
 _WS = re.compile(r"\s+")
 
@@ -103,10 +109,34 @@ def normalize_claim_text(text: str) -> str:
 
 
 def derived_role(epistemic_type: str) -> DerivedRole:
-    """Compatibility projection only — not a stored SoR field."""
+    """API convenience only — coarse factual vs interpretive shape.
+
+    MUST NOT be used alone for Event Builder corroboration. Allegations and
+    attributed statements may project as ``factual`` here while remaining
+    non-corroborated at the epistemic layer.
+    """
     if epistemic_type in INTERPRETIVE_EPISTEMIC:
         return "interpretive"
     return "factual"
+
+
+def is_fact_candidate(epistemic_type: str) -> bool:
+    """True for epistemic types allowed as Event fact candidates."""
+    return epistemic_type in FACT_CANDIDATE_EPISTEMIC
+
+
+def can_auto_corroborate(epistemic_type: str) -> bool:
+    """True only when epistemic_type alone may become a corroborated current fact.
+
+    Allegations and attributed statements require independent evidence; prediction
+    and opinion never become current facts.
+    """
+    return epistemic_type == "fact"
+
+
+def is_blocked_as_current_fact(epistemic_type: str) -> bool:
+    """Prediction/opinion are never current facts; allegation is not without evidence."""
+    return epistemic_type in INTERPRETIVE_EPISTEMIC or epistemic_type == "allegation"
 
 
 def content_fingerprint(*, title: str, summary: str | None) -> str:

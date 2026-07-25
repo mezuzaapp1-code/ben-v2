@@ -22,9 +22,12 @@ import main  # noqa: E402
 from services.news.claim_contract import (  # noqa: E402
     EXTRACTOR_VERSION,
     ExtractedClaim,
+    can_auto_corroborate,
     claim_fingerprint,
     content_fingerprint,
     derived_role,
+    is_blocked_as_current_fact,
+    is_fact_candidate,
     parse_extracted_claims,
 )
 from services.news.claim_extractor import (  # noqa: E402
@@ -185,6 +188,61 @@ def test_source_strength_is_provenance_not_confidence():
     assert dumped["source_strength"] == "wire"
     # distinct from truth confidence — field name is source_strength only
     assert set(dumped.keys()) >= {"source_strength", "epistemic_type", "semantic_domains"}
+    # source_strength does not change corroboration eligibility
+    assert can_auto_corroborate("fact") is True
+    assert can_auto_corroborate(c.epistemic_type) is False  # attributed_statement
+    strong = ExtractedClaim.model_validate(
+        _base_claim(epistemic_type="allegation", attribution="sources say", source_strength="official")
+    )
+    assert can_auto_corroborate(strong.epistemic_type) is False
+    assert is_blocked_as_current_fact(strong.epistemic_type) is True
+
+
+def test_allegation_never_auto_corroborated_fact():
+    assert can_auto_corroborate("allegation") is False
+    assert is_blocked_as_current_fact("allegation") is True
+    assert is_fact_candidate("allegation") is False
+    # derived_role may still say factual — must not override epistemic authority
+    assert derived_role("allegation") == "factual"
+    assert not (derived_role("allegation") == "factual" and can_auto_corroborate("allegation"))
+
+
+def test_attributed_statement_not_equivalent_to_verified_fact():
+    assert can_auto_corroborate("attributed_statement") is False
+    assert is_fact_candidate("attributed_statement") is False
+    assert can_auto_corroborate("fact") is True
+    assert is_fact_candidate("fact") is True
+
+
+def test_derived_role_cannot_override_epistemic_type():
+    # Allegation projects as factual shape but remains blocked for current facts.
+    assert derived_role("allegation") == "factual"
+    assert is_blocked_as_current_fact("allegation") is True
+    assert can_auto_corroborate("allegation") is False
+    # Prediction is interpretive and blocked.
+    assert derived_role("prediction") == "interpretive"
+    assert is_blocked_as_current_fact("prediction") is True
+    assert can_auto_corroborate("prediction") is False
+    # Correction is a fact candidate; opinion is not.
+    assert is_fact_candidate("correction") is True
+    assert is_fact_candidate("opinion") is False
+    assert can_auto_corroborate("opinion") is False
+
+
+def test_correction_preserves_corrects_ref_and_is_fact_candidate():
+    c = ExtractedClaim.model_validate(
+        _base_claim(
+            text="Correction: revenue was $28 billion, not $30 billion.",
+            epistemic_type="correction",
+            attribution=None,
+            corrects_ref="prior revenue figure of $30 billion",
+            semantic_domains=["financial"],
+        )
+    )
+    assert c.corrects_ref == "prior revenue figure of $30 billion"
+    assert is_fact_candidate(c.epistemic_type) is True
+    # Auto-corroborate remains fact-only; correction needs Event Builder resolution.
+    assert can_auto_corroborate("correction") is False
 
 
 def test_claim_type_not_in_contract():
