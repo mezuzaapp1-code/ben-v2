@@ -1,4 +1,4 @@
-"""Internal News API — registry (N2), collect (N3), article ops (N4), EventPackage (E0), claims (E1).
+"""Internal News API — registry (N2), collect (N3), article ops (N4), EventPackage (E0), claims (E1), Pass A builder.
 
 Product consumers (Feed, Ask BEN, Alerts, Daily Brief) MUST use EventPackage routes only.
 Raw article list/detail and claim extraction are operator/acquisition inspection —
@@ -20,6 +20,7 @@ from services.news import (
     article_read_service,
     claim_extraction_service,
     event_package_service,
+    heuristic_event_builder,
     source_registry,
 )
 from services.news.collect_service import collect_source
@@ -117,6 +118,22 @@ class NewsArticleOut(BaseModel):
     published_at: datetime | str | None = None
     category: str
     created_at: datetime | str | None = None
+
+
+class HeuristicEventBuildBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lookback_hours: int = Field(
+        heuristic_event_builder.DEFAULT_LOOKBACK_HOURS,
+        ge=heuristic_event_builder.MIN_LOOKBACK_HOURS,
+        le=heuristic_event_builder.MAX_LOOKBACK_HOURS,
+    )
+    max_articles: int = Field(
+        heuristic_event_builder.DEFAULT_MAX_ARTICLES,
+        ge=heuristic_event_builder.MIN_MAX_ARTICLES,
+        le=heuristic_event_builder.MAX_MAX_ARTICLES,
+    )
+    dry_run: bool = False
 
 
 async def _require_news_admin(request: Request, *, route_operation: str):
@@ -280,6 +297,24 @@ async def list_news_event_packages(
         brief_eligible=brief_eligible,
         alert_worthy=alert_worthy,
     )
+
+
+@router.post("/events/build")
+async def build_heuristic_news_events(
+    request: Request,
+    body: HeuristicEventBuildBody | None = None,
+):
+    """Operator: Pass A heuristic EventPackage builder (deterministic, no LLM)."""
+    await _require_news_admin(request, route_operation="news_events_build")
+    params = body or HeuristicEventBuildBody()
+    result = await heuristic_event_builder.build_heuristic_event_packages(
+        lookback_hours=params.lookback_hours,
+        max_articles=params.max_articles,
+        dry_run=params.dry_run,
+    )
+    if result.get("concurrency_conflict"):
+        return JSONResponse(status_code=status.HTTP_409_CONFLICT, content=result)
+    return result
 
 
 @router.get("/events/{event_id}")
