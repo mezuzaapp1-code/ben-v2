@@ -1,4 +1,4 @@
-"""Internal News API — registry (N2), collect (N3), article ops (N4), EventPackage (E0), claims (E1), Pass A builder.
+"""Internal News API — registry/collect/articles/EventPackage/claims/Pass A builder/Pass B ranker.
 
 Product consumers (Feed, Ask BEN, Alerts, Daily Brief) MUST use EventPackage routes only.
 Raw article list/detail and claim extraction are operator/acquisition inspection —
@@ -19,6 +19,7 @@ from auth.news_registry_privileges import assert_can_manage_news_sources
 from services.news import (
     article_read_service,
     claim_extraction_service,
+    editorial_ranker,
     event_package_service,
     heuristic_event_builder,
     source_registry,
@@ -315,6 +316,33 @@ async def build_heuristic_news_events(
     if result.get("concurrency_conflict"):
         return JSONResponse(status_code=status.HTTP_409_CONFLICT, content=result)
     return result
+
+
+@router.get("/events/rank")
+async def rank_news_event_packages(
+    request: Request,
+    top_n: int = Query(
+        editorial_ranker.EDITORIAL_DEFAULT_TOP_N,
+        ge=editorial_ranker.MIN_TOP_N,
+        le=editorial_ranker.MAX_TOP_N,
+    ),
+    candidate_limit: int = Query(
+        editorial_ranker.EDITORIAL_DEFAULT_CANDIDATE_LIMIT,
+        ge=editorial_ranker.MIN_CANDIDATE_LIMIT,
+        le=editorial_ranker.MAX_CANDIDATE_LIMIT,
+    ),
+    now: datetime | None = Query(
+        None,
+        description="Optional fixed UTC timestamp for admin ranking inspection only",
+    ),
+):
+    """Operator: Pass B editorial ranking inspection (read-only; not the public feed API)."""
+    await _require_news_admin(request, route_operation="news_events_rank")
+    return await editorial_ranker.rank_top_event_packages(
+        top_n=top_n,
+        candidate_limit=candidate_limit,
+        now=now,
+    )
 
 
 @router.get("/events/{event_id}")

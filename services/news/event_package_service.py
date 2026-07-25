@@ -19,7 +19,8 @@ from services.ops.request_context import attach_request_id
 
 DEFAULT_LIMIT = 20
 MIN_LIMIT = 1
-MAX_LIMIT = 100
+# HTTP list route stays capped lower; editorial candidate windows may request up to this.
+MAX_LIMIT = 500
 
 
 def _utc_now() -> datetime:
