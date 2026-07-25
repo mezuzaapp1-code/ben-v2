@@ -65,6 +65,8 @@ import { KnowledgeBasesPanel } from './components/KnowledgeBasesPanel.jsx'
 import { KnowledgeSidebar } from './components/KnowledgeSidebar.jsx'
 import { NewProjectModal } from './components/NewProjectModal.jsx'
 import { CapabilityCatalogTrigger, DiscoveryCenterOverlay } from './components/DiscoveryCenter.jsx'
+import { NewsNavTrigger, NewsOverlay } from './components/NewsOverlay.jsx'
+import { parseNewsLocation, newsFeedPath, newsTopicPath } from './lib/newsRoutes.js'
 import { ProjectRepositoriesDashboard } from './components/ProjectRepositoriesDashboard.jsx'
 import { usePlatformActiveFeatures } from './hooks/usePlatformActiveFeatures.js'
 import { useProjectCreatePrivilege } from './hooks/useProjectCreatePrivilege.jsx'
@@ -489,6 +491,7 @@ function App() {
   const [attentionFocusRequest, setAttentionFocusRequest] = useState(null)
   const [newProjectModalOpen, setNewProjectModalOpen] = useState(false)
   const [catalogOpen, setCatalogOpen] = useState(false)
+  const [newsRoute, setNewsRoute] = useState(() => parseNewsLocation(window.location.pathname))
   const [creatingProject, setCreatingProject] = useState(false)
   const [newProjectError, setNewProjectError] = useState(null)
   const { isOverlayNav } = useNavDrawerMode()
@@ -516,6 +519,41 @@ function App() {
     if (isOverlayNav) setNavDrawerOpen(false)
   }, [isOverlayNav])
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
+
+  const openNewsFeed = useCallback(() => {
+    closeSettings()
+    closeNavDrawerIfOverlay()
+    window.history.pushState({ benNews: true }, '', newsFeedPath())
+    setNewsRoute({ view: 'feed', eventId: null })
+  }, [closeNavDrawerIfOverlay, closeSettings])
+
+  const openNewsTopic = useCallback(
+    (eventId) => {
+      const id = String(eventId || '').trim()
+      if (!id) return
+      closeSettings()
+      closeNavDrawerIfOverlay()
+      window.history.pushState({ benNews: true }, '', newsTopicPath(id))
+      setNewsRoute({ view: 'detail', eventId: id })
+    },
+    [closeNavDrawerIfOverlay, closeSettings]
+  )
+
+  const closeNews = useCallback(() => {
+    const next = parseNewsLocation(window.location.pathname)
+    if (next) {
+      window.history.pushState({}, '', '/')
+    }
+    setNewsRoute(null)
+  }, [])
+
+  useEffect(() => {
+    const onPopState = () => {
+      setNewsRoute(parseNewsLocation(window.location.pathname))
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
 
   useEffect(() => {
     setNavDrawerOpen(!isOverlayNav)
@@ -2173,6 +2211,15 @@ function App() {
         featureState={platformFeatures}
         onFeaturesChange={handleWorkspaceFeaturesChange}
       />
+      <NewsOverlay
+        open={Boolean(newsRoute)}
+        route={newsRoute}
+        onClose={closeNews}
+        onOpenFeed={openNewsFeed}
+        onOpenTopic={openNewsTopic}
+        buildHeaders={buildAppHeaders}
+        disabled={loading}
+      />
       <AppTopBar
         menuButtonRef={navMenuButtonRef}
         menuOpen={navDrawerOpen}
@@ -2239,6 +2286,11 @@ function App() {
                 closeNavDrawerIfOverlay()
                 setCatalogOpen(true)
               }}
+              disabled={loading}
+            />
+            <NewsNavTrigger
+              onOpen={openNewsFeed}
+              active={Boolean(newsRoute)}
               disabled={loading}
             />
             <ProjectRepositoriesDashboard
