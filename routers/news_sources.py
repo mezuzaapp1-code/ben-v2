@@ -259,17 +259,10 @@ async def get_news_article_claim_extraction(request: Request, article_id: uuid.U
 
 
 @router.get("/articles/{article_id}/claims")
-async def list_news_article_claims(
-    request: Request,
-    article_id: uuid.UUID,
-    include_superseded: bool = Query(False),
-):
+async def list_news_article_claims(request: Request, article_id: uuid.UUID):
     """Operator: list claims for one article. Not a product consumer path."""
     await _require_news_admin(request, route_operation="news_claims_list")
-    return await claim_extraction_service.list_article_claims(
-        article_id,
-        include_superseded=include_superseded,
-    )
+    return await claim_extraction_service.list_article_claims(article_id)
 
 @router.get("/events")
 async def list_news_event_packages(

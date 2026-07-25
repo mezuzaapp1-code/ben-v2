@@ -1,4 +1,8 @@
-"""Persist and serve E1 NewsClaims — operator path only; no Event creation."""
+"""Persist and serve E1 NewsClaims — operator path only; no Event creation.
+
+Claim rows are append-only per extractor_version. Reclassification requires a new
+extractor_version. Extraction-run rows may update status for retries after failure.
+"""
 from __future__ import annotations
 
 import uuid
@@ -6,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from database.connection import get_db_session
 from database.models import NewsArticle, NewsClaim, NewsClaimExtraction
@@ -14,11 +18,10 @@ from services.news.claim_contract import (
     EXTRACTOR_VERSION,
     claim_fingerprint,
     content_fingerprint,
+    derived_role,
 )
 from services.news.claim_extractor import LlmExtractFn, extract_claims
 from services.ops.request_context import attach_request_id
-
-DEFAULT_LIMIT = 100
 
 
 def _utc_now() -> datetime:
@@ -26,18 +29,23 @@ def _utc_now() -> datetime:
 
 
 def _claim_to_dict(row: NewsClaim) -> dict[str, Any]:
+    domains = list(row.semantic_domains or [])
     return {
         "id": str(row.id),
         "article_id": str(row.article_id),
         "text": row.claim_text,
-        "claim_type": row.claim_type,
-        "role": row.role,
+        "epistemic_type": row.epistemic_type,
+        "semantic_domains": domains,
+        "source_strength": row.source_strength,
+        # Derived compatibility projection only — not SoR / not confidence.
+        "derived_role": derived_role(row.epistemic_type),
         "source_field": row.source_field,
         "source_excerpt": row.source_excerpt,
         "source_start": row.source_start,
         "source_end": row.source_end,
         "attribution": row.attribution,
         "uncertainty": row.uncertainty,
+        "corrects_ref": row.corrects_ref,
         "status": row.status,
         "extractor_version": row.extractor_version,
         "provider": row.provider,
@@ -69,16 +77,14 @@ async def extract_article_claims(
     *,
     extractor_version: str = EXTRACTOR_VERSION,
     llm_extract_fn: LlmExtractFn | None = None,
-    force: bool = False,
 ) -> dict[str, Any]:
-    """Idempotent extraction for one article. Never mutates NewsArticle rows."""
+    """Idempotent extraction. Never mutates NewsArticle or prior claim rows."""
     try:
         async with get_db_session() as session:
             article = await session.get(NewsArticle, article_id)
             if article is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Article not found")
 
-            # Snapshot immutable article fields (do not write back).
             title = article.title
             summary = article.summary
             fp = content_fingerprint(title=title, summary=summary)
@@ -91,12 +97,8 @@ async def extract_article_claims(
             )
             run = existing_q.scalar_one_or_none()
 
-            if (
-                run is not None
-                and run.status == "succeeded"
-                and run.content_fingerprint == fp
-                and not force
-            ):
+            # Immutable claims: succeeded run for this version → return as-is.
+            if run is not None and run.status == "succeeded" and run.content_fingerprint == fp:
                 claims = await _load_claims(
                     session, article_id=article_id, extractor_version=extractor_version
                 )
@@ -105,6 +107,19 @@ async def extract_article_claims(
                         "idempotent": True,
                         "extraction": _extraction_to_dict(run),
                         "claims": [_claim_to_dict(c) for c in claims],
+                    }
+                )
+
+            # If claims already exist for this version, never delete/rewrite them.
+            existing_claims = await _load_claims(
+                session, article_id=article_id, extractor_version=extractor_version
+            )
+            if existing_claims:
+                return attach_request_id(
+                    {
+                        "idempotent": True,
+                        "extraction": _extraction_to_dict(run) if run else None,
+                        "claims": [_claim_to_dict(c) for c in existing_claims],
                     }
                 )
 
@@ -143,35 +158,12 @@ async def extract_article_claims(
                     }
                 )
 
-            # Supersede claims from other extractor versions for this article.
-            await session.execute(
-                update(NewsClaim)
-                .where(
-                    NewsClaim.article_id == article_id,
-                    NewsClaim.extractor_version != extractor_version,
-                    NewsClaim.status == "extracted",
-                )
-                .values(status="superseded")
-            )
-
-            # Replace claims for this version (safe re-run after failure / force).
-            old_claims = (
-                await session.execute(
-                    select(NewsClaim).where(
-                        NewsClaim.article_id == article_id,
-                        NewsClaim.extractor_version == extractor_version,
-                    )
-                )
-            ).scalars().all()
-            for row in old_claims:
-                await session.delete(row)
-            await session.flush()
-
             persisted: list[NewsClaim] = []
             for c in result.claims:
                 fp_claim = claim_fingerprint(
                     text=c.text,
-                    claim_type=c.claim_type,
+                    epistemic_type=c.epistemic_type,
+                    semantic_domains=list(c.semantic_domains),
                     source_field=c.source_field,
                     source_start=c.source_start,
                     source_end=c.source_end,
@@ -180,14 +172,16 @@ async def extract_article_claims(
                     article_id=article_id,
                     claim_fingerprint=fp_claim,
                     claim_text=c.text,
-                    claim_type=c.claim_type,
-                    role=c.role,
+                    epistemic_type=c.epistemic_type,
+                    semantic_domains=list(c.semantic_domains),
+                    source_strength=c.source_strength,
                     source_field=c.source_field,
                     source_excerpt=c.source_excerpt,
                     source_start=c.source_start,
                     source_end=c.source_end,
                     attribution=c.attribution,
                     uncertainty=c.uncertainty,
+                    corrects_ref=c.corrects_ref,
                     status="extracted",
                     extractor_version=extractor_version,
                     provider=result.provider,
@@ -234,7 +228,6 @@ async def list_article_claims(
     article_id: uuid.UUID,
     *,
     extractor_version: str | None = None,
-    include_superseded: bool = False,
 ) -> dict[str, Any]:
     try:
         async with get_db_session() as session:
@@ -246,7 +239,6 @@ async def list_article_claims(
                 session,
                 article_id=article_id,
                 extractor_version=version,
-                include_superseded=include_superseded,
             )
             return attach_request_id(
                 {
@@ -314,15 +306,16 @@ async def _load_claims(
     *,
     article_id: uuid.UUID,
     extractor_version: str,
-    include_superseded: bool = False,
 ) -> list[NewsClaim]:
-    q = select(NewsClaim).where(
-        NewsClaim.article_id == article_id,
-        NewsClaim.extractor_version == extractor_version,
+    q = (
+        select(NewsClaim)
+        .where(
+            NewsClaim.article_id == article_id,
+            NewsClaim.extractor_version == extractor_version,
+            NewsClaim.status == "extracted",
+        )
+        .order_by(NewsClaim.created_at.asc(), NewsClaim.id.asc())
     )
-    if not include_superseded:
-        q = q.where(NewsClaim.status == "extracted")
-    q = q.order_by(NewsClaim.created_at.asc(), NewsClaim.id.asc())
     return list((await session.execute(q)).scalars().all())
 
 
@@ -356,6 +349,7 @@ async def _upsert_run(
         )
         session.add(run)
     else:
+        # Run status is mutable for retry after failure; claim rows are not.
         run.content_fingerprint = content_fingerprint
         run.status = status
         run.provider = provider

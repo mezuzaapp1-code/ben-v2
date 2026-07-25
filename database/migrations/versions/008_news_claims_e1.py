@@ -1,11 +1,13 @@
 """BEN News E1: news_claim_extractions + news_claims.
 
-Atomic, article-scoped claims with provenance. Does not create Events.
+Atomic, article-scoped claims with multi-axis classification. Does not create Events.
+Classification SoR: epistemic_type + semantic_domains + source_strength.
+claim_type / stored role are intentionally absent.
 """
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from database.models import SCHEMA
 
@@ -64,14 +66,16 @@ def upgrade() -> None:
         sa.Column("article_id", UUID(as_uuid=True), nullable=False),
         sa.Column("claim_fingerprint", sa.String(length=64), nullable=False),
         sa.Column("claim_text", sa.Text(), nullable=False),
-        sa.Column("claim_type", sa.String(length=32), nullable=False),
-        sa.Column("role", sa.String(length=32), nullable=False),
+        sa.Column("epistemic_type", sa.String(length=32), nullable=False),
+        sa.Column("semantic_domains", JSONB(), nullable=False),
+        sa.Column("source_strength", sa.String(length=32), nullable=False, server_default=sa.text("'unknown'")),
         sa.Column("source_field", sa.String(length=16), nullable=False),
         sa.Column("source_excerpt", sa.Text(), nullable=False),
         sa.Column("source_start", sa.Integer(), nullable=True),
         sa.Column("source_end", sa.Integer(), nullable=True),
         sa.Column("attribution", sa.Text(), nullable=True),
         sa.Column("uncertainty", sa.Text(), nullable=True),
+        sa.Column("corrects_ref", sa.Text(), nullable=True),
         sa.Column("status", sa.String(length=32), nullable=False, server_default=sa.text("'extracted'")),
         sa.Column("extractor_version", sa.String(length=64), nullable=False),
         sa.Column("provider", sa.String(length=64), nullable=True),
@@ -94,20 +98,26 @@ def upgrade() -> None:
             name="uq_news_claims_article_version_fingerprint",
         ),
         sa.CheckConstraint(
-            "claim_type IN ('occurrence','metric','market','implication')",
-            name="ck_news_claims_claim_type",
+            "epistemic_type IN ("
+            "'fact','attributed_statement','allegation','prediction','opinion','correction')",
+            name="ck_news_claims_epistemic_type",
         ),
         sa.CheckConstraint(
-            "role IN ('factual','interpretive')",
-            name="ck_news_claims_role",
+            "source_strength IN ("
+            "'official','wire','major_media','industry_media','blog','social','unknown')",
+            name="ck_news_claims_source_strength",
         ),
         sa.CheckConstraint(
-            "status IN ('extracted','failed','superseded')",
+            "status IN ('extracted','failed')",
             name="ck_news_claims_status",
         ),
         sa.CheckConstraint(
             "source_field IN ('title','summary')",
             name="ck_news_claims_source_field",
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(semantic_domains) = 'array'",
+            name="ck_news_claims_semantic_domains_array",
         ),
         schema=SCHEMA,
     )
@@ -118,9 +128,15 @@ def upgrade() -> None:
         schema=SCHEMA,
     )
     op.create_index(
-        "ix_news_claims_article_status",
+        "ix_news_claims_article_epistemic",
         "news_claims",
-        ["article_id", "status"],
+        ["article_id", "epistemic_type"],
+        schema=SCHEMA,
+    )
+    op.create_index(
+        "ix_news_claims_source_strength",
+        "news_claims",
+        ["source_strength"],
         schema=SCHEMA,
     )
 

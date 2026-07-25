@@ -500,7 +500,11 @@ class NewsClaimExtraction(Base):
 
 
 class NewsClaim(Base):
-    """Atomic article-scoped claim (E1). Not an Event; not a product feed source."""
+    """Atomic article-scoped claim (E1). Not an Event; not a product feed source.
+
+    SoR classification: epistemic_type + semantic_domains + source_strength.
+    claim_type / stored role intentionally absent.
+    """
 
     __tablename__ = "news_claims"
     __table_args__ = (
@@ -511,17 +515,20 @@ class NewsClaim(Base):
             name="uq_news_claims_article_version_fingerprint",
         ),
         Index("ix_news_claims_article_version", "article_id", "extractor_version"),
-        Index("ix_news_claims_article_status", "article_id", "status"),
+        Index("ix_news_claims_article_epistemic", "article_id", "epistemic_type"),
+        Index("ix_news_claims_source_strength", "source_strength"),
         CheckConstraint(
-            "claim_type IN ('occurrence','metric','market','implication')",
-            name="ck_news_claims_claim_type",
+            "epistemic_type IN ("
+            "'fact','attributed_statement','allegation','prediction','opinion','correction')",
+            name="ck_news_claims_epistemic_type",
         ),
         CheckConstraint(
-            "role IN ('factual','interpretive')",
-            name="ck_news_claims_role",
+            "source_strength IN ("
+            "'official','wire','major_media','industry_media','blog','social','unknown')",
+            name="ck_news_claims_source_strength",
         ),
         CheckConstraint(
-            "status IN ('extracted','failed','superseded')",
+            "status IN ('extracted','failed')",
             name="ck_news_claims_status",
         ),
         CheckConstraint(
@@ -538,14 +545,16 @@ class NewsClaim(Base):
     )
     claim_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     claim_text: Mapped[str] = mapped_column(Text, nullable=False)
-    claim_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    epistemic_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    semantic_domains: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    source_strength: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'unknown'"))
     source_field: Mapped[str] = mapped_column(String(16), nullable=False)
     source_excerpt: Mapped[str] = mapped_column(Text, nullable=False)
     source_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attribution: Mapped[str | None] = mapped_column(Text, nullable=True)
     uncertainty: Mapped[str | None] = mapped_column(Text, nullable=True)
+    corrects_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'extracted'"))
     extractor_version: Mapped[str] = mapped_column(String(64), nullable=False)
     provider: Mapped[str | None] = mapped_column(String(64), nullable=True)

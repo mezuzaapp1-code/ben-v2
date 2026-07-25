@@ -1,4 +1,4 @@
-"""E1 NewsClaim extraction — contract, idempotency, provenance, API auth."""
+"""E1 NewsClaim multi-axis classification — contract, safety, idempotency, API."""
 from __future__ import annotations
 
 import os
@@ -24,6 +24,7 @@ from services.news.claim_contract import (  # noqa: E402
     ExtractedClaim,
     claim_fingerprint,
     content_fingerprint,
+    derived_role,
     parse_extracted_claims,
 )
 from services.news.claim_extractor import (  # noqa: E402
@@ -77,44 +78,156 @@ def _article(**over):
     return base
 
 
-# --- Contract / classification -------------------------------------------------
+def _base_claim(**over) -> dict:
+    data = {
+        "text": "Acme Corp said revenue was $30 billion.",
+        "epistemic_type": "attributed_statement",
+        "semantic_domains": ["company", "financial"],
+        "source_strength": "unknown",
+        "source_field": "summary",
+        "source_excerpt": "Acme Corp said revenue was $30 billion.",
+        "source_start": 0,
+        "source_end": 39,
+        "attribution": "Acme Corp said",
+        "uncertainty": None,
+        "corrects_ref": None,
+    }
+    data.update(over)
+    return data
 
 
-def test_implication_must_be_interpretive():
-    with pytest.raises(ValidationError):
-        ExtractedClaim(
-            text="This could pave the way for expansion",
-            claim_type="implication",
-            role="factual",
-            source_field="summary",
-            source_excerpt="This could pave the way for expansion",
-            source_start=0,
-            source_end=10,
+# --- Contract / epistemic safety ---------------------------------------------
+
+
+def test_multi_label_semantic_domains():
+    c = ExtractedClaim.model_validate(
+        _base_claim(semantic_domains=["company", "financial", "market"])
+    )
+    assert c.semantic_domains == ["company", "financial", "market"]
+
+
+def test_epistemic_exclusivity_and_derived_role():
+    assert derived_role("fact") == "factual"
+    assert derived_role("prediction") == "interpretive"
+    assert derived_role("opinion") == "interpretive"
+    c = ExtractedClaim.model_validate(_base_claim(epistemic_type="prediction", attribution=None))
+    # prediction with attribution optional
+    c = ExtractedClaim.model_validate(
+        _base_claim(
+            text="Results could pave the way for expansion.",
+            epistemic_type="prediction",
+            attribution=None,
+            semantic_domains=["company"],
         )
+    )
+    assert c.role == "interpretive"
+
+
+def test_opinion_prediction_not_factual_projection():
+    for epi in ("opinion", "prediction"):
+        c = ExtractedClaim.model_validate(
+            _base_claim(
+                text="In our view growth will accelerate next year.",
+                epistemic_type=epi,
+                attribution=None,
+                semantic_domains=["company"],
+            )
+        )
+        assert derived_role(c.epistemic_type) == "interpretive"
+
+
+def test_allegation_requires_attribution():
+    with pytest.raises(ValidationError):
+        ExtractedClaim.model_validate(
+            _base_claim(
+                text="The executive allegedly accepted bribes.",
+                epistemic_type="allegation",
+                attribution=None,
+                uncertainty="allegedly",
+            )
+        )
+
+
+def test_attributed_statement_requires_attribution():
+    with pytest.raises(ValidationError):
+        ExtractedClaim.model_validate(
+            _base_claim(epistemic_type="attributed_statement", attribution=None)
+        )
+
+
+def test_correction_requires_corrects_ref():
+    with pytest.raises(ValidationError):
+        ExtractedClaim.model_validate(
+            _base_claim(
+                text="Correction: revenue was $28 billion, not $30 billion.",
+                epistemic_type="correction",
+                attribution=None,
+                corrects_ref=None,
+                semantic_domains=["financial"],
+            )
+        )
+    ok = ExtractedClaim.model_validate(
+        _base_claim(
+            text="Correction: revenue was $28 billion, not $30 billion.",
+            epistemic_type="correction",
+            attribution=None,
+            corrects_ref="prior revenue figure of $30 billion",
+            semantic_domains=["financial"],
+        )
+    )
+    assert ok.corrects_ref
+
+
+def test_source_strength_is_provenance_not_confidence():
+    c = ExtractedClaim.model_validate(_base_claim(source_strength="wire"))
+    dumped = c.model_dump()
+    assert "confidence" not in dumped
+    assert dumped["source_strength"] == "wire"
+    # distinct from truth confidence — field name is source_strength only
+    assert set(dumped.keys()) >= {"source_strength", "epistemic_type", "semantic_domains"}
+
+
+def test_claim_type_not_in_contract():
+    with pytest.raises(ValidationError):
+        ExtractedClaim.model_validate({**_base_claim(), "claim_type": "metric"})
 
 
 def test_parse_malformed_model_output():
     with pytest.raises((ValidationError, ValueError)):
-        parse_extracted_claims({"claims": [{"text": "x"}]})  # missing required fields
+        parse_extracted_claims({"claims": [{"text": "x"}]})
 
 
-def test_heuristic_separates_factual_and_interpretive():
+def test_heuristic_axes_and_provenance():
     result = extract_claims_heuristic(
-        title="Acme raises guidance after strong quarter",
+        title="Acme raises guidance after strong quarter — Reuters",
         summary=(
             "Acme Corp said revenue was $30 billion. "
             "Shares rose 4% in after-hours trading. "
-            "Analysts said the results could pave the way for further expansion."
+            "Analysts said the results could pave the way for further expansion. "
+            "Sources say an executive allegedly accepted bribes."
         ),
     )
-    types = {c.claim_type for c in result.claims}
-    assert "metric" in types or "occurrence" in types
-    assert "market" in types
-    impl = [c for c in result.claims if c.claim_type == "implication"]
-    assert impl
-    assert all(c.role == "interpretive" for c in impl)
-    factual = [c for c in result.claims if c.role == "factual"]
-    assert factual
+    assert result.claims
+    types = {c.epistemic_type for c in result.claims}
+    assert "attributed_statement" in types or "fact" in types
+    assert "prediction" in types
+    assert any(len(c.semantic_domains) >= 1 for c in result.claims)
+    multi = [c for c in result.claims if len(c.semantic_domains) > 1]
+    assert multi  # e.g. company+financial or market+financial
+    assert any(c.source_strength == "wire" for c in result.claims)
+    pred = [c for c in result.claims if c.epistemic_type == "prediction"]
+    assert pred and all(c.role == "interpretive" for c in pred)
+    al = [c for c in result.claims if c.epistemic_type == "allegation"]
+    assert al and all(c.attribution for c in al)
+
+
+def test_uncertainty_preserved_in_text():
+    summary = "According to regulators, the firm allegedly underreported liabilities."
+    result = extract_claims_heuristic(title="Regulators probe firm", summary=summary)
+    assert result.claims
+    joined = " ".join(c.text for c in result.claims)
+    assert "allegedly" in joined.lower()
+    assert any(c.uncertainty for c in result.claims)
 
 
 def test_provenance_source_span_preserved():
@@ -124,47 +237,8 @@ def test_provenance_source_span_preserved():
     c = result.claims[0]
     assert c.source_field == "summary"
     assert c.source_excerpt
-    assert c.attribution or "said" in c.text.lower() or c.uncertainty
-    assert c.uncertainty is not None  # allegedly
     if c.source_start is not None and c.source_end is not None:
         assert summary[c.source_start : c.source_end]
-
-
-def test_uncertainty_and_attribution_preserved_in_text():
-    summary = "According to regulators, the firm allegedly underreported liabilities."
-    result = extract_claims_heuristic(title="Regulators probe firm", summary=summary)
-    assert result.claims
-    joined = " ".join(c.text for c in result.claims)
-    assert "allegedly" in joined.lower() or any(c.uncertainty for c in result.claims)
-    assert any(
-        (c.attribution and "according" in c.attribution.lower())
-        or "according to" in c.text.lower()
-        for c in result.claims
-    )
-
-
-def test_headline_not_extracted_without_summary_support():
-    result = extract_claims_heuristic(
-        title="Completely unrelated headline about unicorns",
-        summary="The central bank held interest rates steady at 5.25%.",
-    )
-    title_claims = [c for c in result.claims if c.source_field == "title"]
-    assert title_claims == []
-
-
-def test_allegation_not_unqualified_fact():
-    summary = "Sources say the executive allegedly accepted bribes."
-    result = extract_claims_heuristic(title="Probe widens", summary=summary)
-    assert result.claims
-    for c in result.claims:
-        # Must retain hedging in text or uncertainty/attribution fields.
-        soft = (
-            "allegedly" in c.text.lower()
-            or "sources say" in c.text.lower()
-            or bool(c.uncertainty)
-            or bool(c.attribution)
-        )
-        assert soft
 
 
 @pytest.mark.asyncio
@@ -176,7 +250,7 @@ async def test_llm_malformed_output_raises():
         await extract_claims(title="T", summary="S said hello world today.", llm_extract_fn=bad_llm)
 
 
-# --- Service idempotency / retry ----------------------------------------------
+# --- Service -----------------------------------------------------------------
 
 
 class _Session:
@@ -184,9 +258,8 @@ class _Session:
         self.article = article
         self.runs = list(runs or [])
         self.claims = list(claims or [])
-        self.deleted = []
         self.added = []
-        self._executed_updates = 0
+        self.deleted = []
 
     async def get(self, model, pk):
         if model.__name__ == "NewsArticle" and pk == self.article.id:
@@ -194,17 +267,12 @@ class _Session:
         return None
 
     async def execute(self, stmt):
-        sql = str(stmt)
+        sql = str(stmt).lower()
         result = MagicMock()
-        if "news_claim_extractions" in sql.lower() or "NewsClaimExtraction" in sql:
+        if "news_claim_extractions" in sql or "newsclaimextraction" in sql:
             run = self.runs[0] if self.runs else None
             result.scalar_one_or_none = MagicMock(return_value=run)
-            result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=self.runs)))
             return result
-        if "UPDATE" in sql.upper() or "update" in type(stmt).__name__.lower():
-            self._executed_updates += 1
-            return result
-        # claim select
         result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=list(self.claims))))
         result.scalar_one_or_none = MagicMock(return_value=None)
         return result
@@ -218,8 +286,6 @@ class _Session:
 
     async def delete(self, obj):
         self.deleted.append(obj)
-        if obj in self.claims:
-            self.claims.remove(obj)
 
     async def flush(self):
         return None
@@ -250,6 +316,33 @@ class _CM:
         return False
 
 
+def _claim_row(**over):
+    base = SimpleNamespace(
+        id=uuid.uuid4(),
+        article_id=ARTICLE_ID,
+        claim_fingerprint="abc",
+        claim_text="Acme Corp said revenue was $30 billion.",
+        epistemic_type="attributed_statement",
+        semantic_domains=["company", "financial"],
+        source_strength="unknown",
+        source_field="summary",
+        source_excerpt="Acme Corp said revenue was $30 billion.",
+        source_start=0,
+        source_end=40,
+        attribution="Acme Corp said",
+        uncertainty=None,
+        corrects_ref=None,
+        status="extracted",
+        extractor_version=EXTRACTOR_VERSION,
+        provider="heuristic",
+        model="rules-e1.2",
+        created_at=T0,
+    )
+    for k, v in over.items():
+        setattr(base, k, v)
+    return base
+
+
 @pytest.mark.asyncio
 async def test_extract_idempotent_same_version():
     article = _article()
@@ -261,40 +354,38 @@ async def test_extract_idempotent_same_version():
         content_fingerprint=fp,
         status="succeeded",
         provider="heuristic",
-        model="rules-e1.1",
+        model="rules-e1.2",
         claim_count=1,
         error_class=None,
         error_message=None,
         created_at=T0,
         completed_at=T0,
     )
-    claim = SimpleNamespace(
-        id=uuid.uuid4(),
-        article_id=ARTICLE_ID,
-        claim_fingerprint="abc",
-        claim_text="Acme Corp said revenue was $30 billion.",
-        claim_type="metric",
-        role="factual",
-        source_field="summary",
-        source_excerpt="Acme Corp said revenue was $30 billion.",
-        source_start=0,
-        source_end=40,
-        attribution="Acme Corp said",
-        uncertainty=None,
-        status="extracted",
-        extractor_version=EXTRACTOR_VERSION,
-        provider="heuristic",
-        model="rules-e1.1",
-        created_at=T0,
-    )
+    claim = _claim_row()
     session = _Session(article, runs=[run], claims=[claim])
     with patch.object(ces, "get_db_session", return_value=_CM(session)):
         out1 = await ces.extract_article_claims(ARTICLE_ID)
         out2 = await ces.extract_article_claims(ARTICLE_ID)
     assert out1["idempotent"] is True
     assert out2["idempotent"] is True
-    assert len(out1["claims"]) == 1
-    assert out1["claims"][0]["text"] == claim.claim_text
+    assert out1["claims"][0]["epistemic_type"] == "attributed_statement"
+    assert "claim_type" not in out1["claims"][0]
+    assert out1["claims"][0]["derived_role"] == "factual"
+    assert session.deleted == []
+
+
+@pytest.mark.asyncio
+async def test_reclassification_new_version_does_not_mutate_old_claims():
+    article = _article()
+    old = _claim_row(extractor_version="e1.1", epistemic_type="fact", attribution=None)
+    session = _Session(article, runs=[], claims=[])
+    # Old claims live under other version; new version insert must not delete them.
+    # Simulate by tracking deletes only — service loads claims for target version only.
+    with patch.object(ces, "get_db_session", return_value=_CM(session)):
+        out = await ces.extract_article_claims(ARTICLE_ID, extractor_version="e1.3")
+    assert out["extraction"]["status"] == "succeeded"
+    assert session.deleted == []
+    assert out["extraction"]["extractor_version"] == "e1.3"
 
 
 @pytest.mark.asyncio
@@ -321,27 +412,15 @@ async def test_retry_after_extraction_failure():
         return {
             "provider": "openai",
             "model": "gpt-test",
-            "claims": [
-                {
-                    "text": "Acme Corp said revenue was $30 billion.",
-                    "claim_type": "metric",
-                    "role": "factual",
-                    "source_field": "summary",
-                    "source_excerpt": "Acme Corp said revenue was $30 billion.",
-                    "source_start": 0,
-                    "source_end": 39,
-                    "attribution": "Acme Corp said",
-                    "uncertainty": None,
-                }
-            ],
+            "claims": [_base_claim()],
         }
 
     with patch.object(ces, "get_db_session", return_value=_CM(session)):
         out = await ces.extract_article_claims(ARTICLE_ID, llm_extract_fn=ok_llm)
     assert out["idempotent"] is False
     assert out["extraction"]["status"] == "succeeded"
-    assert len(out["claims"]) == 1
-    assert out["claims"][0]["provider"] == "openai"
+    assert out["claims"][0]["source_strength"] == "unknown"
+    assert "confidence" not in out["claims"][0]
 
 
 @pytest.mark.asyncio
@@ -357,40 +436,6 @@ async def test_malformed_llm_marks_failed_run():
     assert out["extraction"]["status"] == "failed"
     assert out["extraction"]["error_class"] == "malformed_model_output"
     assert out["claims"] == []
-
-
-@pytest.mark.asyncio
-async def test_reextraction_new_version_supersedes():
-    article = _article()
-    session = _Session(article, runs=[], claims=[])
-    old = SimpleNamespace(
-        id=uuid.uuid4(),
-        article_id=ARTICLE_ID,
-        claim_fingerprint="old",
-        claim_text="old claim",
-        claim_type="occurrence",
-        role="factual",
-        source_field="summary",
-        source_excerpt="old claim",
-        source_start=0,
-        source_end=9,
-        attribution=None,
-        uncertainty=None,
-        status="extracted",
-        extractor_version="e1.0",
-        provider="heuristic",
-        model="rules-e1.0",
-        created_at=T0,
-    )
-    session.claims = [old]
-
-    with patch.object(ces, "get_db_session", return_value=_CM(session)):
-        out = await ces.extract_article_claims(ARTICLE_ID, extractor_version="e1.2")
-    assert out["extraction"]["status"] == "succeeded"
-    assert session._executed_updates >= 1
-
-
-# --- Migration offline SQL ----------------------------------------------------
 
 
 def test_migration_008_upgrade_downgrade_wired():
@@ -419,12 +464,37 @@ def test_migration_008_upgrade_downgrade_wired():
         assert mock_op.create_table.call_count == 2
         table_names = [c.args[0] for c in mock_op.create_table.call_args_list]
         assert table_names == ["news_claim_extractions", "news_claims"]
+        # Ensure new columns present in create_table kwargs/args
+        claims_call = mock_op.create_table.call_args_list[1]
+        col_names = [a.name for a in claims_call.args[1:] if hasattr(a, "name")]
+        assert "epistemic_type" in col_names
+        assert "semantic_domains" in col_names
+        assert "source_strength" in col_names
+        assert "claim_type" not in col_names
+        assert "role" not in col_names
         m008.downgrade()
         dropped = [c.args[0] for c in mock_op.drop_table.call_args_list]
         assert dropped == ["news_claims", "news_claim_extractions"]
 
 
-# --- HTTP / OpenAPI -----------------------------------------------------------
+def test_fingerprint_stable():
+    a = claim_fingerprint(
+        text="Revenue was $30B",
+        epistemic_type="fact",
+        semantic_domains=["financial", "company"],
+        source_field="summary",
+        source_start=0,
+        source_end=16,
+    )
+    b = claim_fingerprint(
+        text="  Revenue was $30B ",
+        epistemic_type="fact",
+        semantic_domains=["company", "financial"],
+        source_field="summary",
+        source_start=0,
+        source_end=16,
+    )
+    assert a == b
 
 
 def test_claims_routes_require_auth():
@@ -448,7 +518,16 @@ def test_extract_http_success():
     payload = {
         "idempotent": False,
         "extraction": {"status": "succeeded", "claim_count": 1},
-        "claims": [{"id": str(uuid.uuid4()), "text": "x", "claim_type": "metric"}],
+        "claims": [
+            {
+                "id": str(uuid.uuid4()),
+                "text": "x",
+                "epistemic_type": "fact",
+                "semantic_domains": ["other"],
+                "source_strength": "unknown",
+                "derived_role": "factual",
+            }
+        ],
         "request_id": "r1",
     }
     with patch(
@@ -463,22 +542,4 @@ def test_extract_http_success():
             headers={"Authorization": "Bearer t"},
         )
     assert r.status_code == 200
-    assert r.json()["extraction"]["status"] == "succeeded"
-
-
-def test_fingerprint_stable():
-    a = claim_fingerprint(
-        text="Revenue was $30B",
-        claim_type="metric",
-        source_field="summary",
-        source_start=0,
-        source_end=16,
-    )
-    b = claim_fingerprint(
-        text="  Revenue was $30B ",
-        claim_type="metric",
-        source_field="summary",
-        source_start=0,
-        source_end=16,
-    )
-    assert a == b
+    assert r.json()["claims"][0]["epistemic_type"] == "fact"

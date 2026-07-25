@@ -1,4 +1,13 @@
-"""E1 NewsClaim contract — atomic, provenance-bound claims (not Events)."""
+"""E1 NewsClaim contract — atomic, provenance-bound claims (not Events).
+
+Durable classification uses independent axes:
+  - epistemic_type (exclusive)
+  - semantic_domains (multi-label)
+  - source_strength (provenance class, not confidence)
+
+``claim_type`` / stored ``role`` are removed from the system of record.
+``derived_role`` is a compatibility helper only (factual vs interpretive).
+"""
 from __future__ import annotations
 
 import hashlib
@@ -7,21 +16,97 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-EXTRACTOR_VERSION = "e1.1"
+EXTRACTOR_VERSION = "e1.2"
 HEURISTIC_PROVIDER = "heuristic"
-HEURISTIC_MODEL = "rules-e1.1"
+HEURISTIC_MODEL = "rules-e1.2"
 
-ClaimType = Literal["occurrence", "metric", "market", "implication"]
-ClaimRole = Literal["factual", "interpretive"]
+EpistemicType = Literal[
+    "fact",
+    "attributed_statement",
+    "allegation",
+    "prediction",
+    "opinion",
+    "correction",
+]
+SemanticDomain = Literal[
+    "company",
+    "financial",
+    "market",
+    "product",
+    "technology",
+    "regulation",
+    "legal",
+    "security",
+    "supply_chain",
+    "other",
+]
+SourceStrength = Literal[
+    "official",
+    "wire",
+    "major_media",
+    "industry_media",
+    "blog",
+    "social",
+    "unknown",
+]
 SourceField = Literal["title", "summary"]
-ClaimStatus = Literal["extracted", "failed", "superseded"]
+ClaimStatus = Literal["extracted", "failed"]
 ExtractionStatus = Literal["pending", "succeeded", "failed", "skipped"]
+DerivedRole = Literal["factual", "interpretive"]
+
+EPISTEMIC_TYPES: frozenset[str] = frozenset(
+    {
+        "fact",
+        "attributed_statement",
+        "allegation",
+        "prediction",
+        "opinion",
+        "correction",
+    }
+)
+SEMANTIC_DOMAINS: frozenset[str] = frozenset(
+    {
+        "company",
+        "financial",
+        "market",
+        "product",
+        "technology",
+        "regulation",
+        "legal",
+        "security",
+        "supply_chain",
+        "other",
+    }
+)
+SOURCE_STRENGTHS: frozenset[str] = frozenset(
+    {
+        "official",
+        "wire",
+        "major_media",
+        "industry_media",
+        "blog",
+        "social",
+        "unknown",
+    }
+)
+
+# Epistemic types that must never be treated as corroborated facts.
+INTERPRETIVE_EPISTEMIC: frozenset[str] = frozenset({"prediction", "opinion"})
+ATTRIBUTION_REQUIRED: frozenset[str] = frozenset({"attributed_statement", "allegation"})
 
 _WS = re.compile(r"\s+")
 
 
 def normalize_claim_text(text: str) -> str:
+    """Whitespace-normalize only — never strip uncertainty/attribution language."""
     return _WS.sub(" ", text.strip())
+
+
+def derived_role(epistemic_type: str) -> DerivedRole:
+    """Compatibility projection only — not a stored SoR field."""
+    if epistemic_type in INTERPRETIVE_EPISTEMIC:
+        return "interpretive"
+    return "factual"
 
 
 def content_fingerprint(*, title: str, summary: str | None) -> str:
@@ -32,14 +117,16 @@ def content_fingerprint(*, title: str, summary: str | None) -> str:
 def claim_fingerprint(
     *,
     text: str,
-    claim_type: str,
+    epistemic_type: str,
+    semantic_domains: list[str],
     source_field: str,
     source_start: int | None,
     source_end: int | None,
 ) -> str:
+    domains = ",".join(sorted(semantic_domains))
     key = (
-        f"{normalize_claim_text(text).lower()}|{claim_type}|{source_field}|"
-        f"{source_start}|{source_end}"
+        f"{normalize_claim_text(text).lower()}|{epistemic_type}|{domains}|"
+        f"{source_field}|{source_start}|{source_end}"
     )
     return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
@@ -50,35 +137,70 @@ class ExtractedClaim(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: str = Field(..., min_length=1, max_length=2000)
-    claim_type: ClaimType
-    role: ClaimRole
+    epistemic_type: EpistemicType
+    semantic_domains: list[SemanticDomain] = Field(..., min_length=1)
+    source_strength: SourceStrength = "unknown"
     source_field: SourceField
     source_excerpt: str = Field(..., min_length=1, max_length=4000)
     source_start: int | None = Field(None, ge=0)
     source_end: int | None = Field(None, ge=0)
     attribution: str | None = Field(None, max_length=1000)
     uncertainty: str | None = Field(None, max_length=1000)
+    corrects_ref: str | None = Field(
+        None,
+        max_length=2000,
+        description="What a correction revises (claim id, excerpt, or description).",
+    )
 
-    @field_validator("text", "source_excerpt", "attribution", "uncertainty", mode="before")
+    @field_validator("text", "source_excerpt", "attribution", "uncertainty", "corrects_ref", mode="before")
     @classmethod
-    def _strip(cls, v: Any) -> Any:
+    def _normalize_strings(cls, v: Any) -> Any:
         if isinstance(v, str):
             return normalize_claim_text(v) if v.strip() else v
         return v
 
+    @field_validator("semantic_domains", mode="before")
+    @classmethod
+    def _dedupe_domains(cls, v: Any) -> Any:
+        if not isinstance(v, list):
+            return v
+        seen: list[str] = []
+        for item in v:
+            if item not in seen:
+                seen.append(item)
+        return seen
+
     @model_validator(mode="after")
-    def _enforce_rules(self) -> ExtractedClaim:
-        if self.claim_type == "implication" and self.role != "interpretive":
-            raise ValueError("implication claims must be role=interpretive")
-        if self.role == "interpretive" and self.claim_type not in ("implication",):
-            # Allow only implication as interpretive in E1 taxonomy.
-            raise ValueError("interpretive role is reserved for implication claims in E1")
+    def _enforce_epistemic_safety(self) -> ExtractedClaim:
         if self.source_start is not None and self.source_end is not None:
             if self.source_end < self.source_start:
                 raise ValueError("source_end must be >= source_start")
         if not self.source_excerpt.strip():
             raise ValueError("source_excerpt is required")
+        if not self.semantic_domains:
+            raise ValueError("semantic_domains must be non-empty")
+        for d in self.semantic_domains:
+            if d not in SEMANTIC_DOMAINS:
+                raise ValueError(f"invalid semantic domain: {d}")
+
+        if self.epistemic_type in ATTRIBUTION_REQUIRED and not (self.attribution and self.attribution.strip()):
+            raise ValueError(f"{self.epistemic_type} requires attribution")
+
+        if self.epistemic_type == "correction" and not (self.corrects_ref and self.corrects_ref.strip()):
+            raise ValueError("correction requires corrects_ref")
+
+        # Opinion/prediction are interpretive — reject attempts to smuggle them as facts
+        # via missing hedging is allowed, but role projection is always interpretive.
+        if self.epistemic_type in INTERPRETIVE_EPISTEMIC:
+            if derived_role(self.epistemic_type) != "interpretive":
+                raise ValueError("opinion/prediction must be interpretive")
+
         return self
+
+    @property
+    def role(self) -> DerivedRole:
+        """Derived compatibility projection — not stored."""
+        return derived_role(self.epistemic_type)
 
 
 class ExtractionResult(BaseModel):
