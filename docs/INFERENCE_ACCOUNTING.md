@@ -53,7 +53,7 @@ InferenceCallRecord    # immutable ledger row (ben.inference_call_records)
 - Append-only inserts; no in-place updates in Pass 1
 - Persist failures are soft: the user request continues; an operational error log is emitted with accounting fields (no silent drop)
 
-### Production migration (do not run until merge)
+### Production migration
 
 ```bash
 alembic -c database/migrations/alembic.ini upgrade head
@@ -65,11 +65,23 @@ Or specifically:
 alembic -c database/migrations/alembic.ini upgrade 009_inference_call_records
 ```
 
-Rollback:
+**Production policy:** run `upgrade` only. Do not run downgrade against production.
+
+Rollback (non-production / emergency only):
 
 ```bash
 alembic -c database/migrations/alembic.ini downgrade 008_news_claims_e1
 ```
+
+### Migration validation status (Pass 1 release)
+
+| Check | Result |
+|-------|--------|
+| Ordering `008_news_claims_e1` → `009_inference_call_records` | Pass |
+| Offline Alembic SQL (`upgrade 008:009`, `downgrade 009:008`) | Pass — creates/drops only `ben.inference_call_records` + its indexes/constraints |
+| Live isolated PostgreSQL cycle (008→009→008→009) | **Not executed** — no isolated non-production Postgres was available at release time (local Docker/Postgres unavailable; Railway had production only) |
+
+This missing live downgrade cycle is a **non-blocking operational note**, not a release blocker. Production must never be used for downgrade testing.
 
 ## Reconstruction
 
