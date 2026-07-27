@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from database.thread_store import insert_thread_message, list_thread_messages_until
 from services.message_format import build_adhoc_expert_display_text, encode_adhoc_expert
+from services.inference.gateway_meter import get_last_accounted_call
 from services.model_gateway import normalize_chat_provider_id, route_request_stream
 from services.ops.request_context import attach_request_id
 from services.rolling_context import DEFAULT_OPINION_REQUEST, RAW_STREAM_SYSTEM, build_rolling_context_prompt
@@ -86,6 +87,8 @@ async def stream_expert_opinion(
         return
 
     response_text = "".join(parts)
+    accounted = get_last_accounted_call() or {}
+    stream_cost = float(accounted.get("cost_usd") or 0.0)
     encoded = encode_adhoc_expert(
         session_id=str(session_id),
         provider_id=normalized_provider,
@@ -93,7 +96,7 @@ async def stream_expert_opinion(
         provider_used=provider_used,
         model=model_u,
         outcome="ok" if response_text else "error",
-        cost_usd=0.0,
+        cost_usd=stream_cost,
         display_content=build_adhoc_expert_display_text(normalized_provider, model_u, response_text),
     )
     sqlite_id = insert_thread_message(
@@ -113,11 +116,15 @@ async def stream_expert_opinion(
             "model_used": model_u,
             "provider_used": provider_used,
             "provider_id": normalized_provider,
-            "cost_usd": 0.0,
+            "cost_usd": stream_cost,
             "sqlite_message_id": sqlite_id,
             "kind": "adhoc_expert",
             "message_type": message_type,
             "anchor_message_id": anchor_message_id,
+            "execution_id": accounted.get("execution_id"),
+            "call_id": accounted.get("call_id"),
+            "usage_status": accounted.get("usage_status"),
+            "pricing_version": accounted.get("pricing_version"),
         }
     )
 

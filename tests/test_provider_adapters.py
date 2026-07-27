@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from services.providers import get_gateway_provider
 from services.providers.anthropic_provider import AnthropicProvider
-from services.providers.base_provider import BaseProvider
+from services.providers.base_provider import BaseProvider, ProviderStreamEnd
 from services.providers.gemini_provider import GeminiProvider
 from services.providers.openai_provider import OpenAIProvider
 
@@ -60,4 +60,7 @@ async def test_stream_message_yields_single_chunk(monkeypatch):
             tenant_id="t",
         )
     ]
-    assert chunks == ["hello"]
+    assert len(chunks) == 2
+    assert chunks[0] == "hello"
+    assert isinstance(chunks[1], ProviderStreamEnd)
+    assert chunks[1].usage.usage_status == "missing"

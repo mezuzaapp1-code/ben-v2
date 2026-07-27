@@ -1,6 +1,7 @@
 """T03 Model Gateway: tier routing, per-provider circuit breaker, adapter dispatch."""
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 import uuid
@@ -40,8 +41,14 @@ from services.upskilling_service import (
 )
 from services.project_memory_service import compute_location_logistics, DEFAULT_BASE_LOCATION
 from services.invoice_tools import export_ledger_to_accountant
+from services.inference.gateway_meter import (
+    account_provider_attempt,
+    classify_call_outcome,
+)
+from services.inference.usage_normalize import normalize_openai_usage, usage_missing
 from services.ops.request_context import attach_request_id
 from services.project_copilot_tools import attach_mutated_state
+from services.providers.base_provider import ProviderStreamEnd
 from services.project_memory_service import load_project_memory, save_project_memory
 from services.project_copilot_tools import (
     get_cash_flow_forecast,
@@ -205,6 +212,11 @@ def _cb_fail(name: str) -> None:
         s["n"] = 0
 
 
+def reset_circuit_breakers_for_tests() -> None:
+    """Clear gateway circuit-breaker state between unit tests."""
+    _CB.clear()
+
+
 def _cost(prov: str, model: str, inp: int, out: int) -> float:
     ir, or_ = token_rates(prov, model)
     return ir * inp + or_ * out
@@ -215,6 +227,14 @@ def _missing_key_message(*, provider_id: str | None, gateway_prov: str) -> str:
         label = provider_display_label(provider_id) or gateway_prov.title()
         return f"{label} is not configured (missing API key)"
     return f"{gateway_prov} is not configured (missing API key)"
+
+
+def _ui_cost_usd(accounted: dict[str, Any] | None, *, fallback_prov: str = "", fallback_model: str = "", pi: int = 0, po: int = 0) -> float:
+    if accounted and accounted.get("cost_usd") is not None:
+        return round(float(accounted["cost_usd"]), 6)
+    if fallback_prov and fallback_model and (pi or po):
+        return round(_cost(fallback_prov, fallback_model, pi, po), 6)
+    return 0.0
 
 
 async def route_request(
@@ -230,6 +250,7 @@ async def route_request(
     timeout_s = _chat_http_timeout_s(provider_id=provider_id)
     last: BaseException | None = None
     last_prov: str = ""
+    last_accounted: dict[str, Any] | None = None
     attempts = _attempts(tier, provider_id=provider_id, model_override=model_override)
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s, connect=5.0)) as cx:
         for prov, model in attempts:
@@ -237,6 +258,19 @@ async def route_request(
             if not (os.getenv(key_env) or "").strip():
                 if provider_id and _chat_provider_to_gateway(provider_id) == prov:
                     ms = (time.perf_counter() - t0) * 1000.0
+                    await account_provider_attempt(
+                        provider=prov,
+                        model=model,
+                        api_model=None,
+                        outcome="rejected",
+                        usage=usage_missing(),
+                        latency_ms=ms,
+                        stream=False,
+                        error_class="MissingAPIKey",
+                        org_id=tenant_id,
+                        pipeline="chat",
+                        extras={"reason": "missing_api_key"},
+                    )
                     return {
                         "content": _missing_key_message(provider_id=provider_id, gateway_prov=prov),
                         "model_used": "",
@@ -253,6 +287,19 @@ async def route_request(
                 api_model = resolve_dispatch_model(prov, model)
             except ValueError as e:
                 ms = (time.perf_counter() - t0) * 1000.0
+                await account_provider_attempt(
+                    provider=prov,
+                    model=model,
+                    api_model=None,
+                    outcome="rejected",
+                    usage=usage_missing(),
+                    latency_ms=ms,
+                    stream=False,
+                    error_class=type(e).__name__,
+                    org_id=tenant_id,
+                    pipeline="chat",
+                    extras={"reason": "invalid_model"},
+                )
                 return {
                     "content": str(e),
                     "model_used": "",
@@ -275,14 +322,27 @@ async def route_request(
                 pi = send_result.prompt_tokens
                 po = send_result.completion_tokens
                 _cb_ok(prov)
-                attempt_ms = int((time.perf_counter() - attempt_t0) * 1000.0)
+                attempt_ms = (time.perf_counter() - attempt_t0) * 1000.0
+                last_accounted = await account_provider_attempt(
+                    provider=prov,
+                    model=model,
+                    api_model=api_model,
+                    outcome="success",
+                    usage=send_result.usage or usage_missing(),
+                    latency_ms=round(attempt_ms, 2),
+                    stream=False,
+                    provider_request_id=send_result.provider_request_id,
+                    finish_reason=send_result.finish_reason,
+                    org_id=tenant_id,
+                    pipeline="chat",
+                )
                 if prov != "anthropic":
                     log_info(
                         "chat provider adapter call completed",
                         subsystem="model_gateway",
                         provider=prov,
                         model=model,
-                        duration_ms=attempt_ms,
+                        duration_ms=int(attempt_ms),
                         operation="provider_send_message",
                         outcome="ok",
                         timeout_s=timeout_s,
@@ -310,14 +370,30 @@ async def route_request(
                     "model_used": model,
                     "provider_used": prov,
                     "tokens": tok,
-                    "cost_usd": round(_cost(prov, model, pi, po), 6),
+                    "cost_usd": _ui_cost_usd(last_accounted, fallback_prov=prov, fallback_model=model, pi=pi, po=po),
                     "latency_ms": round(ms, 2),
                     "completion_truncated": send_result.completion_truncated,
+                    "execution_id": last_accounted.get("execution_id"),
+                    "call_id": last_accounted.get("call_id"),
+                    "usage_status": last_accounted.get("usage_status"),
+                    "pricing_version": last_accounted.get("pricing_version"),
                 }
             except BaseException as e:
                 last = e
                 last_prov = prov
-                elapsed_ms = int((time.perf_counter() - attempt_t0) * 1000.0)
+                elapsed_ms = (time.perf_counter() - attempt_t0) * 1000.0
+                last_accounted = await account_provider_attempt(
+                    provider=prov,
+                    model=model,
+                    api_model=api_model,
+                    outcome=classify_call_outcome(e),
+                    usage=usage_missing(),
+                    latency_ms=round(elapsed_ms, 2),
+                    stream=False,
+                    error_class=type(e).__name__,
+                    org_id=tenant_id,
+                    pipeline="chat",
+                )
                 if prov != "anthropic":
                     log_warning(
                         "chat provider adapter call failed",
@@ -325,7 +401,7 @@ async def route_request(
                         provider=prov,
                         category=classify_failure(e),
                         exc=e,
-                        duration_ms=elapsed_ms,
+                        duration_ms=int(elapsed_ms),
                         operation="provider_send_message",
                         outcome="error",
                         model=model,
@@ -350,6 +426,8 @@ async def route_request(
         "tokens": 0,
         "cost_usd": 0.0,
         "latency_ms": round(ms, 2),
+        "execution_id": (last_accounted or {}).get("execution_id"),
+        "call_id": (last_accounted or {}).get("call_id"),
     }
 
 
@@ -362,7 +440,11 @@ async def route_request_stream(
     model_override: str | None = None,
     system: str | None = None,
 ) -> AsyncIterator[tuple[str, str, str]]:
-    """Stream raw model tokens: yields (text_chunk, model, provider)."""
+    """Stream raw model tokens: yields (text_chunk, model, provider).
+
+    Each provider HTTP attempt writes exactly one InferenceCallRecord.
+    Final accounted summary is available via get_last_accounted_call().
+    """
     timeout_s = _chat_http_timeout_s(provider_id=provider_id)
     attempts = _attempts(tier, provider_id=provider_id, model_override=model_override)
     last: BaseException | None = None
@@ -372,6 +454,19 @@ async def route_request_stream(
             key_env = gateway_provider_api_key_env(prov)
             if not (os.getenv(key_env) or "").strip():
                 if provider_id and _chat_provider_to_gateway(provider_id) == prov:
+                    await account_provider_attempt(
+                        provider=prov,
+                        model=model,
+                        api_model=None,
+                        outcome="rejected",
+                        usage=usage_missing(),
+                        latency_ms=0.0,
+                        stream=True,
+                        error_class="MissingAPIKey",
+                        org_id=tenant_id,
+                        pipeline="chat",
+                        extras={"reason": "missing_api_key"},
+                    )
                     yield (_missing_key_message(provider_id=provider_id, gateway_prov=prov), "", prov)
                     return
                 continue
@@ -380,25 +475,80 @@ async def route_request_stream(
             try:
                 api_model = resolve_dispatch_model(prov, model)
             except ValueError as e:
+                await account_provider_attempt(
+                    provider=prov,
+                    model=model,
+                    api_model=None,
+                    outcome="rejected",
+                    usage=usage_missing(),
+                    latency_ms=0.0,
+                    stream=True,
+                    error_class=type(e).__name__,
+                    org_id=tenant_id,
+                    pipeline="chat",
+                    extras={"reason": "invalid_model"},
+                )
                 yield (str(e), "", prov)
                 return
+            attempt_t0 = time.perf_counter()
+            streamed_any = False
+            stream_end: ProviderStreamEnd | None = None
+            attempt_accounted = False
             try:
                 adapter = get_gateway_provider(prov)
-                async for chunk in adapter.stream_message(
+                async for item in adapter.stream_message(
                     cx,
                     model=api_model,
                     message=message,
                     tenant_id=tenant_id,
                     system=system or GLOBAL_CHAT_SYSTEM,
                 ):
-                    if chunk:
-                        yield (chunk, model, prov)
+                    if isinstance(item, ProviderStreamEnd):
+                        stream_end = item
+                        continue
+                    if item:
+                        streamed_any = True
+                        yield (item, model, prov)
+                elapsed_ms = (time.perf_counter() - attempt_t0) * 1000.0
+                await account_provider_attempt(
+                    provider=prov,
+                    model=model,
+                    api_model=api_model,
+                    outcome="success",
+                    usage=(stream_end.usage if stream_end else usage_missing()),
+                    latency_ms=round(elapsed_ms, 2),
+                    stream=True,
+                    provider_request_id=stream_end.provider_request_id if stream_end else None,
+                    finish_reason=stream_end.finish_reason if stream_end else None,
+                    org_id=tenant_id,
+                    pipeline="chat",
+                )
+                attempt_accounted = True
                 _cb_ok(prov)
                 return
             except BaseException as e:
                 last = e
                 last_prov = prov
+                if not attempt_accounted:
+                    elapsed_ms = (time.perf_counter() - attempt_t0) * 1000.0
+                    await account_provider_attempt(
+                        provider=prov,
+                        model=model,
+                        api_model=api_model,
+                        outcome=classify_call_outcome(e, streamed_any=streamed_any),
+                        usage=(stream_end.usage if stream_end else usage_missing()),
+                        latency_ms=round(elapsed_ms, 2),
+                        stream=True,
+                        provider_request_id=stream_end.provider_request_id if stream_end else None,
+                        finish_reason=stream_end.finish_reason if stream_end else None,
+                        error_class=type(e).__name__,
+                        org_id=tenant_id,
+                        pipeline="chat",
+                    )
+                    attempt_accounted = True
                 _cb_fail(prov)
+                if isinstance(e, (asyncio.CancelledError, GeneratorExit)):
+                    raise
     if last and last_prov:
         err = format_chat_provider_error(last_prov, last, timeout_s=timeout_s)
     elif last:
@@ -406,6 +556,83 @@ async def route_request_stream(
     else:
         err = "No provider available"
     yield (err, "", last_prov)
+
+
+async def accounted_openai_chat_completion(
+    *,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None,
+    tenant_id: str,
+    model: str,
+    pipeline: str = "project_agent",
+) -> dict[str, Any]:
+    """OpenAI chat.completions with mandatory gateway accounting (tool-loop path)."""
+    api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    if not api_key:
+        await account_provider_attempt(
+            provider="openai",
+            model=model,
+            api_model=model,
+            outcome="rejected",
+            usage=usage_missing(),
+            latency_ms=0.0,
+            stream=False,
+            error_class="MissingAPIKey",
+            org_id=tenant_id,
+            pipeline=pipeline,
+            extras={"reason": "missing_api_key"},
+        )
+        raise RuntimeError("OPENAI_API_KEY is not configured for project agent tools.")
+
+    payload: dict[str, Any] = {"model": model, "messages": messages}
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+
+    attempt_t0 = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "X-BEN-Tenant": tenant_id},
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+        elapsed_ms = (time.perf_counter() - attempt_t0) * 1000.0
+        usage = normalize_openai_usage(data.get("usage"))
+        choice = (data.get("choices") or [{}])[0]
+        await account_provider_attempt(
+            provider="openai",
+            model=model,
+            api_model=model,
+            outcome="success",
+            usage=usage,
+            latency_ms=round(elapsed_ms, 2),
+            stream=False,
+            provider_request_id=str(data.get("id") or "") or None,
+            finish_reason=str(choice.get("finish_reason") or "") or None,
+            org_id=tenant_id,
+            pipeline=pipeline,
+            extras={"tools": bool(tools)},
+        )
+        return data
+    except BaseException as e:
+        elapsed_ms = (time.perf_counter() - attempt_t0) * 1000.0
+        await account_provider_attempt(
+            provider="openai",
+            model=model,
+            api_model=model,
+            outcome=classify_call_outcome(e),
+            usage=usage_missing(),
+            latency_ms=round(elapsed_ms, 2),
+            stream=False,
+            error_class=type(e).__name__,
+            org_id=tenant_id,
+            pipeline=pipeline,
+            extras={"tools": bool(tools)},
+        )
+        raise
 
 
 # ---------------------------------------------------------------------------

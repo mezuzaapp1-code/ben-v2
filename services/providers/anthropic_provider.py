@@ -10,7 +10,17 @@ from typing import Any
 import httpx
 
 from services.chat_prompt import GLOBAL_CHAT_SYSTEM
-from services.providers.base_provider import BaseProvider, ProviderSendResult, tenant_header
+from services.inference.usage_normalize import (
+    merge_anthropic_stream_usage,
+    normalize_anthropic_usage,
+    usage_missing,
+)
+from services.providers.base_provider import (
+    BaseProvider,
+    ProviderSendResult,
+    ProviderStreamEnd,
+    tenant_header,
+)
 from services.providers.call_diagnostics import estimate_request_tokens, log_chat_provider_call
 
 # May 2026 frontier defaults (enforced when callers omit explicit model env overrides).
@@ -88,9 +98,10 @@ class AnthropicProvider(BaseProvider):
             total_ms = int((time.perf_counter() - t0) * 1000.0)
             d = json.loads(body)
             txt = "".join(b.get("text", "") for b in d.get("content", []) if b.get("type") == "text")
-            u = d.get("usage") or {}
-            pi, po = int(u.get("input_tokens", 0)), int(u.get("output_tokens", 0))
+            usage = normalize_anthropic_usage(d.get("usage"))
+            pi, po = usage.input_tokens, usage.output_tokens
             truncated = anthropic_completion_truncated(d, max_tokens=max_tokens, completion_tokens=po)
+            stop = d.get("stop_reason")
             log_chat_provider_call(
                 provider="anthropic",
                 model=model,
@@ -103,10 +114,16 @@ class AnthropicProvider(BaseProvider):
                 ttfb_ms=ttfb_ms,
                 max_tokens=max_tokens,
                 truncation_detected=truncated,
-                stop_reason=d.get("stop_reason"),
+                stop_reason=stop,
             )
             return ProviderSendResult.from_token_counts(
-                txt, pi, po, completion_truncated=truncated
+                txt,
+                pi,
+                po,
+                completion_truncated=truncated,
+                usage=usage,
+                provider_request_id=str(d.get("id") or "") or None,
+                finish_reason=str(stop) if stop else None,
             )
         except BaseException as e:
             total_ms = int((time.perf_counter() - t0) * 1000.0)
@@ -135,8 +152,11 @@ class AnthropicProvider(BaseProvider):
         message: str,
         tenant_id: str,
         system: str | None = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[str | ProviderStreamEnd]:
         api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+        usage = usage_missing()
+        provider_request_id: str | None = None
+        finish_reason: str | None = None
         async with cx.stream(
             "POST",
             "https://api.anthropic.com/v1/messages",
@@ -159,7 +179,27 @@ class AnthropicProvider(BaseProvider):
                     event = json.loads(payload)
                 except json.JSONDecodeError:
                     continue
-                if event.get("type") == "content_block_delta":
+                et = event.get("type")
+                if et == "message_start":
+                    msg = event.get("message") or {}
+                    if msg.get("id"):
+                        provider_request_id = str(msg.get("id"))
+                    if msg.get("usage"):
+                        usage = normalize_anthropic_usage(msg.get("usage"))
+                elif et == "content_block_delta":
                     text = (event.get("delta") or {}).get("text")
                     if text:
                         yield str(text)
+                elif et == "message_delta":
+                    delta = event.get("delta") or {}
+                    if delta.get("stop_reason"):
+                        finish_reason = str(delta.get("stop_reason"))
+                    if event.get("usage"):
+                        usage = merge_anthropic_stream_usage(usage, event.get("usage"))
+                elif et == "message_stop":
+                    break
+        yield ProviderStreamEnd(
+            usage=usage,
+            provider_request_id=provider_request_id,
+            finish_reason=finish_reason,
+        )

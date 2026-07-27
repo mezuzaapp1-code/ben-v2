@@ -7,6 +7,7 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -559,4 +560,62 @@ class NewsClaim(Base):
     extractor_version: Mapped[str] = mapped_column(String(64), nullable=False)
     provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
     model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class InferenceCallRecordRow(Base):
+    """Append-only inference accounting ledger — one row per provider call attempt."""
+
+    __tablename__ = "inference_call_records"
+    __table_args__ = (
+        Index("ix_inference_call_records_request_id", "request_id"),
+        Index("ix_inference_call_records_execution_id", "execution_id"),
+        Index("ix_inference_call_records_org_started", "org_id", "started_at"),
+        Index("ix_inference_call_records_workspace_started", "workspace_id", "started_at"),
+        Index("ix_inference_call_records_provider_model", "provider", "model"),
+        CheckConstraint(
+            "outcome IN ("
+            "'success','error','timeout','client_disconnect','stream_interrupted','rejected')",
+            name="ck_inference_call_records_outcome",
+        ),
+        CheckConstraint(
+            "usage_status IN ('exact','estimated','missing')",
+            name="ck_inference_call_records_usage_status",
+        ),
+        CheckConstraint(
+            "cost_status IN ('priced','unknown','unpriced','zero')",
+            name="ck_inference_call_records_cost_status",
+        ),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    execution_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    org_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    workspace_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    user_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    capability_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pipeline: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    api_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    stream: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    cached_input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    reasoning_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    usage_status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'missing'"))
+    cost_usd: Mapped[float | None] = mapped_column(Numeric(18, 8), nullable=True)
+    cost_status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'unknown'"))
+    pricing_version: Mapped[str] = mapped_column(String(64), nullable=False, server_default=text("'unknown'"))
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, server_default=text("'USD'"))
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    provider_request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    finish_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_class: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    extras: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))

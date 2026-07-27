@@ -7,6 +7,9 @@ from dataclasses import dataclass
 
 import httpx
 
+from services.inference.contracts import InferenceUsage
+from services.inference.usage_normalize import usage_missing
+
 
 @dataclass(frozen=True)
 class ProviderSendResult:
@@ -15,6 +18,9 @@ class ProviderSendResult:
     prompt_tokens: int
     completion_tokens: int
     completion_truncated: bool = False
+    usage: InferenceUsage | None = None
+    provider_request_id: str | None = None
+    finish_reason: str | None = None
 
     @classmethod
     def from_token_counts(
@@ -24,15 +30,40 @@ class ProviderSendResult:
         completion_tokens: int,
         *,
         completion_truncated: bool = False,
+        usage: InferenceUsage | None = None,
+        provider_request_id: str | None = None,
+        finish_reason: str | None = None,
     ) -> ProviderSendResult:
         pi, po = int(prompt_tokens), int(completion_tokens)
+        resolved = usage
+        if resolved is None and (pi or po):
+            resolved = InferenceUsage(
+                input_tokens=pi,
+                output_tokens=po,
+                total_tokens=pi + po,
+                usage_status="exact",
+            )
+        if resolved is None:
+            resolved = usage_missing()
         return cls(
             content=content,
-            total_tokens=pi + po,
-            prompt_tokens=pi,
-            completion_tokens=po,
+            total_tokens=pi + po if (pi or po) else resolved.normalized_total(),
+            prompt_tokens=pi or resolved.input_tokens,
+            completion_tokens=po or resolved.output_tokens,
             completion_truncated=completion_truncated,
+            usage=resolved,
+            provider_request_id=provider_request_id,
+            finish_reason=finish_reason,
         )
+
+
+@dataclass(frozen=True)
+class ProviderStreamEnd:
+    """Terminal stream event carrying normalized usage (may be missing)."""
+
+    usage: InferenceUsage
+    provider_request_id: str | None = None
+    finish_reason: str | None = None
 
 
 def tenant_header(tenant_id: str) -> dict[str, str]:
@@ -67,10 +98,15 @@ class BaseProvider(ABC):
         message: str,
         tenant_id: str,
         system: str | None = None,
-    ) -> AsyncIterator[str]:
-        """Yield response text chunks from provider streaming APIs."""
+    ) -> AsyncIterator[str | ProviderStreamEnd]:
+        """Yield response text chunks; final item may be ProviderStreamEnd with usage."""
         result = await self.send_message(
             cx, model=model, message=message, tenant_id=tenant_id, system=system
         )
         if result.content:
             yield result.content
+        yield ProviderStreamEnd(
+            usage=result.usage or usage_missing(),
+            provider_request_id=result.provider_request_id,
+            finish_reason=result.finish_reason,
+        )

@@ -508,7 +508,10 @@ def test_migration_008_upgrade_downgrade_wired():
     rev = script.get_revision("008_news_claims_e1")
     assert rev is not None
     assert rev.down_revision == "007_news_event_packages_v1"
-    assert script.get_current_head() == "008_news_claims_e1"
+    assert script.get_current_head() == "009_inference_call_records"
+    head = script.get_revision("009_inference_call_records")
+    assert head is not None
+    assert head.down_revision == "008_news_claims_e1"
 
     path = root / "database" / "migrations" / "versions" / "008_news_claims_e1.py"
     spec = importlib.util.spec_from_file_location("mig_008_news_claims_e1", path)

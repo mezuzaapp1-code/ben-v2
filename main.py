@@ -89,6 +89,7 @@ from services.thread_service import (
 )
 from services.workspace_resolver import CLIENT_WORKSPACE_ID_HEADER, resolve_workspace_context
 from services.execution_plan import resolve_execution_plan
+from services.inference.execution_context import begin_execution_context
 from routers.beta_session import router as beta_session_router
 from database.knowledge_store import init_knowledge_store
 from database.thread_store import init_thread_store
@@ -292,6 +293,14 @@ def _attach_request_execution_plan(
         requested_resource=requested_resource,
     )
     attach_execution_plan_to_request_diagnostics(plan)
+    # Pass 1: boarding-pass ExecutionContext for gateway accounting (measure-only).
+    begin_execution_context(
+        org_id=plan.org_id,
+        workspace_id=plan.workspace_id,
+        capability_key=plan.capability_key,
+        pipeline=plan.capability_key,
+        provider=plan.resolved_resource,
+    )
     return plan
 
 

@@ -16,6 +16,7 @@ from services.ben_log_service import capture_chat_exchange
 from services.chat_language import apply_language_context
 from services.message_format import encode_chat_assistant, gateway_to_provider_id
 from services.copilot_orchestrator import run_copilot_preamble
+from services.inference.gateway_meter import get_last_accounted_call
 from services.model_gateway import route_request, route_request_stream, validate_chat_model_override
 from services.ops.failure_classification import classify_failure
 from services.ops.runtime_diagnostics import attach_workspace_to_request_diagnostics
@@ -195,7 +196,7 @@ async def stream_chat_response(
                     assistant_content=encode_chat_assistant(
                         resp,
                         model_used=str((done_event or {}).get("model_used") or ""),
-                        cost_usd=0.0,
+                        cost_usd=float((done_event or {}).get("cost_usd") or 0.0),
                         provider_id="gpt",
                     ),
                     provider="gpt",
@@ -308,6 +309,9 @@ async def stream_chat_response(
     if not resolved_provider_id:
         resolved_provider_id = gateway_to_provider_id(provider_used)
 
+    accounted = get_last_accounted_call() or {}
+    stream_cost = float(accounted.get("cost_usd") or 0.0)
+
     perf = _finalize_stream_perf(
         stream_started=stream_started,
         first_token_at=first_token_at,
@@ -324,7 +328,7 @@ async def stream_chat_response(
             assistant_content=encode_chat_assistant(
                 resp,
                 model_used=model_u,
-                cost_usd=0.0,
+                cost_usd=stream_cost,
                 provider_id=resolved_provider_id,
                 provider_used=provider_used,
             ),
@@ -348,7 +352,7 @@ async def stream_chat_response(
             persist_user_text,
             resp,
             model_u=model_u,
-            cost=0.0,
+            cost=stream_cost,
             resolved_provider_id=resolved_provider_id,
             provider_used=provider_used,
         )
@@ -360,12 +364,16 @@ async def stream_chat_response(
             "thread_id": str(tid),
             "response": resp,
             "model_used": model_u,
-            "cost_usd": 0.0,
+            "cost_usd": stream_cost,
             "provider_id": resolved_provider_id,
             "provider_used": provider_used,
             "mode": "rolling" if expert_opinion else ("handoff" if cross_engine else "chat"),
             "sqlite_user_id": sqlite_user_id,
             "sqlite_assistant_id": sqlite_assistant_id,
+            "execution_id": accounted.get("execution_id"),
+            "call_id": accounted.get("call_id"),
+            "usage_status": accounted.get("usage_status"),
+            "pricing_version": accounted.get("pricing_version"),
             **perf,
         }
     )

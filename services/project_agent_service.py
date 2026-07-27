@@ -16,10 +16,6 @@ from typing import Any
 
 
 
-import httpx
-
-
-
 from database.thread_store import get_thread_metadata
 
 from services.knowledge_store import build_multi_head_prompt_context
@@ -38,6 +34,8 @@ from services.project_tools import (
 
 )
 
+from services.inference.gateway_meter import get_last_accounted_call
+from services.model_gateway import accounted_openai_chat_completion
 from services.providers.openai_provider import OPENAI_CHAT_FAST_MODEL
 
 
@@ -122,41 +120,21 @@ async def _openai_chat_completion(
 
 ) -> dict[str, Any]:
 
-    api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    """Delegate to model_gateway so every provider call is accounted."""
 
-    if not api_key:
+    return await accounted_openai_chat_completion(
 
-        raise RuntimeError("OPENAI_API_KEY is not configured for project agent tools.")
+        messages=messages,
 
-    payload: dict[str, Any] = {
+        tools=tools,
 
-        "model": _openai_model(),
+        tenant_id=tenant_id,
 
-        "messages": messages,
+        model=_openai_model(),
 
-    }
+        pipeline="project_agent",
 
-    if tools:
-
-        payload["tools"] = tools
-
-        payload["tool_choice"] = "auto"
-
-    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
-
-        response = await client.post(
-
-            "https://api.openai.com/v1/chat/completions",
-
-            headers={"Authorization": f"Bearer {api_key}"},
-
-            json=payload,
-
-        )
-
-        response.raise_for_status()
-
-        return response.json()
+    )
 
 
 
@@ -467,7 +445,7 @@ async def stream_project_agent_response(
 
             "provider_used": "openai",
 
-            "cost_usd": 0.0,
+            "cost_usd": float((get_last_accounted_call() or {}).get("cost_usd") or 0.0),
 
             "mode": "project_setup",
 

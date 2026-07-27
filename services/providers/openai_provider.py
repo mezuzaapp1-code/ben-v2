@@ -8,7 +8,13 @@ from collections.abc import AsyncIterator
 import httpx
 
 from services.chat_prompt import GLOBAL_CHAT_SYSTEM
-from services.providers.base_provider import BaseProvider, ProviderSendResult, tenant_header
+from services.inference.usage_normalize import normalize_openai_usage, usage_missing
+from services.providers.base_provider import (
+    BaseProvider,
+    ProviderSendResult,
+    ProviderStreamEnd,
+    tenant_header,
+)
 
 # May 2026 frontier defaults (enforced when callers omit explicit model env overrides).
 OPENAI_CHAT_FAST_MODEL = "gpt-5.5-instant"
@@ -43,10 +49,17 @@ class OpenAIProvider(BaseProvider):
         )
         r.raise_for_status()
         d = r.json()
-        u = d.get("usage") or {}
-        pi, po = int(u.get("prompt_tokens", 0)), int(u.get("completion_tokens", 0))
+        usage = normalize_openai_usage(d.get("usage"))
+        choice = (d.get("choices") or [{}])[0]
+        content = str((choice.get("message") or {}).get("content") or "")
+        finish = choice.get("finish_reason")
         return ProviderSendResult.from_token_counts(
-            str(d["choices"][0]["message"]["content"]), pi, po
+            content,
+            usage.input_tokens,
+            usage.output_tokens,
+            usage=usage,
+            provider_request_id=str(d.get("id") or "") or None,
+            finish_reason=str(finish) if finish else None,
         )
 
     async def stream_message(
@@ -57,8 +70,11 @@ class OpenAIProvider(BaseProvider):
         message: str,
         tenant_id: str,
         system: str | None = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[str | ProviderStreamEnd]:
         api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        usage = usage_missing()
+        provider_request_id: str | None = None
+        finish_reason: str | None = None
         async with cx.stream(
             "POST",
             "https://api.openai.com/v1/chat/completions",
@@ -67,6 +83,7 @@ class OpenAIProvider(BaseProvider):
                 "model": model,
                 "messages": self._messages(message, system),
                 "stream": True,
+                "stream_options": {"include_usage": True},
             },
         ) as response:
             response.raise_for_status()
@@ -80,9 +97,21 @@ class OpenAIProvider(BaseProvider):
                     data = json.loads(payload)
                 except json.JSONDecodeError:
                     continue
+                if data.get("id") and not provider_request_id:
+                    provider_request_id = str(data.get("id"))
+                if data.get("usage"):
+                    usage = normalize_openai_usage(data.get("usage"))
                 choices = data.get("choices") or []
                 if not choices:
                     continue
-                delta = (choices[0].get("delta") or {}).get("content")
+                choice0 = choices[0]
+                if choice0.get("finish_reason"):
+                    finish_reason = str(choice0.get("finish_reason"))
+                delta = (choice0.get("delta") or {}).get("content")
                 if delta:
                     yield str(delta)
+        yield ProviderStreamEnd(
+            usage=usage,
+            provider_request_id=provider_request_id,
+            finish_reason=finish_reason,
+        )

@@ -19,6 +19,7 @@ import main  # noqa: E402
 from services.model_gateway import (  # noqa: E402
     normalize_chat_provider_id,
     normalize_model_override,
+    reset_circuit_breakers_for_tests,
     resolve_dispatch_model,
     route_request,
     route_request_stream,
@@ -46,8 +47,9 @@ def _env(monkeypatch):
     monkeypatch.setenv("BEN_ANONYMOUS_ORG_ID", TENANT)
     reset_idempotency_registry_for_tests()
     reset_load_governor_for_tests()
+    reset_circuit_breakers_for_tests()
     yield
-
+    reset_circuit_breakers_for_tests()
 
 @pytest.fixture(autouse=True)
 def _active_speaking_engines(tmp_path, monkeypatch):
