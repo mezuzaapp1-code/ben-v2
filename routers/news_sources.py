@@ -15,7 +15,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from auth.beta_gate import build_project_tenant_context_from_request
-from auth.news_registry_privileges import assert_can_manage_news_sources
+from auth.news_cron_auth import assert_news_cron_or_admin, verify_news_cron_secret
+from auth.news_registry_privileges import assert_can_manage_news_sources, can_manage_news_sources
 from services.news import (
     article_read_service,
     claim_extraction_service,
@@ -27,6 +28,14 @@ from services.news import (
 from services.news.collect_service import collect_source
 from services.news.event_package import EventPackage
 from services.news.feed_url import validate_feed_url
+from services.news.pipeline_service import (
+    DEFAULT_LOOKBACK_HOURS,
+    DEFAULT_MAX_ARTICLES,
+    DEFAULT_MAX_SOURCES,
+    DEFAULT_PER_SOURCE_TIMEOUT_S,
+    run_news_pipeline,
+)
+from services.news.seed_service import seed_curated_sources
 from services.ops.request_context import get_request_id
 
 router = APIRouter(prefix="/api/internal/news", tags=["news-sources"])
@@ -137,12 +146,48 @@ class HeuristicEventBuildBody(BaseModel):
     dry_run: bool = False
 
 
+class NewsSeedBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    validate_live: bool = True
+    enable_valid: bool = True
+
+
+class NewsPipelineRunBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_sources: int = Field(DEFAULT_MAX_SOURCES, ge=1, le=50)
+    lookback_hours: int = Field(
+        DEFAULT_LOOKBACK_HOURS,
+        ge=heuristic_event_builder.MIN_LOOKBACK_HOURS,
+        le=heuristic_event_builder.MAX_LOOKBACK_HOURS,
+    )
+    max_articles: int = Field(
+        DEFAULT_MAX_ARTICLES,
+        ge=heuristic_event_builder.MIN_MAX_ARTICLES,
+        le=heuristic_event_builder.MAX_MAX_ARTICLES,
+    )
+    per_source_timeout_s: float = Field(DEFAULT_PER_SOURCE_TIMEOUT_S, ge=5.0, le=120.0)
+    skip_build: bool = False
+    dry_run_build: bool = False
+
+
 async def _require_news_admin(request: Request, *, route_operation: str):
     ctx = await build_project_tenant_context_from_request(
         request, route_operation=route_operation
     )
     assert_can_manage_news_sources(ctx)
     return ctx
+
+
+async def _require_news_admin_or_cron(request: Request, *, route_operation: str) -> str:
+    """Cron secret bypasses Clerk; otherwise require news-admin tenant context."""
+    if verify_news_cron_secret(request.headers.get("X-BEN-News-Cron-Secret")):
+        return "cron_secret"
+    ctx = await build_project_tenant_context_from_request(
+        request, route_operation=route_operation
+    )
+    return assert_news_cron_or_admin(request, admin_ok=can_manage_news_sources(ctx))
 
 
 @router.get("/sources")
@@ -176,6 +221,22 @@ async def create_news_source(request: Request, body: NewsSourceCreate):
 async def validate_news_source_url(request: Request, body: NewsSourceValidateBody):
     await _require_news_admin(request, route_operation="news_sources_validate")
     return validate_feed_url(body.feed_url)
+
+
+@router.post("/sources/seed-curated")
+async def seed_curated_news_sources(
+    request: Request,
+    body: NewsSeedBody | None = None,
+):
+    """Idempotent curated source seed with live feed validation (news-admin or cron)."""
+    auth_mode = await _require_news_admin_or_cron(request, route_operation="news_sources_seed")
+    params = body or NewsSeedBody()
+    result = await seed_curated_sources(
+        validate_live=params.validate_live,
+        enable_valid=params.enable_valid,
+    )
+    result["auth_mode"] = auth_mode
+    return result
 
 
 @router.get("/sources/{source_id}")
@@ -370,3 +431,27 @@ async def publish_news_event_package(
             detail=exc.errors(),
         ) from exc
     return await event_package_service.publish_event_package(payload)
+
+
+@router.post("/pipeline/run")
+async def run_bounded_news_pipeline(
+    request: Request,
+    body: NewsPipelineRunBody | None = None,
+):
+    """Bounded collect → build → report cycle (news-admin or cron secret)."""
+    auth_mode = await _require_news_admin_or_cron(request, route_operation="news_pipeline_run")
+    params = body or NewsPipelineRunBody()
+    result = await run_news_pipeline(
+        max_sources=params.max_sources,
+        lookback_hours=params.lookback_hours,
+        max_articles=params.max_articles,
+        per_source_timeout_s=params.per_source_timeout_s,
+        skip_build=params.skip_build,
+        dry_run_build=params.dry_run_build,
+    )
+    result["auth_mode"] = auth_mode
+    if result.get("status") == "rejected" and result.get("error_class") == "concurrency_conflict":
+        return JSONResponse(status_code=status.HTTP_409_CONFLICT, content=result)
+    if result.get("status") == "rejected":
+        return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=result)
+    return result
