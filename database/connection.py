@@ -53,3 +53,8 @@ async def warmup_database_pool() -> bool:
         return True
     except Exception:
         return False
+
+
+async def dispose_engine() -> None:
+    """Dispose the shared async engine (CLI / cron exit hygiene)."""
+    await _engine.dispose()

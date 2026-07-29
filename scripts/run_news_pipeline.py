@@ -75,5 +75,21 @@ async def _main() -> int:
     return 0
 
 
+async def _shutdown() -> None:
+    """Close DB engine so Railway Cron deployments terminate cleanly."""
+    try:
+        from database.connection import dispose_engine
+
+        await dispose_engine()
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(_main()))
+    async def _entry() -> int:
+        try:
+            return await _main()
+        finally:
+            await _shutdown()
+
+    raise SystemExit(asyncio.run(_entry()))
