@@ -98,6 +98,7 @@ from routers.platform_capabilities import router as platform_capabilities_router
 from routers.repositories import router as project_repositories_router
 from routers.news_product import router as news_product_router
 from routers.news_sources import router as news_sources_router
+from routers.intelligence_internal import router as intelligence_internal_router
 from routers.projects import router as projects_router
 from routers.public_basalt import router as public_basalt_router
 
@@ -195,6 +196,7 @@ app.include_router(beta_session_router)
 app.include_router(public_basalt_router)
 app.include_router(news_product_router)
 app.include_router(news_sources_router)
+app.include_router(intelligence_internal_router)
 
 app.add_middleware(RequestIdMiddleware)
 

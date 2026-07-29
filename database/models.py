@@ -663,3 +663,42 @@ class InferenceCallRecordRow(Base):
     finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     extras: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class EventUnderstandingRow(Base):
+    """Intelligence-layer EventUnderstanding — never mutates News EventPackage rows."""
+
+    __tablename__ = "event_understandings"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id",
+            "package_version",
+            "classifier_version",
+            "template_version",
+            name="uq_event_understandings_identity",
+        ),
+        Index(
+            "ix_event_understandings_event_package",
+            "event_id",
+            "package_version",
+        ),
+        Index("ix_event_understandings_primary_type", "primary_event_type"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.news_events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    package_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    classifier_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    template_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    primary_event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
