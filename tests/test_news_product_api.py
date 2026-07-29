@@ -241,12 +241,58 @@ async def test_ranked_order_matches_editorial_engine():
 # --- HTTP ---------------------------------------------------------------------
 
 
-def test_top_requires_auth():
+def test_top_allows_unsigned_when_auth_not_enforced():
+    feed = _ranked_feed(
+        [_package(event_id=EVENT_A, headline="Public readable", sources=1)],
+        top_n=10,
+    )
+    with patch(
+        "services.news.product_news_api.rank_top_event_packages",
+        new_callable=AsyncMock,
+        return_value=feed,
+    ):
+        client = TestClient(main.app)
+        res = client.get("/api/news/top")
+    assert res.status_code == 200
+    assert len(res.json()["items"]) == 1
+
+
+def test_topic_allows_unsigned_when_auth_not_enforced():
+    detail = {
+        "event_id": str(EVENT_A),
+        "package_version": 1,
+        "schema_version": EVENT_PACKAGE_SCHEMA_VERSION,
+        "headline": "Topic",
+        "summary": "Summary",
+        "why_it_matters": [],
+        "lifecycle": "developing",
+        "conflict_open": False,
+        "happened_at": None,
+        "updated_at": T0.isoformat(),
+        "sources": [],
+        "articles": [],
+        "current_facts": [],
+        "conflicts": [],
+        "claims": [],
+    }
+    with patch(
+        "services.news.product_news_api.get_topic_detail",
+        new_callable=AsyncMock,
+        return_value={"topic": detail},
+    ):
+        client = TestClient(main.app)
+        res = client.get(f"/api/news/topics/{EVENT_A}")
+    assert res.status_code == 200
+
+
+def test_top_requires_auth_when_enforced(monkeypatch):
+    monkeypatch.setenv("ENFORCE_AUTH", "true")
     client = TestClient(main.app)
     assert client.get("/api/news/top").status_code == 401
 
 
-def test_topic_requires_auth():
+def test_topic_requires_auth_when_enforced(monkeypatch):
+    monkeypatch.setenv("ENFORCE_AUTH", "true")
     client = TestClient(main.app)
     assert client.get(f"/api/news/topics/{EVENT_A}").status_code == 401
 
