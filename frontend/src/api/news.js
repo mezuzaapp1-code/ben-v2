@@ -25,6 +25,7 @@ import { humanizeBenHttpError, parseBenErrorResponse, readJsonResponse } from '.
  * @property {string} lifecycle
  * @property {boolean} conflict_open
  * @property {string[]} reasons
+ * @property {string|null} [image_url]
  */
 
 /**
@@ -51,6 +52,7 @@ import { humanizeBenHttpError, parseBenErrorResponse, readJsonResponse } from '.
  * @property {string|null} [published_at]
  * @property {string} source_id
  * @property {string} role
+ * @property {string|null} [image_url]
  */
 
 /**
@@ -65,6 +67,7 @@ import { humanizeBenHttpError, parseBenErrorResponse, readJsonResponse } from '.
  * @property {boolean} conflict_open
  * @property {string|null} [happened_at]
  * @property {string|null} [updated_at]
+ * @property {string|null} [image_url]
  * @property {NewsTopicSource[]} sources
  * @property {NewsTopicArticle[]} articles
  * @property {object[]} current_facts

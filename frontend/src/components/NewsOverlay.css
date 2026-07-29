@@ -188,9 +188,13 @@
   border-bottom: 1px solid color-mix(in srgb, var(--ben-border) 70%, transparent);
   background: transparent;
   color: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   touch-action: manipulation;
+}
+
+.news-feed__row--with-media {
+  grid-template-columns: 2.5rem minmax(0, 1fr) 5.75rem;
 }
 
 .news-feed__row:hover,
@@ -210,6 +214,27 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
   padding-top: 0.15rem;
+}
+
+.news-feed__copy {
+  min-width: 0;
+}
+
+.news-feed__media {
+  display: block;
+  width: 5.75rem;
+  height: 4.25rem;
+  border-radius: 10px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ben-bg-elevated) 70%, transparent);
+  align-self: start;
+}
+
+.news-feed__thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .news-feed__headline {
@@ -255,6 +280,22 @@
 
 .news-detail {
   padding: 0.25rem 1.25rem 1.5rem;
+}
+
+.news-detail__hero {
+  margin: 0 0 1rem;
+  border-radius: 14px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ben-bg-elevated) 70%, transparent);
+  aspect-ratio: 16 / 9;
+  max-height: 280px;
+}
+
+.news-detail__hero-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .news-detail__back {
@@ -354,9 +395,35 @@
 }
 
 .news-detail__article-link {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
   color: var(--ben-text);
   font-size: 0.95rem;
   font-weight: 600;
+  text-decoration: none;
+  line-height: 1.35;
+}
+
+.news-detail__article-thumb {
+  width: 4.5rem;
+  height: 3.35rem;
+  border-radius: 8px;
+  object-fit: cover;
+  background: color-mix(in srgb, var(--ben-bg-elevated) 70%, transparent);
+}
+
+.news-detail__article-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.news-detail__article-title {
+  color: inherit;
+}
   line-height: 1.35;
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--ben-accent) 45%, transparent);

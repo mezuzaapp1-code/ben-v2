@@ -74,3 +74,104 @@ export function singleDeleteConfirmMessage(locale = getUiLocale()) {
   }
   return 'Delete this workspace and all associated physical project files?'
 }
+
+/** BEN News chrome (content language stays English until translation pass). */
+export function newsEyebrowLabel(locale = getUiLocale()) {
+  return 'BEN News'
+}
+
+export function newsFeedTitle(locale = getUiLocale()) {
+  return locale === 'he' ? '10 החדשות המובילות' : 'Top 10 AI News'
+}
+
+export function newsTopicTitle(locale = getUiLocale()) {
+  return locale === 'he' ? 'נושא' : 'Topic'
+}
+
+export function newsCloseLabel(locale = getUiLocale()) {
+  return locale === 'he' ? 'סגור' : 'Close'
+}
+
+export function newsCloseNewsLabel(locale = getUiLocale()) {
+  return locale === 'he' ? 'סגור את BEN News' : 'Close BEN News'
+}
+
+export function newsLoadingFeedLabel(locale = getUiLocale()) {
+  return locale === 'he' ? 'טוען ידיעות…' : 'Loading top stories…'
+}
+
+export function newsLoadingTopicLabel(locale = getUiLocale()) {
+  return locale === 'he' ? 'טוען נושא…' : 'Loading topic…'
+}
+
+export function newsRetryLabel(locale = getUiLocale()) {
+  return locale === 'he' ? 'נסה שוב' : 'Retry'
+}
+
+export function newsEmptyTitle(locale = getUiLocale()) {
+  return locale === 'he' ? 'עדיין אין ידיעות מדורגות.' : 'No ranked news topics are available yet.'
+}
+
+export function newsEmptyHint(locale = getUiLocale()) {
+  return locale === 'he'
+    ? 'ידיעות חדשות יופיעו אחרי מחזור האיסוף והבנייה הבא.'
+    : 'New stories will appear after the next collection and build cycle.'
+}
+
+export function newsBackToFeedLabel(locale = getUiLocale()) {
+  return locale === 'he' ? '← חזרה ל־Top 10' : '← Back to Top 10'
+}
+
+export function newsTopicMissingLabel(locale = getUiLocale()) {
+  return locale === 'he' ? 'הנושא הזה כבר לא זמין.' : 'This news topic is no longer available.'
+}
+
+export function newsSourceCountLabel(count, locale = getUiLocale()) {
+  const n = Number(count) || 0
+  if (locale === 'he') return n === 1 ? 'מקור אחד' : `${n} מקורות`
+  return n === 1 ? '1 source' : `${n} sources`
+}
+
+export function newsArticleCountLabel(count, locale = getUiLocale()) {
+  const n = Number(count) || 0
+  if (locale === 'he') return n === 1 ? 'מאמר אחד' : `${n} מאמרים`
+  return n === 1 ? '1 article' : `${n} articles`
+}
+
+export function newsOpenConflictLabel(locale = getUiLocale()) {
+  return locale === 'he' ? 'מחלוקת פתוחה' : 'Open conflict'
+}
+
+export function newsWhyHeading(locale = getUiLocale()) {
+  return locale === 'he' ? 'למה זה חשוב' : 'Why it matters'
+}
+
+export function newsCoverageHeading(locale = getUiLocale()) {
+  return locale === 'he' ? 'סיקור תומך' : 'Supporting coverage'
+}
+
+export function newsSourcesHeading(locale = getUiLocale()) {
+  return locale === 'he' ? 'מקורות' : 'Sources'
+}
+
+export function newsFactsHeading(locale = getUiLocale()) {
+  return locale === 'he' ? 'עובדות נוכחיות' : 'Current facts'
+}
+
+export function newsConflictsHeading(locale = getUiLocale()) {
+  return locale === 'he' ? 'מחלוקות' : 'Conflicts'
+}
+
+export function newsOpensInNewTabLabel(locale = getUiLocale()) {
+  return locale === 'he' ? ' (נפתח בלשונית חדשה)' : ' (opens in new tab)'
+}
+
+export function newsDefaultSourceLabel(locale = getUiLocale()) {
+  return locale === 'he' ? 'מקור' : 'Source'
+}
+
+export function newsImageAlt(headline, locale = getUiLocale()) {
+  const title = String(headline || '').trim()
+  if (locale === 'he') return title ? `תמונה: ${title}` : 'תמונת הידיעה'
+  return title ? `Image: ${title}` : 'Story image'
+}

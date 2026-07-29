@@ -1,8 +1,34 @@
 import PropTypes from 'prop-types'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { fetchNewsTop, fetchNewsTopic } from '../api/news.js'
+import { useUiLocale } from '../hooks/useUiLocale.js'
 import { formatRelativeTime, formatUpdatedLabel } from '../lib/formatRelativeTime.js'
 import { isValidEventId, newsFeedPath, newsTopicPath } from '../lib/newsRoutes.js'
+import {
+  newsArticleCountLabel,
+  newsBackToFeedLabel,
+  newsCloseLabel,
+  newsCloseNewsLabel,
+  newsConflictsHeading,
+  newsCoverageHeading,
+  newsDefaultSourceLabel,
+  newsEmptyHint,
+  newsEmptyTitle,
+  newsEyebrowLabel,
+  newsFactsHeading,
+  newsFeedTitle,
+  newsImageAlt,
+  newsLoadingFeedLabel,
+  newsLoadingTopicLabel,
+  newsOpenConflictLabel,
+  newsOpensInNewTabLabel,
+  newsRetryLabel,
+  newsSourceCountLabel,
+  newsSourcesHeading,
+  newsTopicMissingLabel,
+  newsTopicTitle,
+  newsWhyHeading,
+} from '../lib/uiStrings.js'
 import './NewsOverlay.css'
 
 export function NewsNavTrigger({ onOpen, active = false, disabled = false }) {
@@ -90,6 +116,7 @@ export function NewsOverlay({
 
   const view = route?.view || 'feed'
   const eventId = route?.eventId || null
+  const locale = useUiLocale()
 
   const loadFeed = useCallback(async () => {
     setFeedState((prev) => ({ ...prev, status: 'loading', error: null }))
@@ -119,7 +146,7 @@ export function NewsOverlay({
         setTopicState({
           status: 'error',
           topic: null,
-          error: 'This news topic link is invalid.',
+          error: newsTopicMissingLabel(locale),
           notFound: true,
         })
         return
@@ -140,13 +167,13 @@ export function NewsOverlay({
           status: 'error',
           topic: null,
           error: notFound
-            ? 'This news topic is no longer available.'
+            ? newsTopicMissingLabel(locale)
             : err?.message || 'Could not load this topic.',
           notFound,
         })
       }
     },
-    [buildHeaders]
+    [buildHeaders, locale]
   )
 
   useEffect(() => {
@@ -175,25 +202,37 @@ export function NewsOverlay({
 
   if (!open) return null
 
-  const title = view === 'detail' ? 'Topic' : 'Top 10 AI News'
+  const title = view === 'detail' ? newsTopicTitle(locale) : newsFeedTitle(locale)
 
   return (
-    <div className="news-overlay" role="dialog" aria-modal="true" aria-labelledby="news-overlay-title">
+    <div
+      className="news-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="news-overlay-title"
+      lang={locale}
+      dir={locale === 'he' ? 'rtl' : 'ltr'}
+    >
       <button
         type="button"
         className="news-overlay__scrim"
-        aria-label="Close BEN News"
+        aria-label={newsCloseNewsLabel(locale)}
         onClick={onClose}
       />
       <div className="news-overlay__panel">
         <header className="news-overlay__header">
           <div>
-            <p className="news-overlay__eyebrow">BEN News</p>
+            <p className="news-overlay__eyebrow">{newsEyebrowLabel(locale)}</p>
             <h1 id="news-overlay-title" className="news-overlay__title">
               {title}
             </h1>
           </div>
-          <button type="button" className="news-overlay__close" onClick={onClose} aria-label="Close">
+          <button
+            type="button"
+            className="news-overlay__close"
+            onClick={onClose}
+            aria-label={newsCloseLabel(locale)}
+          >
             ×
           </button>
         </header>
@@ -203,6 +242,7 @@ export function NewsOverlay({
             <FeedView
               state={feedState}
               disabled={disabled}
+              locale={locale}
               onSelect={(id) => onOpenTopic(id)}
               onRetry={loadFeed}
             />
@@ -210,6 +250,7 @@ export function NewsOverlay({
             <DetailView
               state={topicState}
               sourceNames={names}
+              locale={locale}
               onBack={onOpenFeed}
               onRetry={() => eventId && loadTopic(eventId)}
             />
@@ -238,11 +279,11 @@ NewsOverlay.defaultProps = {
   disabled: false,
 }
 
-function FeedView({ state, disabled, onSelect, onRetry }) {
+function FeedView({ state, disabled, locale, onSelect, onRetry }) {
   if (state.status === 'loading' || state.status === 'idle') {
     return (
       <p className="news-overlay__status" role="status" aria-live="polite">
-        Loading top stories…
+        {newsLoadingFeedLabel(locale)}
       </p>
     )
   }
@@ -252,7 +293,7 @@ function FeedView({ state, disabled, onSelect, onRetry }) {
       <div className="news-overlay__error" role="alert">
         <p>{state.error}</p>
         <button type="button" className="news-detail__back" onClick={onRetry}>
-          Retry
+          {newsRetryLabel(locale)}
         </button>
       </div>
     )
@@ -261,43 +302,40 @@ function FeedView({ state, disabled, onSelect, onRetry }) {
   if (!state.items.length) {
     return (
       <div className="news-overlay__empty" role="status">
-        <p>No ranked news topics are available yet.</p>
-        <p>New stories will appear after the next collection and build cycle.</p>
+        <p>{newsEmptyTitle(locale)}</p>
+        <p>{newsEmptyHint(locale)}</p>
       </div>
     )
   }
 
   return (
-    <ol className="news-feed" aria-label="Top 10 AI News">
+    <ol className="news-feed" aria-label={newsFeedTitle(locale)}>
       {state.items.map((item) => {
-        const updated = formatUpdatedLabel(item.updated_at)
+        const updated = formatUpdatedLabel(item.updated_at, undefined, locale)
         const lifecycle = usefulLifecycle(item.lifecycle)
         const why = Array.isArray(item.why_it_matters) && item.why_it_matters[0]?.text
           ? String(item.why_it_matters[0].text)
           : null
+        const imageUrl = typeof item.image_url === 'string' ? item.image_url.trim() : ''
         return (
           <li key={item.event_id}>
             <button
               type="button"
-              className="news-feed__row"
+              className={`news-feed__row${imageUrl ? ' news-feed__row--with-media' : ''}`}
               disabled={disabled}
               onClick={() => onSelect(item.event_id)}
             >
               <span className="news-feed__rank" aria-hidden="true">
                 {padRank(item.rank)}
               </span>
-              <span>
+              <span className="news-feed__copy">
                 <h2 className="news-feed__headline">{item.headline}</h2>
                 {item.summary ? <p className="news-feed__summary">{item.summary}</p> : null}
                 {why ? <p className="news-feed__why">{why}</p> : null}
                 <p className="news-feed__meta">
-                  <span>
-                    {item.source_count} {item.source_count === 1 ? 'source' : 'sources'}
-                  </span>
+                  <span>{newsSourceCountLabel(item.source_count, locale)}</span>
                   <span aria-hidden="true">·</span>
-                  <span>
-                    {item.article_count} {item.article_count === 1 ? 'article' : 'articles'}
-                  </span>
+                  <span>{newsArticleCountLabel(item.article_count, locale)}</span>
                   {updated ? (
                     <>
                       <span aria-hidden="true">·</span>
@@ -316,12 +354,24 @@ function FeedView({ state, disabled, onSelect, onRetry }) {
                     <>
                       <span aria-hidden="true">·</span>
                       <span className="news-feed__badge news-feed__badge--conflict">
-                        Open conflict
+                        {newsOpenConflictLabel(locale)}
                       </span>
                     </>
                   ) : null}
                 </p>
               </span>
+              {imageUrl ? (
+                <span className="news-feed__media" aria-hidden="true">
+                  <img
+                    className="news-feed__thumb"
+                    src={imageUrl}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    referrerPolicy="no-referrer"
+                  />
+                </span>
+              ) : null}
             </button>
           </li>
         )
@@ -333,19 +383,24 @@ function FeedView({ state, disabled, onSelect, onRetry }) {
 FeedView.propTypes = {
   state: PropTypes.object.isRequired,
   disabled: PropTypes.bool,
+  locale: PropTypes.string,
   onSelect: PropTypes.func.isRequired,
   onRetry: PropTypes.func.isRequired,
 }
 
-function DetailView({ state, sourceNames, onBack, onRetry }) {
+FeedView.defaultProps = {
+  locale: 'en',
+}
+
+function DetailView({ state, sourceNames, locale, onBack, onRetry }) {
   if (state.status === 'loading' || state.status === 'idle') {
     return (
       <div className="news-detail">
         <button type="button" className="news-detail__back" onClick={onBack}>
-          ← Back to Top 10
+          {newsBackToFeedLabel(locale)}
         </button>
         <p className="news-overlay__status" role="status" aria-live="polite">
-          Loading topic…
+          {newsLoadingTopicLabel(locale)}
         </p>
       </div>
     )
@@ -355,13 +410,13 @@ function DetailView({ state, sourceNames, onBack, onRetry }) {
     return (
       <div className="news-detail">
         <button type="button" className="news-detail__back" onClick={onBack}>
-          ← Back to Top 10
+          {newsBackToFeedLabel(locale)}
         </button>
         <div className="news-overlay__error" role="alert">
-          <p>{state.error || 'This news topic is no longer available.'}</p>
+          <p>{state.error || newsTopicMissingLabel(locale)}</p>
           {!state.notFound ? (
             <button type="button" className="news-detail__back" onClick={onRetry}>
-              Retry
+              {newsRetryLabel(locale)}
             </button>
           ) : null}
         </div>
@@ -370,7 +425,7 @@ function DetailView({ state, sourceNames, onBack, onRetry }) {
   }
 
   const topic = state.topic
-  const updated = formatUpdatedLabel(topic.updated_at)
+  const updated = formatUpdatedLabel(topic.updated_at, undefined, locale)
   const lifecycle = usefulLifecycle(topic.lifecycle)
   const whyItems = Array.isArray(topic.why_it_matters) ? topic.why_it_matters.filter((w) => w?.text) : []
   const facts = Array.isArray(topic.current_facts) ? topic.current_facts : []
@@ -379,22 +434,31 @@ function DetailView({ state, sourceNames, onBack, onRetry }) {
   const articles = Array.isArray(topic.articles) ? topic.articles : []
   const roles = new Set(articles.map((a) => a.role).filter(Boolean))
   const showRoles = roles.size > 1
+  const heroUrl = typeof topic.image_url === 'string' ? topic.image_url.trim() : ''
 
   return (
     <article className="news-detail">
       <button type="button" className="news-detail__back" onClick={onBack}>
-        ← Back to Top 10
+        {newsBackToFeedLabel(locale)}
       </button>
+      {heroUrl ? (
+        <div className="news-detail__hero">
+          <img
+            className="news-detail__hero-img"
+            src={heroUrl}
+            alt={newsImageAlt(topic.headline, locale)}
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+          />
+        </div>
+      ) : null}
       <h2 className="news-detail__headline">{topic.headline}</h2>
       {topic.summary ? <p className="news-detail__summary">{topic.summary}</p> : null}
       <p className="news-detail__meta">
-        <span>
-          {sources.length} {sources.length === 1 ? 'source' : 'sources'}
-        </span>
+        <span>{newsSourceCountLabel(sources.length, locale)}</span>
         <span aria-hidden="true">·</span>
-        <span>
-          {articles.length} {articles.length === 1 ? 'article' : 'articles'}
-        </span>
+        <span>{newsArticleCountLabel(articles.length, locale)}</span>
         {updated ? (
           <>
             <span aria-hidden="true">·</span>
@@ -412,7 +476,9 @@ function DetailView({ state, sourceNames, onBack, onRetry }) {
         {topic.conflict_open ? (
           <>
             <span aria-hidden="true">·</span>
-            <span className="news-feed__badge news-feed__badge--conflict">Open conflict</span>
+            <span className="news-feed__badge news-feed__badge--conflict">
+              {newsOpenConflictLabel(locale)}
+            </span>
           </>
         ) : null}
       </p>
@@ -420,7 +486,7 @@ function DetailView({ state, sourceNames, onBack, onRetry }) {
       {whyItems.length ? (
         <section className="news-detail__section" aria-labelledby="news-why-heading">
           <h3 id="news-why-heading" className="news-detail__section-title">
-            Why it matters
+            {newsWhyHeading(locale)}
           </h3>
           <ul className="news-detail__why-list">
             {whyItems.map((item, index) => (
@@ -433,12 +499,14 @@ function DetailView({ state, sourceNames, onBack, onRetry }) {
       {articles.length ? (
         <section className="news-detail__section" aria-labelledby="news-articles-heading">
           <h3 id="news-articles-heading" className="news-detail__section-title">
-            Supporting coverage
+            {newsCoverageHeading(locale)}
           </h3>
           <ul className="news-detail__article-list">
             {articles.map((article) => {
-              const published = formatRelativeTime(article.published_at)
-              const sourceLabel = sourceNames.get(String(article.source_id)) || 'Source'
+              const published = formatRelativeTime(article.published_at, undefined, locale)
+              const sourceLabel =
+                sourceNames.get(String(article.source_id)) || newsDefaultSourceLabel(locale)
+              const thumb = typeof article.image_url === 'string' ? article.image_url.trim() : ''
               return (
                 <li key={article.article_id} className="news-detail__article">
                   <a
@@ -447,14 +515,26 @@ function DetailView({ state, sourceNames, onBack, onRetry }) {
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    {article.title}
-                    <span className="news-sr-only"> (opens in new tab)</span>
+                    {thumb ? (
+                      <img
+                        className="news-detail__article-thumb"
+                        src={thumb}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : null}
+                    <span className="news-detail__article-copy">
+                      <span className="news-detail__article-title">{article.title}</span>
+                      <span className="news-sr-only">{newsOpensInNewTabLabel(locale)}</span>
+                      <span className="news-detail__article-meta">
+                        {sourceLabel}
+                        {published ? ` · ${published.label}` : null}
+                        {showRoles && article.role ? ` · ${article.role}` : null}
+                      </span>
+                    </span>
                   </a>
-                  <p className="news-detail__article-meta">
-                    {sourceLabel}
-                    {published ? ` · ${published.label}` : null}
-                    {showRoles && article.role ? ` · ${article.role}` : null}
-                  </p>
                 </li>
               )
             })}
@@ -465,7 +545,7 @@ function DetailView({ state, sourceNames, onBack, onRetry }) {
       {sources.length ? (
         <section className="news-detail__section" aria-labelledby="news-sources-heading">
           <h3 id="news-sources-heading" className="news-detail__section-title">
-            Sources
+            {newsSourcesHeading(locale)}
           </h3>
           <ul className="news-detail__source-list">
             {sources.map((source) => (
@@ -478,7 +558,7 @@ function DetailView({ state, sourceNames, onBack, onRetry }) {
       {facts.length ? (
         <section className="news-detail__section" aria-labelledby="news-facts-heading">
           <h3 id="news-facts-heading" className="news-detail__section-title">
-            Current facts
+            {newsFactsHeading(locale)}
           </h3>
           <ul className="news-detail__fact-list">
             {facts.map((fact, index) => (
@@ -491,7 +571,7 @@ function DetailView({ state, sourceNames, onBack, onRetry }) {
       {conflicts.length ? (
         <section className="news-detail__section" aria-labelledby="news-conflicts-heading">
           <h3 id="news-conflicts-heading" className="news-detail__section-title">
-            Conflicts
+            {newsConflictsHeading(locale)}
           </h3>
           <ul className="news-detail__conflict-list">
             {conflicts.map((conflict, index) => (
@@ -510,8 +590,13 @@ function DetailView({ state, sourceNames, onBack, onRetry }) {
 DetailView.propTypes = {
   state: PropTypes.object.isRequired,
   sourceNames: PropTypes.instanceOf(Map).isRequired,
+  locale: PropTypes.string,
   onBack: PropTypes.func.isRequired,
   onRetry: PropTypes.func.isRequired,
+}
+
+DetailView.defaultProps = {
+  locale: 'en',
 }
 
 // Re-export path helpers for App wiring tests / consumers

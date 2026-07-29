@@ -47,6 +47,14 @@ def _env(monkeypatch):
     monkeypatch.setenv("BEN_ANONYMOUS_ORG_ID", "00000000-0000-0000-0000-000000000001")
     monkeypatch.delenv("BEN_LOCAL_BETA_MODE", raising=False)
 
+    async def _no_images(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(
+        "services.news.product_news_api.load_article_image_map",
+        _no_images,
+    )
+
 
 def _member_claims():
     return {
