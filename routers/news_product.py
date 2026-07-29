@@ -14,6 +14,7 @@ from auth.beta_gate import maybe_beta_auditor_context
 from auth.shadow_auth import apply_auth_policy
 from auth.tenant_binding import build_tenant_context, log_tenant_bound
 from services.news import product_news_api
+from services.news.presentation_translate import normalize_locale
 
 router = APIRouter(prefix="/api/news", tags=["news-product"])
 
@@ -40,21 +41,29 @@ async def get_news_top(
         ge=product_news_api.PRODUCT_TOP_MIN_LIMIT,
         le=product_news_api.PRODUCT_TOP_MAX_LIMIT,
     ),
+    locale: str = Query("en", max_length=16),
 ):
     """Product Top News list projected from the Editorial Engine."""
     await _require_product_news_reader(
         request, route_operation="GET /api/news/top"
     )
-    return await product_news_api.get_top_news(limit=limit)
+    return await product_news_api.get_top_news(
+        limit=limit,
+        locale=normalize_locale(locale),
+    )
 
 
 @router.get("/topics/{event_id}")
 async def get_news_topic(
     request: Request,
     event_id: uuid.UUID,
+    locale: str = Query("en", max_length=16),
 ):
     """Product topic detail projected from the current EventPackage."""
     await _require_product_news_reader(
         request, route_operation="GET /api/news/topics/{event_id}"
     )
-    return await product_news_api.get_topic_detail(event_id)
+    return await product_news_api.get_topic_detail(
+        event_id,
+        locale=normalize_locale(locale),
+    )

@@ -18,16 +18,20 @@ import {
   newsFactsHeading,
   newsFeedTitle,
   newsImageAlt,
+  newsLocaleEnLabel,
+  newsLocaleHeLabel,
   newsLoadingFeedLabel,
   newsLoadingTopicLabel,
   newsOpenConflictLabel,
   newsOpensInNewTabLabel,
+  newsOriginalEnLabel,
   newsRetryLabel,
   newsSourceCountLabel,
   newsSourcesHeading,
   newsTopicMissingLabel,
   newsTopicTitle,
   newsWhyHeading,
+  setUiLocale,
 } from '../lib/uiStrings.js'
 import './NewsOverlay.css'
 
@@ -81,6 +85,17 @@ function usefulLifecycle(lifecycle) {
   return value
 }
 
+/** Server-selected hero only — never pick among article images in the client. */
+function selectedHeroUrl(entity) {
+  const fromHero =
+    entity?.hero_image && typeof entity.hero_image.url === 'string'
+      ? entity.hero_image.url.trim()
+      : ''
+  if (fromHero) return fromHero
+  const legacy = typeof entity?.image_url === 'string' ? entity.image_url.trim() : ''
+  return legacy || ''
+}
+
 /**
  * @param {{
  *   open: boolean,
@@ -122,7 +137,7 @@ export function NewsOverlay({
     setFeedState((prev) => ({ ...prev, status: 'loading', error: null }))
     try {
       const headers = await buildHeaders()
-      const data = await fetchNewsTop(headers, { limit: 10 })
+      const data = await fetchNewsTop(headers, { limit: 10, locale })
       const items = Array.isArray(data?.items) ? data.items : []
       setFeedState({
         status: 'ready',
@@ -138,7 +153,7 @@ export function NewsOverlay({
         editorialVersion: null,
       })
     }
-  }, [buildHeaders])
+  }, [buildHeaders, locale])
 
   const loadTopic = useCallback(
     async (id) => {
@@ -154,7 +169,7 @@ export function NewsOverlay({
       setTopicState({ status: 'loading', topic: null, error: null, notFound: false })
       try {
         const headers = await buildHeaders()
-        const data = await fetchNewsTopic(id, headers)
+        const data = await fetchNewsTopic(id, headers, { locale })
         setTopicState({
           status: 'ready',
           topic: data?.topic || null,
@@ -211,7 +226,7 @@ export function NewsOverlay({
       aria-modal="true"
       aria-labelledby="news-overlay-title"
       lang={locale}
-      dir={locale === 'he' ? 'rtl' : 'ltr'}
+      dir="ltr"
     >
       <button
         type="button"
@@ -245,6 +260,7 @@ export function NewsOverlay({
               locale={locale}
               onSelect={(id) => onOpenTopic(id)}
               onRetry={loadFeed}
+              onLocaleChange={setUiLocale}
             />
           ) : (
             <DetailView
@@ -253,6 +269,7 @@ export function NewsOverlay({
               locale={locale}
               onBack={onOpenFeed}
               onRetry={() => eventId && loadTopic(eventId)}
+              onLocaleChange={setUiLocale}
             />
           )}
         </div>
@@ -279,7 +296,69 @@ NewsOverlay.defaultProps = {
   disabled: false,
 }
 
-function FeedView({ state, disabled, locale, onSelect, onRetry }) {
+function LocaleSelector({ locale, onLocaleChange }) {
+  return (
+    <div className="news-locale" role="group" aria-label="Language" dir="ltr">
+      <button
+        type="button"
+        className={`news-locale__btn${locale === 'en' ? ' news-locale__btn--active' : ''}`}
+        aria-pressed={locale === 'en'}
+        onClick={() => onLocaleChange?.('en')}
+      >
+        {newsLocaleEnLabel()}
+      </button>
+      <button
+        type="button"
+        className={`news-locale__btn${locale === 'he' ? ' news-locale__btn--active' : ''}`}
+        aria-pressed={locale === 'he'}
+        onClick={() => onLocaleChange?.('he')}
+      >
+        {newsLocaleHeLabel()}
+      </button>
+    </div>
+  )
+}
+
+LocaleSelector.propTypes = {
+  locale: PropTypes.string,
+  onLocaleChange: PropTypes.func,
+}
+
+LocaleSelector.defaultProps = {
+  locale: 'en',
+  onLocaleChange: undefined,
+}
+
+function SoftImage({ className, src, alt, ...rest }) {
+  const [failed, setFailed] = useState(false)
+  if (!src || failed) return null
+  return (
+    <img
+      className={className}
+      src={src}
+      alt={alt}
+      onError={() => setFailed(true)}
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      {...rest}
+    />
+  )
+}
+
+SoftImage.propTypes = {
+  className: PropTypes.string,
+  src: PropTypes.string,
+  alt: PropTypes.string,
+}
+
+SoftImage.defaultProps = {
+  className: undefined,
+  src: '',
+  alt: '',
+}
+
+function FeedView({ state, disabled, locale, onSelect, onRetry, onLocaleChange }) {
   if (state.status === 'loading' || state.status === 'idle') {
     return (
       <p className="news-overlay__status" role="status" aria-live="polite">
@@ -308,75 +387,77 @@ function FeedView({ state, disabled, locale, onSelect, onRetry }) {
     )
   }
 
+  const contentDir = locale === 'he' ? 'rtl' : 'ltr'
+
   return (
-    <ol className="news-feed" aria-label={newsFeedTitle(locale)}>
-      {state.items.map((item) => {
-        const updated = formatUpdatedLabel(item.updated_at, undefined, locale)
-        const lifecycle = usefulLifecycle(item.lifecycle)
-        const why = Array.isArray(item.why_it_matters) && item.why_it_matters[0]?.text
-          ? String(item.why_it_matters[0].text)
-          : null
-        const imageUrl = typeof item.image_url === 'string' ? item.image_url.trim() : ''
-        return (
-          <li key={item.event_id}>
-            <button
-              type="button"
-              className={`news-feed__row${imageUrl ? ' news-feed__row--with-media' : ''}`}
-              disabled={disabled}
-              onClick={() => onSelect(item.event_id)}
-            >
-              <span className="news-feed__rank" aria-hidden="true">
-                {padRank(item.rank)}
-              </span>
-              <span className="news-feed__copy">
-                <h2 className="news-feed__headline">{item.headline}</h2>
-                {item.summary ? <p className="news-feed__summary">{item.summary}</p> : null}
-                {why ? <p className="news-feed__why">{why}</p> : null}
-                <p className="news-feed__meta">
-                  <span>{newsSourceCountLabel(item.source_count, locale)}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>{newsArticleCountLabel(item.article_count, locale)}</span>
-                  {updated ? (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <time dateTime={item.updated_at || undefined} title={updated.absolute}>
-                        {updated.label}
-                      </time>
-                    </>
-                  ) : null}
-                  {lifecycle ? (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <span className="news-feed__badge">{lifecycle}</span>
-                    </>
-                  ) : null}
-                  {item.conflict_open ? (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <span className="news-feed__badge news-feed__badge--conflict">
-                        {newsOpenConflictLabel(locale)}
-                      </span>
-                    </>
-                  ) : null}
-                </p>
-              </span>
-              {imageUrl ? (
-                <span className="news-feed__media" aria-hidden="true">
-                  <img
-                    className="news-feed__thumb"
-                    src={imageUrl}
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
-                    referrerPolicy="no-referrer"
-                  />
+    <div className="news-feed-wrap">
+      <LocaleSelector locale={locale} onLocaleChange={onLocaleChange} />
+      <ol className="news-feed" aria-label={newsFeedTitle(locale)}>
+        {state.items.map((item) => {
+          const updated = formatUpdatedLabel(item.updated_at, undefined, locale)
+          const lifecycle = usefulLifecycle(item.lifecycle)
+          const why =
+            Array.isArray(item.why_it_matters) && item.why_it_matters[0]?.text
+              ? String(item.why_it_matters[0].text)
+              : null
+          const imageUrl = selectedHeroUrl(item)
+          return (
+            <li key={item.event_id}>
+              <button
+                type="button"
+                className={`news-feed__row${imageUrl ? ' news-feed__row--with-media' : ''}`}
+                disabled={disabled}
+                onClick={() => onSelect(item.event_id)}
+              >
+                <span className="news-feed__rank" aria-hidden="true">
+                  {padRank(item.rank)}
                 </span>
-              ) : null}
-            </button>
-          </li>
-        )
-      })}
-    </ol>
+                <span className="news-feed__copy" dir={contentDir} lang={locale}>
+                  <h2 className="news-feed__headline">{item.headline}</h2>
+                  {item.original_locale_indicator ? (
+                    <p className="news-locale-fallback">{newsOriginalEnLabel(locale)}</p>
+                  ) : null}
+                  {item.summary ? <p className="news-feed__summary">{item.summary}</p> : null}
+                  {why ? <p className="news-feed__why">{why}</p> : null}
+                  <p className="news-feed__meta" dir="ltr">
+                    <span>{newsSourceCountLabel(item.source_count, locale)}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>{newsArticleCountLabel(item.article_count, locale)}</span>
+                    {updated ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <time dateTime={item.updated_at || undefined} title={updated.absolute}>
+                          {updated.label}
+                        </time>
+                      </>
+                    ) : null}
+                    {lifecycle ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span className="news-feed__badge">{lifecycle}</span>
+                      </>
+                    ) : null}
+                    {item.conflict_open ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span className="news-feed__badge news-feed__badge--conflict">
+                          {newsOpenConflictLabel(locale)}
+                        </span>
+                      </>
+                    ) : null}
+                  </p>
+                </span>
+                {imageUrl ? (
+                  <span className="news-feed__media" aria-hidden="true">
+                    <SoftImage className="news-feed__thumb" src={imageUrl} alt="" />
+                  </span>
+                ) : null}
+              </button>
+            </li>
+          )
+        })}
+      </ol>
+    </div>
   )
 }
 
@@ -386,13 +467,23 @@ FeedView.propTypes = {
   locale: PropTypes.string,
   onSelect: PropTypes.func.isRequired,
   onRetry: PropTypes.func.isRequired,
+  onLocaleChange: PropTypes.func,
 }
 
 FeedView.defaultProps = {
   locale: 'en',
+  onLocaleChange: undefined,
 }
 
-function DetailView({ state, sourceNames, locale, onBack, onRetry }) {
+function DetailView({ state, sourceNames, locale, onBack, onRetry, onLocaleChange }) {
+  const [heroFailed, setHeroFailed] = useState(false)
+  const topicId = state.topic?.event_id || null
+  const topicHero = selectedHeroUrl(state.topic || {})
+
+  useEffect(() => {
+    setHeroFailed(false)
+  }, [topicId, topicHero])
+
   if (state.status === 'loading' || state.status === 'idle') {
     return (
       <div className="news-detail">
@@ -427,21 +518,26 @@ function DetailView({ state, sourceNames, locale, onBack, onRetry }) {
   const topic = state.topic
   const updated = formatUpdatedLabel(topic.updated_at, undefined, locale)
   const lifecycle = usefulLifecycle(topic.lifecycle)
-  const whyItems = Array.isArray(topic.why_it_matters) ? topic.why_it_matters.filter((w) => w?.text) : []
+  const whyItems = Array.isArray(topic.why_it_matters)
+    ? topic.why_it_matters.filter((w) => w?.text)
+    : []
   const facts = Array.isArray(topic.current_facts) ? topic.current_facts : []
   const conflicts = Array.isArray(topic.conflicts) ? topic.conflicts : []
   const sources = Array.isArray(topic.sources) ? topic.sources : []
   const articles = Array.isArray(topic.articles) ? topic.articles : []
   const roles = new Set(articles.map((a) => a.role).filter(Boolean))
   const showRoles = roles.size > 1
-  const heroUrl = typeof topic.image_url === 'string' ? topic.image_url.trim() : ''
+  const heroUrl = selectedHeroUrl(topic)
+  const contentDir = locale === 'he' ? 'rtl' : 'ltr'
+  const showOriginalHint = Boolean(topic.original_locale_indicator)
 
   return (
     <article className="news-detail">
       <button type="button" className="news-detail__back" onClick={onBack}>
         {newsBackToFeedLabel(locale)}
       </button>
-      {heroUrl ? (
+
+      {heroUrl && !heroFailed ? (
         <div className="news-detail__hero">
           <img
             className="news-detail__hero-img"
@@ -450,12 +546,21 @@ function DetailView({ state, sourceNames, locale, onBack, onRetry }) {
             loading="lazy"
             decoding="async"
             referrerPolicy="no-referrer"
+            onError={() => setHeroFailed(true)}
           />
         </div>
       ) : null}
-      <h2 className="news-detail__headline">{topic.headline}</h2>
-      {topic.summary ? <p className="news-detail__summary">{topic.summary}</p> : null}
-      <p className="news-detail__meta">
+
+      <div className="news-detail__presentation" dir={contentDir} lang={locale}>
+        <h2 className="news-detail__headline">{topic.headline}</h2>
+        {showOriginalHint ? (
+          <p className="news-locale-fallback">{newsOriginalEnLabel(locale)}</p>
+        ) : null}
+        <LocaleSelector locale={locale} onLocaleChange={onLocaleChange} />
+        {topic.summary ? <p className="news-detail__summary">{topic.summary}</p> : null}
+      </div>
+
+      <p className="news-detail__meta" dir="ltr">
         <span>{newsSourceCountLabel(sources.length, locale)}</span>
         <span aria-hidden="true">·</span>
         <span>{newsArticleCountLabel(articles.length, locale)}</span>
@@ -484,72 +589,18 @@ function DetailView({ state, sourceNames, locale, onBack, onRetry }) {
       </p>
 
       {whyItems.length ? (
-        <section className="news-detail__section" aria-labelledby="news-why-heading">
+        <section
+          className="news-detail__section"
+          aria-labelledby="news-why-heading"
+          dir={contentDir}
+          lang={locale}
+        >
           <h3 id="news-why-heading" className="news-detail__section-title">
             {newsWhyHeading(locale)}
           </h3>
           <ul className="news-detail__why-list">
             {whyItems.map((item, index) => (
               <li key={`${index}-${item.text.slice(0, 24)}`}>{item.text}</li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {articles.length ? (
-        <section className="news-detail__section" aria-labelledby="news-articles-heading">
-          <h3 id="news-articles-heading" className="news-detail__section-title">
-            {newsCoverageHeading(locale)}
-          </h3>
-          <ul className="news-detail__article-list">
-            {articles.map((article) => {
-              const published = formatRelativeTime(article.published_at, undefined, locale)
-              const sourceLabel =
-                sourceNames.get(String(article.source_id)) || newsDefaultSourceLabel(locale)
-              const thumb = typeof article.image_url === 'string' ? article.image_url.trim() : ''
-              return (
-                <li key={article.article_id} className="news-detail__article">
-                  <a
-                    className="news-detail__article-link"
-                    href={article.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {thumb ? (
-                      <img
-                        className="news-detail__article-thumb"
-                        src={thumb}
-                        alt=""
-                        loading="lazy"
-                        decoding="async"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : null}
-                    <span className="news-detail__article-copy">
-                      <span className="news-detail__article-title">{article.title}</span>
-                      <span className="news-sr-only">{newsOpensInNewTabLabel(locale)}</span>
-                      <span className="news-detail__article-meta">
-                        {sourceLabel}
-                        {published ? ` · ${published.label}` : null}
-                        {showRoles && article.role ? ` · ${article.role}` : null}
-                      </span>
-                    </span>
-                  </a>
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-      ) : null}
-
-      {sources.length ? (
-        <section className="news-detail__section" aria-labelledby="news-sources-heading">
-          <h3 id="news-sources-heading" className="news-detail__section-title">
-            {newsSourcesHeading(locale)}
-          </h3>
-          <ul className="news-detail__source-list">
-            {sources.map((source) => (
-              <li key={source.source_id}>{source.name}</li>
             ))}
           </ul>
         </section>
@@ -583,6 +634,55 @@ function DetailView({ state, sourceNames, locale, onBack, onRetry }) {
           </ul>
         </section>
       ) : null}
+
+      {sources.length ? (
+        <section className="news-detail__section" aria-labelledby="news-sources-heading">
+          <h3 id="news-sources-heading" className="news-detail__section-title">
+            {newsSourcesHeading(locale)}
+          </h3>
+          <ul className="news-detail__source-list" dir="ltr">
+            {sources.map((source) => (
+              <li key={source.source_id}>{source.name}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {articles.length ? (
+        <section className="news-detail__section" aria-labelledby="news-articles-heading">
+          <h3 id="news-articles-heading" className="news-detail__section-title">
+            {newsCoverageHeading(locale)}
+          </h3>
+          <ul className="news-detail__article-list">
+            {articles.map((article) => {
+              const published = formatRelativeTime(article.published_at, undefined, locale)
+              const sourceLabel =
+                sourceNames.get(String(article.source_id)) || newsDefaultSourceLabel(locale)
+              return (
+                <li key={article.article_id} className="news-detail__article">
+                  <a
+                    className="news-detail__article-link"
+                    href={article.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    dir="ltr"
+                  >
+                    <span className="news-detail__article-copy">
+                      <span className="news-detail__article-title">{article.title}</span>
+                      <span className="news-sr-only">{newsOpensInNewTabLabel(locale)}</span>
+                      <span className="news-detail__article-meta">
+                        {sourceLabel}
+                        {published ? ` · ${published.label}` : null}
+                        {showRoles && article.role ? ` · ${article.role}` : null}
+                      </span>
+                    </span>
+                  </a>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      ) : null}
     </article>
   )
 }
@@ -593,10 +693,12 @@ DetailView.propTypes = {
   locale: PropTypes.string,
   onBack: PropTypes.func.isRequired,
   onRetry: PropTypes.func.isRequired,
+  onLocaleChange: PropTypes.func,
 }
 
 DetailView.defaultProps = {
   locale: 'en',
+  onLocaleChange: undefined,
 }
 
 // Re-export path helpers for App wiring tests / consumers

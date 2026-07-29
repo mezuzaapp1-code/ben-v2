@@ -28,11 +28,13 @@ from services.news.event_package import (
     ConsumerHints,
     EventPackage,
     PackageArticleCard,
+    PackageHeroImage,
     PackageProvenance,
     PackageSource,
     event_package_to_dict,
     parse_event_package,
 )
+from services.news.hero_selection import ImageCandidate, select_hero_image
 from services.news.event_package_service import publish_event_package
 from services.ops.request_context import attach_request_id
 
@@ -147,6 +149,7 @@ class ArticleRecord:
     tokens: tuple[str, ...]
     canonical_url: str
     event_time: datetime  # published_at or created_at (UTC)
+    image_url: str | None = None
 
 
 @dataclass
@@ -580,6 +583,20 @@ def build_event_package_dict(
         by_source[sid].article_ids.append(str(m.id))
     sources = list(by_source.values())
 
+    hero_candidates = [
+        ImageCandidate(
+            url=(m.image_url or ""),
+            source_article_id=str(m.id),
+            origin="rss",
+            is_primary=(m.id == medoid.id),
+            article_sort_key=str(m.id),
+        )
+        for m in members
+        if (m.image_url or "").strip()
+    ]
+    hero_payload = select_hero_image(hero_candidates, selected_at=gen_at)
+    hero_image = PackageHeroImage.model_validate(hero_payload) if hero_payload else None
+
     article_ids = [a.article_id for a in articles]
     source_ids = [s.source_id for s in sources]
     fp = content_fingerprint_from_material(
@@ -624,6 +641,7 @@ def build_event_package_dict(
         entities=[],
         sources=sources,
         articles=articles,
+        hero_image=hero_image,
         consumer_hints=ConsumerHints(
             alert_worthy=False,
             brief_eligible=False,
@@ -666,6 +684,7 @@ def article_to_record(article: NewsArticle, source: NewsSource) -> ArticleRecord
         tokens=tokens,
         canonical_url=canonicalize_article_url(url),
         event_time=article_event_time(published_at=published, created_at=created),
+        image_url=(article.image_url or None),
     )
 
 

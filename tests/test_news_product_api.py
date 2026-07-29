@@ -50,9 +50,24 @@ def _env(monkeypatch):
     async def _no_images(*_args, **_kwargs):
         return {}
 
+    async def _passthrough_translate(*, fields, **_kwargs):
+        return {
+            "texts": dict(fields),
+            "locale": "en",
+            "fallback_fields": [],
+            "field_translation_status": {},
+            "translation_status": None,
+            "original_locale_indicator": False,
+            "translation_engine_version": "news_mt_v1",
+        }
+
     monkeypatch.setattr(
         "services.news.product_news_api.load_article_image_map",
         _no_images,
+    )
+    monkeypatch.setattr(
+        "services.news.product_news_api.translate_presentation_fields",
+        _passthrough_translate,
     )
 
 
@@ -478,6 +493,72 @@ def test_topic_detail_returns_projection():
     assert len(topic["articles"]) == 2
     assert topic["claims"] == []
     assert "provenance" not in topic
+    assert topic["locale"] == "en"
+    assert topic["hero_image"] is None
+
+
+def test_top_accepts_locale_query():
+    feed = _ranked_feed(
+        [_package(event_id=EVENT_A, headline="Public readable", sources=1)],
+        top_n=10,
+    )
+
+    async def _he_translate(*, fields, locale, **_kwargs):
+        assert locale == "he"
+        return {
+            "texts": {
+                "headline": "כותרת בעברית",
+                "summary": fields["summary"],
+            },
+            "locale": "he",
+            "fallback_fields": ["summary"],
+            "field_translation_status": {
+                "headline": "generated",
+                "summary": "fallback_en",
+            },
+            "translation_status": "fallback_en",
+            "original_locale_indicator": True,
+            "translation_engine_version": "news_mt_v1",
+        }
+
+    with patch(
+        "services.news.product_news_api.rank_top_event_packages",
+        new_callable=AsyncMock,
+        return_value=feed,
+    ), patch(
+        "services.news.product_news_api.translate_presentation_fields",
+        new=_he_translate,
+    ):
+        client = TestClient(main.app)
+        res = client.get("/api/news/top", params={"locale": "he"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["locale"] == "he"
+    assert body["items"][0]["headline"] == "כותרת בעברית"
+    assert body["items"][0]["original_locale_indicator"] is True
+    assert body["items"][0]["translation_status"] == "fallback_en"
+    assert body["items"][0]["field_translation_status"]["headline"] == "generated"
+
+
+def test_packaged_hero_is_projected():
+    pkg = _package(event_id=EVENT_A, headline="With hero", sources=1)
+    pkg["hero_image"] = {
+        "url": "https://cdn.example.com/hero.jpg",
+        "source_article_id": ARTICLE_A,
+        "origin": "rss",
+        "width": None,
+        "height": None,
+        "selected_at": T0.isoformat(),
+        "selection_reason": "deterministic_v1,primary_article,origin=rss",
+        "selection_score": 0.8,
+        "hero_confidence": 0.8,
+    }
+    detail = project_topic_detail(pkg)
+    assert detail.hero_image is not None
+    assert detail.hero_image.url == "https://cdn.example.com/hero.jpg"
+    assert detail.image_url == "https://cdn.example.com/hero.jpg"
+    assert detail.hero_image.selection_score == 0.8
+    assert detail.hero_image.hero_confidence == 0.8
 
 
 def test_unknown_event_404():

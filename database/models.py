@@ -563,6 +563,50 @@ class NewsClaim(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
 
 
+class NewsPresentationLocaleUnit(Base):
+    """Cached presentation translations for EventPackage fields (never mutates Articles)."""
+
+    __tablename__ = "news_presentation_locale_units"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id",
+            "package_version",
+            "locale",
+            "field_key",
+            "source_text_hash",
+            "translation_engine_version",
+            name="uq_news_presentation_locale_identity",
+        ),
+        Index(
+            "ix_news_presentation_locale_lookup",
+            "event_id",
+            "package_version",
+            "locale",
+        ),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.news_events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    package_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    locale: Mapped[str] = mapped_column(String(16), nullable=False)
+    field_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_text_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    translation_engine_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_text: Mapped[str] = mapped_column(Text, nullable=False)
+    translated_text: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
 class InferenceCallRecordRow(Base):
     """Append-only inference accounting ledger — one row per provider call attempt."""
 

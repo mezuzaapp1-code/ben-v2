@@ -12,6 +12,19 @@ import { humanizeBenHttpError, parseBenErrorResponse, readJsonResponse } from '.
  */
 
 /**
+ * @typedef {Object} NewsHeroImage
+ * @property {string} url
+ * @property {string|null} [source_article_id]
+ * @property {string|null} [origin]
+ * @property {number|null} [width]
+ * @property {number|null} [height]
+ * @property {string|null} [selected_at]
+ * @property {string|null} [selection_reason]
+ * @property {number|null} [selection_score]
+ * @property {number|null} [hero_confidence]
+ */
+
+/**
  * @typedef {Object} NewsTopItem
  * @property {number} rank
  * @property {string} event_id
@@ -26,6 +39,11 @@ import { humanizeBenHttpError, parseBenErrorResponse, readJsonResponse } from '.
  * @property {boolean} conflict_open
  * @property {string[]} reasons
  * @property {string|null} [image_url]
+ * @property {NewsHeroImage|null} [hero_image]
+ * @property {string} [locale]
+ * @property {boolean} [original_locale_indicator]
+ * @property {string|null} [translation_status]
+ * @property {Record<string, string>} [field_translation_status]
  */
 
 /**
@@ -68,6 +86,10 @@ import { humanizeBenHttpError, parseBenErrorResponse, readJsonResponse } from '.
  * @property {string|null} [happened_at]
  * @property {string|null} [updated_at]
  * @property {string|null} [image_url]
+ * @property {NewsHeroImage|null} [hero_image]
+ * @property {string} [locale]
+ * @property {boolean} [original_locale_indicator]
+ * @property {string[]} [fallback_fields]
  * @property {NewsTopicSource[]} sources
  * @property {NewsTopicArticle[]} articles
  * @property {object[]} current_facts
@@ -90,25 +112,29 @@ function enrichFetchError(res, data) {
 }
 
 /** @param {number} [limit] */
-export function newsTopUrl(limit = 10) {
+/** @param {string} [locale] */
+export function newsTopUrl(limit = 10, locale = 'en') {
   const n = Number(limit)
   const safe = Number.isFinite(n) ? Math.max(1, Math.min(50, Math.trunc(n))) : 10
-  return `${BEN_API_BASE}/api/news/top?limit=${safe}`
+  const loc = String(locale || 'en').trim() || 'en'
+  return `${BEN_API_BASE}/api/news/top?limit=${safe}&locale=${encodeURIComponent(loc)}`
 }
 
 /** @param {string} eventId */
-export function newsTopicUrl(eventId) {
+/** @param {string} [locale] */
+export function newsTopicUrl(eventId, locale = 'en') {
   const id = String(eventId || '').trim()
-  return `${BEN_API_BASE}/api/news/topics/${encodeURIComponent(id)}`
+  const loc = String(locale || 'en').trim() || 'en'
+  return `${BEN_API_BASE}/api/news/topics/${encodeURIComponent(id)}?locale=${encodeURIComponent(loc)}`
 }
 
 /**
  * @param {Record<string, string>} headers
- * @param {{ limit?: number }} [options]
+ * @param {{ limit?: number, locale?: string }} [options]
  * @returns {Promise<NewsTopResponse>}
  */
-export async function fetchNewsTop(headers, { limit = 10 } = {}) {
-  const res = await fetch(newsTopUrl(limit), { headers })
+export async function fetchNewsTop(headers, { limit = 10, locale = 'en' } = {}) {
+  const res = await fetch(newsTopUrl(limit, locale), { headers })
   const data = await readJsonResponse(res)
   if (!res.ok) throw enrichFetchError(res, data)
   return data
@@ -117,10 +143,11 @@ export async function fetchNewsTop(headers, { limit = 10 } = {}) {
 /**
  * @param {string} eventId
  * @param {Record<string, string>} headers
+ * @param {{ locale?: string }} [options]
  * @returns {Promise<NewsTopicResponse>}
  */
-export async function fetchNewsTopic(eventId, headers) {
-  const res = await fetch(newsTopicUrl(eventId), { headers })
+export async function fetchNewsTopic(eventId, headers, { locale = 'en' } = {}) {
+  const res = await fetch(newsTopicUrl(eventId, locale), { headers })
   const data = await readJsonResponse(res)
   if (!res.ok) throw enrichFetchError(res, data)
   return data

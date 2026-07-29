@@ -14,6 +14,39 @@ export function getUiLocale() {
   return raw.startsWith('he') ? 'he' : 'en'
 }
 
+/** Persist presentation locale and notify listeners (News EN / עברית). */
+export function setUiLocale(next) {
+  const locale = next === 'he' ? 'he' : 'en'
+  try {
+    localStorage.setItem('ben-ui-locale', locale)
+  } catch {
+    /* ignore */
+  }
+  try {
+    document.documentElement.lang = locale
+  } catch {
+    /* ignore */
+  }
+  try {
+    window.dispatchEvent(new CustomEvent('ben-ui-locale', { detail: { locale } }))
+  } catch {
+    /* ignore */
+  }
+  return locale
+}
+
+export function newsOriginalEnLabel(locale = getUiLocale()) {
+  return locale === 'he' ? 'מקור (EN)' : 'Original (EN)'
+}
+
+export function newsLocaleEnLabel() {
+  return 'English'
+}
+
+export function newsLocaleHeLabel() {
+  return 'עברית'
+}
+
 export function promoteToProjectLabel(locale = getUiLocale()) {
   return locale === 'he' ? 'הפוך לפרויקט' : 'Promote to Project'
 }

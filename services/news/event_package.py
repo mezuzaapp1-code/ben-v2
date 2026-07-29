@@ -131,6 +131,27 @@ class PackageArticleCard(BaseModel):
     role: EvidenceRole
 
 
+class PackageHeroImage(BaseModel):
+    """Selected Event hero — metadata only; V1 hotlinks https URL (no proxy)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(..., min_length=1, max_length=2048)
+    source_article_id: str | None = None
+    origin: str | None = None
+    width: int | None = Field(None, ge=0)
+    height: int | None = Field(None, ge=0)
+    selected_at: datetime | str | None = None
+    selection_reason: str | None = Field(None, max_length=512)
+    selection_score: float | None = Field(None, ge=0.0, le=1.0)
+    hero_confidence: float | None = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Alias of selection_score for future intelligence consumers.",
+    )
+
+
 class ConsumerHints(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -168,6 +189,7 @@ class EventPackage(BaseModel):
     entities: list[PackageEntity] = Field(default_factory=list)
     sources: list[PackageSource] = Field(default_factory=list)
     articles: list[PackageArticleCard] = Field(default_factory=list)
+    hero_image: PackageHeroImage | None = None
     consumer_hints: ConsumerHints = Field(default_factory=ConsumerHints)
     provenance: PackageProvenance
 
