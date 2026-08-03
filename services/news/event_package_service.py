@@ -149,11 +149,14 @@ async def list_event_packages(
             ]
     except HTTPException:
         raise
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to list event packages",
-        ) from exc
+    except Exception:  # noqa: BLE001
+        # Product Top News must degrade, not 500. Log and return empty list.
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "list_event_packages failed; returning empty items for product readers"
+        )
+        return attach_request_id({"items": [], "next_cursor": None})
     return attach_request_id({"items": items, "next_cursor": None})
 
 

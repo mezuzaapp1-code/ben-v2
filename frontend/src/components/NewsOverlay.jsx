@@ -131,6 +131,19 @@ export function NewsOverlay({
         editorialVersion: data?.editorial_version || null,
       })
     } catch (err) {
+      // Product contract: never strand the user on "Service unavailable".
+      // Treat transport/5xx as an empty feed with retry — empty state copy handles UX.
+      const status = Number(err?.status) || 0
+      const softFail = status >= 500 || status === 0 || err?.parsed?.code === 'server_error'
+      if (softFail) {
+        setFeedState({
+          status: 'ready',
+          items: [],
+          error: null,
+          editorialVersion: null,
+        })
+        return
+      }
       setFeedState({
         status: 'error',
         items: [],
