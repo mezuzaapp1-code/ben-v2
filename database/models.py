@@ -243,6 +243,54 @@ class Project(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class WorkspaceFile(Base):
+    """Canonical user-uploaded file owned by one Workspace (Project) within an org.
+
+    Domain boundary: File Library only. Never store News content here and never
+    persist uploads as NewsArticle / SourceDocumentVersion. No FKs to News tables.
+    """
+
+    __tablename__ = "workspace_files"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('uploaded','queued','processing','ready','failed')",
+            name="ck_workspace_files_status",
+        ),
+        Index("ix_workspace_files_org_workspace", "org_id", "workspace_id"),
+        Index("ix_workspace_files_workspace_created", "workspace_id", "created_at"),
+        Index("ix_workspace_files_workspace_status", "workspace_id", "status"),
+        Index("ix_workspace_files_checksum", "checksum"),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    # Workspace == Project in BEN V1 product model.
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    original_filename: Mapped[str] = mapped_column(String(512), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    storage_key: Mapped[str] = mapped_column(String(1024), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'uploaded'"))
+    uploaded_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    source_chat_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failure_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    failure_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class ProjectMember(Base):
     __tablename__ = "project_members"
     __table_args__ = (

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import axios from 'axios'
-import { BEN_API_BASE } from '../config.js'
 import { fetchActiveAttention, fetchProjectKnowledgeFiles } from '../api/knowledge.js'
+import {
+  listWorkspaceFiles,
+  uploadWorkspaceFile,
+} from '../api/workspaceFiles.js'
 import './KnowledgeSidebar.css'
 
 const HEAD_SECTIONS = [
@@ -51,9 +53,11 @@ function FocusItem({ item }) {
 
 export function KnowledgeSidebar({
   projectSlug,
+  workspaceId = null,
   buildHeaders,
   disabled = false,
   attentionFocusRequest = null,
+  onOpenFileLibrary = null,
 }) {
   const inputRef = useRef(null)
   const [files, setFiles] = useState([])
@@ -67,7 +71,34 @@ export function KnowledgeSidebar({
   const [focusError, setFocusError] = useState(null)
 
   const loadFiles = useCallback(async () => {
-    if (!projectSlug || !buildHeaders) {
+    if (!buildHeaders) {
+      setFiles([])
+      return
+    }
+    // Prefer Workspace File Library when workspace UUID is available.
+    if (workspaceId) {
+      setLoading(true)
+      setError(null)
+      try {
+        const headers = await buildHeaders()
+        const data = await listWorkspaceFiles(workspaceId, headers, { limit: 50 })
+        setFiles(
+          (data.items || []).map((item) => ({
+            id: item.id,
+            name: item.display_name || item.original_filename,
+            size: item.byte_size,
+            status: item.status,
+          }))
+        )
+      } catch (e) {
+        setError(e?.message || 'Could not load workspace files')
+        setFiles([])
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+    if (!projectSlug) {
       setFiles([])
       return
     }
@@ -76,14 +107,21 @@ export function KnowledgeSidebar({
     try {
       const headers = await buildHeaders()
       const data = await fetchProjectKnowledgeFiles(projectSlug, headers)
-      setFiles(data.files || [])
+      setFiles(
+        (data.files || []).map((file) => ({
+          id: file.id,
+          name: file.filename || file.name,
+          size: file.size_bytes ?? file.size,
+          status: file.status,
+        }))
+      )
     } catch (e) {
       setError(e?.message || 'Could not load project knowledge files')
       setFiles([])
     } finally {
       setLoading(false)
     }
-  }, [projectSlug, buildHeaders])
+  }, [projectSlug, workspaceId, buildHeaders])
 
   useEffect(() => {
     void loadFiles()
@@ -129,54 +167,48 @@ export function KnowledgeSidebar({
   }, [attentionFocusRequest, projectSlug, buildHeaders])
 
   const handlePickFile = () => {
-    if (!disabled && !uploading && !processing) {
-      inputRef.current?.click()
+    if (disabled || uploading || processing) return
+    if (!workspaceId) {
+      setError('Select an active workspace/project before uploading.')
+      onOpenFileLibrary?.()
+      return
     }
+    inputRef.current?.click()
   }
 
   const handleFileChange = async (event) => {
-    const file = event.target.files?.[0]
+    const picked = event.target.files?.[0] || null
     event.target.value = ''
-    if (!file || !projectSlug || !buildHeaders) return
+    if (!picked || !buildHeaders) return
+    if (!workspaceId) {
+      setError('Select an active workspace/project before uploading.')
+      return
+    }
 
     setUploading(true)
     setProcessing(false)
     setProgress(0)
     setError(null)
 
-    const formData = new FormData()
-    formData.append('file', file)
-
     try {
       const headers = await buildHeaders()
-      await axios.post(
-        `${BEN_API_BASE}/api/projects/${encodeURIComponent(projectSlug)}/knowledge/upload-stream`,
-        formData,
-        {
-          headers: {
-            ...headers,
-            'Content-Type': 'multipart/form-data',
-          },
-          onUploadProgress: (progressEvent) => {
-            const total = progressEvent.total || file.size || 1
-            const loaded = progressEvent.loaded || 0
-            setProgress(Math.min(100, Math.round((loaded / total) * 100)))
-          },
-        }
-      )
+      delete headers['Content-Type']
+      delete headers['content-type']
+      await uploadWorkspaceFile(workspaceId, picked, headers, {
+        onProgress: (pct) => setProgress(pct),
+      })
       setProgress(100)
       setProcessing(true)
       await loadFiles()
     } catch (e) {
-      const detail = e?.response?.data?.detail
-      setError(typeof detail === 'string' ? detail : e?.message || 'Upload failed')
+      setError(e?.message || 'Upload failed')
     } finally {
       setUploading(false)
       setProcessing(false)
     }
   }
 
-  if (!projectSlug) {
+  if (!projectSlug && !workspaceId) {
     return null
   }
 
@@ -187,15 +219,16 @@ export function KnowledgeSidebar({
   return (
     <section className="knowledge-sidebar" aria-label="Project knowledge repository">
       <div className="knowledge-sidebar__upload">
-        <p className="knowledge-sidebar__upload-label">📁 Upload Dataset / Logs</p>
+        <p className="knowledge-sidebar__upload-label">📁 Workspace Files</p>
         <p className="knowledge-sidebar__hint">
-          Stream large datasets and logs (up to 500MB) into passive project storage for tool calls.
+          Upload into the Workspace File Library (PDF, Office, text, images — max 50 MB).
         </p>
         <input
           ref={inputRef}
           type="file"
+          accept=".pdf,.docx,.doc,.txt,.md,.markdown,.csv,.xlsx,.pptx,.png,.jpg,.jpeg,.gif,.webp,.json,application/pdf,text/plain,text/markdown,text/csv,image/*"
           className="knowledge-sidebar__file-input"
-          disabled={disabled || uploading || processing}
+          disabled={disabled || uploading || processing || !workspaceId}
           onChange={(e) => void handleFileChange(e)}
         />
         <button
@@ -204,8 +237,19 @@ export function KnowledgeSidebar({
           disabled={disabled || uploading || processing}
           onClick={handlePickFile}
         >
-          {uploading ? `Uploading… ${progress}%` : processing ? 'Processing…' : 'Choose file'}
+          {uploading ? `Uploading… ${progress}%` : processing ? 'Processing…' : '+ Upload file'}
         </button>
+        {onOpenFileLibrary ? (
+          <button
+            type="button"
+            className="knowledge-sidebar__upload-btn"
+            style={{ marginTop: '0.35rem' }}
+            disabled={disabled}
+            onClick={() => onOpenFileLibrary()}
+          >
+            Open File Library
+          </button>
+        ) : null}
         {(uploading || progress === 100) && (
           <div className="knowledge-sidebar__progress" aria-label="Upload progress">
             <div
@@ -267,12 +311,13 @@ export function KnowledgeSidebar({
           <p className="knowledge-sidebar__hint">No files uploaded yet.</p>
         ) : (
           <ul className="knowledge-sidebar__files">
-            {files.map((file) => (
-              <li key={file.id} className="knowledge-sidebar__file-row">
-                <span className="knowledge-sidebar__file-name" title={file.filename}>
-                  {file.filename}
+            {files.map((file, index) => (
+              <li key={file.id || `${file.name}-${index}`} className="knowledge-sidebar__file-row">
+                <span className="knowledge-sidebar__file-name" title={file.name}>
+                  {file.name}
+                  {file.status ? ` (${file.status})` : ''}
                 </span>
-                <span className="knowledge-sidebar__file-meta">{formatBytes(file.size_bytes)}</span>
+                <span className="knowledge-sidebar__file-meta">{formatBytes(file.size)}</span>
               </li>
             ))}
           </ul>

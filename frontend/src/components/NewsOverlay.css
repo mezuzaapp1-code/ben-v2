@@ -424,11 +424,6 @@
 .news-detail__article-title {
   color: inherit;
 }
-  line-height: 1.35;
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--ben-accent) 45%, transparent);
-  text-underline-offset: 0.15em;
-}
 
 .news-detail__article-link:hover,
 .news-detail__article-link:focus-visible {

@@ -96,6 +96,10 @@ from database.thread_store import init_thread_store
 from routers.knowledge import project_knowledge_router, router as knowledge_router
 from routers.platform_capabilities import router as platform_capabilities_router
 from routers.repositories import router as project_repositories_router
+from routers.workspace_files import (
+    project_alias_router as workspace_files_project_router,
+    router as workspace_files_router,
+)
 from routers.news_product import router as news_product_router
 from routers.news_sources import router as news_sources_router
 from routers.projects import router as projects_router
@@ -187,6 +191,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 app.include_router(projects_router)
+app.include_router(workspace_files_router)
+app.include_router(workspace_files_project_router)
 app.include_router(knowledge_router)
 app.include_router(project_knowledge_router)
 app.include_router(project_repositories_router)

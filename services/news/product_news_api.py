@@ -294,10 +294,27 @@ def project_topic_detail(
 
 
 async def get_top_news(*, limit: int = PRODUCT_TOP_DEFAULT_LIMIT) -> dict[str, Any]:
-    """Product Top News: ranked EventPackage projections only."""
+    """Product Top News: ranked EventPackage projections only.
+
+    Product contract: never 500 the Top feed for transient ranking/DB failures.
+    Degrade to an empty, valid feed so the UI can show a proper empty state.
+    """
     _validate_top_limit(limit)
     candidate_limit = product_candidate_limit(limit)
-    ranked = await rank_top_event_packages(top_n=limit, candidate_limit=candidate_limit)
+    try:
+        ranked = await rank_top_event_packages(top_n=limit, candidate_limit=candidate_limit)
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "get_top_news ranking failed; returning empty product feed"
+        )
+        response = NewsTopResponse(
+            generated_at=_utc_now().isoformat(),
+            editorial_version=EDITORIAL_RANKER_VERSION,
+            items=[],
+        )
+        return attach_request_id(response.model_dump(mode="json"))
     editorial = ranked.get("editorial") or {}
     ranked_items = list(ranked.get("items") or [])
 

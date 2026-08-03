@@ -66,6 +66,11 @@ import { KnowledgeSidebar } from './components/KnowledgeSidebar.jsx'
 import { NewProjectModal } from './components/NewProjectModal.jsx'
 import { CapabilityCatalogTrigger, DiscoveryCenterOverlay } from './components/DiscoveryCenter.jsx'
 import { NewsNavTrigger, NewsOverlay } from './components/NewsOverlay.jsx'
+import {
+  FileLibraryNavTrigger,
+  FileLibraryOverlay,
+} from './components/FileLibraryOverlay.jsx'
+import { uploadWorkspaceFile } from './api/workspaceFiles.js'
 import { parseNewsLocation, newsFeedPath, newsTopicPath } from './lib/newsRoutes.js'
 import { ProjectRepositoriesDashboard } from './components/ProjectRepositoriesDashboard.jsx'
 import { usePlatformActiveFeatures } from './hooks/usePlatformActiveFeatures.js'
@@ -488,6 +493,8 @@ function App() {
   const [deletingThread, setDeletingThread] = useState(false)
   const [promotingThread, setPromotingThread] = useState(false)
   const [receiptCapturing, setReceiptCapturing] = useState(false)
+  const [filesOpen, setFilesOpen] = useState(false)
+  const [fileUploading, setFileUploading] = useState(false)
   const [attentionFocusRequest, setAttentionFocusRequest] = useState(null)
   const [newProjectModalOpen, setNewProjectModalOpen] = useState(false)
   const [catalogOpen, setCatalogOpen] = useState(false)
@@ -694,26 +701,36 @@ function App() {
         id: 'attach',
         label: 'Attach file',
         icon: '📎',
-        disabled: loading || receiptCapturing,
-        onClick: () => attachFileRef.current?.click(),
+        disabled: loading || receiptCapturing || fileUploading,
+        onClick: () => {
+          // Defer so the attach menu can close without cancelling the native picker.
+          window.setTimeout(() => attachFileRef.current?.click(), 0)
+        },
       },
       {
         id: 'invoice',
         label: 'Capture invoice',
         icon: '🧾',
-        disabled: loading || receiptCapturing,
+        disabled: loading || receiptCapturing || fileUploading,
         onClick: () => invoiceCaptureRef.current?.open(),
       },
       {
         id: 'credit',
         label: 'Credit memo',
         icon: '↩',
-        disabled: loading || receiptCapturing,
+        disabled: loading || receiptCapturing || fileUploading,
         onClick: () => creditCaptureRef.current?.open(),
       },
     ],
-    [loading, receiptCapturing]
+    [loading, receiptCapturing, fileUploading]
   )
+
+  const openFilesLibrary = useCallback(() => {
+    closeNavDrawerIfOverlay()
+    setFilesOpen(true)
+  }, [closeNavDrawerIfOverlay])
+
+  const closeFilesLibrary = useCallback(() => setFilesOpen(false), [])
 
   const shellAccent = activeSpeakingProvider?.accent ?? '#5b8cff'
 
@@ -1675,6 +1692,84 @@ function App() {
     ]
   )
 
+  const handleWorkspaceFileAttach = useCallback(
+    async (file) => {
+      if (!file || fileUploading || loading) return
+      let tid = activeId
+      if (!tid || !threads.some((x) => x.id === tid)) tid = newThread()
+
+      if (!activeProjectId) {
+        appendThreadMessages(tid, [
+          {
+            role: 'assistant',
+            kind: 'api_error',
+            content: 'Select an active workspace before attaching a file.',
+            model_used: '',
+            cost_usd: 0,
+          },
+        ])
+        return
+      }
+
+      const chatId = serverThreadIdForApi(tid) || tid
+      appendThreadMessages(tid, [
+        {
+          role: 'user',
+          kind: 'file_upload',
+          content: `Uploading: ${file.name}`,
+        },
+      ])
+      setFileUploading(true)
+      try {
+        const headers = await buildAppHeaders()
+        // Multipart upload must not send application/json Content-Type.
+        delete headers['Content-Type']
+        delete headers['content-type']
+        const result = await uploadWorkspaceFile(activeProjectId, file, headers, {
+          sourceChatId: chatId,
+        })
+        const status = result?.status || 'ready'
+        const failed = status === 'failed'
+        appendThreadMessages(tid, [
+          {
+            role: 'assistant',
+            kind: failed ? 'api_error' : 'file_library',
+            content: failed
+              ? `Upload failed: ${result?.failure_message || result?.failure_code || 'processing error'}`
+              : `Saved to Workspace Files: ${result?.display_name || file.name} (${status}).`,
+            file_id: result?.id,
+            workspace_id: result?.workspace_id || activeProjectId,
+            model_used: '',
+            cost_usd: 0,
+          },
+        ])
+      } catch (e) {
+        const parsed = parseBenErrorResponse(e.status, e.data)
+        appendThreadMessages(tid, [
+          {
+            role: 'assistant',
+            kind: 'api_error',
+            content: parsed?.message || e.message || 'File upload failed.',
+            model_used: '',
+            cost_usd: 0,
+          },
+        ])
+      } finally {
+        setFileUploading(false)
+      }
+    },
+    [
+      activeId,
+      activeProjectId,
+      appendThreadMessages,
+      buildAppHeaders,
+      fileUploading,
+      loading,
+      newThread,
+      threads,
+    ]
+  )
+
   const handleReceiptFile = useCallback(
     async (file, { creditMemo = false } = {}) => {
       if (!file || receiptCapturing || loading) return
@@ -2220,6 +2315,14 @@ function App() {
         buildHeaders={buildAppHeaders}
         disabled={loading}
       />
+      <FileLibraryOverlay
+        open={filesOpen}
+        onClose={closeFilesLibrary}
+        workspaceId={activeProjectId}
+        workspaceName={activeProjectName}
+        buildHeaders={buildAppHeaders}
+        disabled={fileUploading}
+      />
       <AppTopBar
         menuButtonRef={navMenuButtonRef}
         menuOpen={navDrawerOpen}
@@ -2270,6 +2373,11 @@ function App() {
                 <span className="new-btn__label new-btn__label--long">+ New project</span>
               </button>
             </div>
+            <FileLibraryNavTrigger
+              onOpen={openFilesLibrary}
+              active={filesOpen}
+              disabled={loading}
+            />
             <KnowledgeBasesPanel
               embedded
               buildHeaders={buildAppHeaders}
@@ -2277,9 +2385,11 @@ function App() {
             />
             <KnowledgeSidebar
               projectSlug={active?.projectSlug || null}
+              workspaceId={activeProjectId}
               buildHeaders={buildAppHeaders}
-              disabled={loading}
+              disabled={loading || fileUploading}
               attentionFocusRequest={attentionFocusRequest}
+              onOpenFileLibrary={openFilesLibrary}
             />
             <CapabilityCatalogTrigger
               onOpen={() => {
@@ -2487,20 +2597,20 @@ function App() {
                   <input
                     ref={attachFileRef}
                     type="file"
-                    accept="image/*,.pdf,application/pdf"
+                    accept=".pdf,.docx,.doc,.txt,.md,.markdown,.csv,.xlsx,.pptx,.png,.jpg,.jpeg,.gif,.webp,.json,application/pdf,text/plain,text/markdown,text/csv,image/*"
                     className="receipt-file-input"
                     tabIndex={-1}
                     aria-hidden="true"
-                    disabled={loading || receiptCapturing}
+                    disabled={loading || receiptCapturing || fileUploading}
                     onChange={(event) => {
-                      const file = event.target.files?.[0]
+                      const file = event.target.files?.[0] || null
                       event.target.value = ''
-                      if (file) void handleReceiptFile(file, { creditMemo: false })
+                      if (file) void handleWorkspaceFileAttach(file)
                     }}
                   />
                   <CameraCaptureInput
                     ref={invoiceCaptureRef}
-                    disabled={loading || receiptCapturing}
+                    disabled={loading || receiptCapturing || fileUploading}
                     triggerClassName="receipt-capture-btn receipt-capture-btn--capsule"
                     onFile={(file) => void handleReceiptFile(file, { creditMemo: false })}
                     className="hw-capture-wrap--composer"
@@ -2509,7 +2619,7 @@ function App() {
                   </CameraCaptureInput>
                   <CameraCaptureInput
                     ref={creditCaptureRef}
-                    disabled={loading || receiptCapturing}
+                    disabled={loading || receiptCapturing || fileUploading}
                     mode="credit"
                     triggerClassName="receipt-capture-btn receipt-capture-btn--capsule"
                     onFile={(file) => void handleReceiptFile(file, { creditMemo: true })}

@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:news": "node scripts/test-news-ui.mjs"
+    "test:news": "node scripts/test-news-ui.mjs",
+    "test:files": "node scripts/test-files-ui.mjs"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.61.3",
