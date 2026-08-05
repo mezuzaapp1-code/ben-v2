@@ -256,27 +256,30 @@ def test_chat_stream_rejects_unknown_model_override(client):
     assert "not registered" in (r.json().get("detail") or "").lower()
 
 
-def test_chat_rejects_inactive_engine_via_execution_plan(client, tmp_path, monkeypatch):
-  """Phase 4 — ExecutionPlan gate blocks chat before model gateway."""
+def test_chat_allows_inactive_engine_via_execution_plan(client, tmp_path, monkeypatch):
+  """Phase 1 — Switchboard inactive must not block chat before model gateway."""
   system_db = tmp_path / "empty_switchboard.db"
   monkeypatch.setenv("BEN_SYSTEM_DB_PATH", str(system_db))
   init_global_service_schema()
 
   with patch.object(main, "handle_chat", new_callable=AsyncMock) as handle_mock:
+    handle_mock.return_value = {
+      "thread_id": "t1",
+      "response": "ok",
+      "model_used": "m",
+      "cost_usd": 0.0,
+    }
     response = client.post(
       "/chat",
       json={"message": "hi", "tier": "free", "provider_id": "claude"},
     )
 
-  assert response.status_code == 403
-  detail = response.json().get("detail")
-  if isinstance(detail, dict):
-    assert detail.get("error") == "CapabilityInactiveException"
-  handle_mock.assert_not_called()
+  assert response.status_code == 200
+  handle_mock.assert_awaited()
 
 
-def test_chat_stream_rejects_nl_routed_inactive_engine_via_execution_plan(client, tmp_path, monkeypatch):
-    """Stream HTTP gate enforces post-intent provider — not the original UI selection."""
+def test_chat_stream_allows_nl_routed_inactive_engine_via_execution_plan(client, tmp_path, monkeypatch):
+    """Phase 1 — stream must not 403 when NL routes to a Switchboard-inactive engine."""
     system_db = tmp_path / "gpt_only_switchboard.db"
     monkeypatch.setenv("BEN_SYSTEM_DB_PATH", str(system_db))
     init_global_service_schema()
@@ -287,7 +290,10 @@ def test_chat_stream_rejects_nl_routed_inactive_engine_via_execution_plan(client
         source_metadata={"catalog_key": "engine-grok"},
     )
 
-    with patch.object(main, "stream_chat_response", new_callable=AsyncMock) as stream_mock:
+    async def _fake_stream(*_a, **_k):
+        yield '{"type":"done"}\n'
+
+    with patch.object(main, "stream_chat_response", new=_fake_stream):
         response = client.post(
             "/chat/stream",
             json={
@@ -297,8 +303,6 @@ def test_chat_stream_rejects_nl_routed_inactive_engine_via_execution_plan(client
             },
         )
 
-    assert response.status_code == 403
-    detail = response.json().get("detail")
-    if isinstance(detail, dict):
-        assert detail.get("error") == "CapabilityInactiveException"
-    stream_mock.assert_not_called()
+    assert response.status_code == 200
+    assert "CapabilityInactiveException" not in (response.text or "")
+    assert "done" in response.text

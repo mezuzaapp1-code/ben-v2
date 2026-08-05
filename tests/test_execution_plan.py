@@ -77,15 +77,20 @@ def test_standard_chat_plan_creation():
     assert plan.requested_resource == "claude"
     assert plan.resolved_resource == "claude"
     assert plan.connector_id == "anthropic_adapter"
-    assert plan.enforced is True
+    assert plan.enforced is False
     assert plan.allowed is True
-    assert plan.activation_source == "org_switchboard"
+    assert plan.activation_source == "diagnostic_only"
+    assert plan.diagnostics.get("capability_gate_status") == "deprecated_for_chat"
+    assert plan.diagnostics.get("compute_activation_check") == "not_applicable"
+    assert plan.diagnostics.get("switchboard_enforced") is False
+    assert "catalog_key" not in plan.diagnostics
+    assert plan.requested_capability == "claude"
 
 
 def test_standard_chat_hyphen_capability_key():
     workspace = _standalone_workspace()
     plan = resolve_execution_plan(workspace, "standard-chat", requested_resource="gpt")
-    assert plan.enforced is True
+    assert plan.enforced is False
     assert plan.allowed is True
 
 
@@ -155,7 +160,8 @@ def test_unknown_resource_handling():
     assert plan.allowed is True
 
 
-def test_chat_enforcement_inactive_engine(tmp_path, monkeypatch):
+def test_chat_plan_ignores_empty_switchboard(tmp_path, monkeypatch):
+    """Empty Switchboard DB must not affect chat plan allow/deny."""
     system_db = tmp_path / "inactive_system_main.db"
     monkeypatch.setenv("BEN_SYSTEM_DB_PATH", str(system_db))
     init_global_service_schema()
@@ -163,9 +169,11 @@ def test_chat_enforcement_inactive_engine(tmp_path, monkeypatch):
     workspace = _standalone_workspace()
     plan = resolve_execution_plan(workspace, "standard_chat", requested_resource="claude")
 
-    assert plan.enforced is True
-    assert plan.allowed is False
-    assert plan.activation_source == "org_switchboard"
+    assert plan.enforced is False
+    assert plan.allowed is True
+    assert plan.activation_source == "diagnostic_only"
+    assert plan.org_policy_allowed is None
+    assert plan.diagnostics.get("capability_gate_status") == "deprecated_for_chat"
 
 
 def test_chat_enforcement_no_provider_bypass():
@@ -215,8 +223,8 @@ def test_execution_plan_to_log_payload():
     assert payload["requested_resource"] == "gemini"
     assert payload["resolved_resource"] == "gemini"
     assert payload["connector_id"] == "google_adapter"
-    assert payload["activation_source"] == "org_switchboard"
-    assert payload["enforced"] is True
+    assert payload["activation_source"] == "diagnostic_only"
+    assert payload["enforced"] is False
     assert payload["allowed"] is True
 
 
@@ -233,15 +241,16 @@ def test_attach_execution_plan_to_request_diagnostics():
     assert diag.execution_requested_resource == "gpt"
     assert diag.execution_resolved_resource == "gpt"
     assert diag.execution_connector_id == "openai_adapter"
-    assert diag.execution_activation_source == "org_switchboard"
-    assert diag.execution_enforced is True
+    assert diag.execution_activation_source == "diagnostic_only"
+    assert diag.execution_enforced is False
     assert diag.execution_allowed is True
-    assert diag.execution_requested_capability == "engine-grok"
+    assert diag.execution_requested_capability == "gpt"
     assert diag.execution_workspace_context_id == workspace.context_id
-    assert diag.execution_org_policy_allowed is True
+    assert diag.execution_org_policy_allowed is None
     assert diag.execution_workspace_intent_enabled is None
     assert diag.execution_enforcement_owner == "execution_plan"
     assert diag.execution_denial_reason is None
+    assert "engine-grok" not in str(diag.execution_requested_capability)
 
 
 def test_execution_plan_resolver_class():
@@ -256,15 +265,16 @@ def test_capability_ownership_contract_fields():
     plan = resolve_execution_plan(workspace, "standard_chat", requested_resource="claude")
 
     assert plan.enforcement_owner == "execution_plan"
-    assert plan.requested_capability == "engine-claude"
+    assert plan.requested_capability == "claude"
     assert plan.workspace_context_id == workspace.context_id
-    assert plan.org_policy_allowed is True
+    assert plan.org_policy_allowed is None
     assert plan.workspace_intent_enabled is None
     assert plan.allowed is True
-    assert plan.enforced is True
+    assert plan.enforced is False
 
 
-def test_capability_ownership_contract_denied_unchanged(tmp_path, monkeypatch):
+def test_capability_ownership_contract_no_switchboard_policy(tmp_path, monkeypatch):
+    """Chat plan never consults Switchboard for org_policy_allowed."""
     system_db = tmp_path / "inactive_system_main.db"
     monkeypatch.setenv("BEN_SYSTEM_DB_PATH", str(system_db))
     init_global_service_schema()
@@ -275,9 +285,10 @@ def test_capability_ownership_contract_denied_unchanged(tmp_path, monkeypatch):
         requested_resource="gemini",
     )
     assert plan.enforcement_owner == "execution_plan"
-    assert plan.requested_capability == "engine-gemini"
-    assert plan.org_policy_allowed is False
-    assert plan.allowed is False
+    assert plan.requested_capability == "gemini"
+    assert plan.org_policy_allowed is None
+    assert plan.allowed is True
+    assert plan.enforced is False
     assert plan.workspace_intent_enabled is None
 
 
@@ -316,21 +327,25 @@ def test_workspace_intent_populated_only_via_helper(monkeypatch):
 
     assert len(calls) == 1
     assert calls[0][0] == workspace.context_id
-    assert calls[0][1] == "engine-claude"
+    assert calls[0][1] == "claude"
     assert plan.workspace_intent_enabled is None
     assert plan.allowed is True
 
 
-def test_workspace_intent_does_not_add_switchboard_reads(monkeypatch):
+def test_chat_plan_does_not_call_list_active_global_channels(monkeypatch):
     reads = {"count": 0}
 
-    def _counting_active(org_id, provider_id):
+    def _boom(*_a, **_k):
         reads["count"] += 1
-        return True
+        raise RuntimeError("switchboard must not be read on chat plan")
 
     monkeypatch.setattr(
-        "services.execution_plan.is_provider_engine_active",
-        _counting_active,
+        "services.global_service_store.list_active_global_channels",
+        _boom,
+    )
+    monkeypatch.setattr(
+        "services.engine_capability_gate.list_active_global_channels",
+        _boom,
     )
 
     plan = resolve_execution_plan(
@@ -339,6 +354,19 @@ def test_workspace_intent_does_not_add_switchboard_reads(monkeypatch):
         requested_resource="gpt",
     )
 
-    assert reads["count"] == 1
-    assert plan.workspace_intent_enabled is None
+    assert reads["count"] == 0
     assert plan.allowed is True
+    assert plan.requested_capability == "gpt"
+    assert plan.diagnostics.get("capability_gate_status") == "deprecated_for_chat"
+
+
+def test_chat_plan_gpt_does_not_resolve_engine_grok():
+    plan = resolve_execution_plan(
+        _standalone_workspace(),
+        "standard_chat",
+        requested_resource="gpt",
+    )
+    assert plan.requested_capability == "gpt"
+    assert "engine-grok" not in str(plan.diagnostics)
+    assert "engine-grok" not in str(plan.requested_capability)
+    assert getattr(plan, "diagnostics", {}).get("catalog_key") is None

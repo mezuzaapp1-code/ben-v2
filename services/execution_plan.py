@@ -1,15 +1,14 @@
-"""Execution plan resolution — Phase 3 observability, Phase 4 chat enforcement."""
+"""Execution plan resolution — diagnostics boarding pass (no Switchboard kill path)."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
 
-from services.engine_capability_gate import (
-    catalog_key_for_provider,
-    is_provider_engine_active,
-)
 from services.ops.structured_log import log_info
 from services.workspace_resolver import WorkspaceContext
+
+# Chat path must not import Switchboard capability gates or activation stores.
+# Compute activation checks are deprecated for standard chat.
 
 ActivationSource = str
 
@@ -88,10 +87,10 @@ def _requested_capability_label(
     *,
     requested_resource: str | None,
 ) -> str | None:
+    """Label for diagnostics only — speaking provider id, never engine-* catalog keys."""
     provider_id = _provider_id_from_resource(requested_resource)
-    catalog_key = catalog_key_for_provider(provider_id) if provider_id else None
-    if catalog_key:
-        return catalog_key
+    if provider_id:
+        return provider_id
     cap = str(capability_key or "").strip()
     return cap or None
 
@@ -175,30 +174,8 @@ class ExecutionPlanResolver:
                 ),
             )
 
+        # Standard chat: no Switchboard / system_main compute-activation reads.
         provider_id = _provider_id_from_resource(requested)
-        if provider_id is None:
-            return ExecutionPlan(
-                org_id=workspace_context.org_id,
-                workspace_id=workspace_context.workspace_id,
-                workspace_type=workspace_context.workspace_type,
-                capability_key=cap,
-                requested_resource=requested,
-                resolved_resource=resolved,
-                connector_id=connector,
-                activation_source="diagnostic_only",
-                enforced=False,
-                allowed=True,
-                diagnostics={"phase": "chat_enforcement_skipped", "reason": "no_gatable_provider"},
-                **_ownership_contract_kwargs(
-                    workspace_context,
-                    capability_key=cap,
-                    requested_resource=requested,
-                    org_policy_allowed=None,
-                ),
-            )
-
-        catalog_key = catalog_key_for_provider(provider_id)
-        active = is_provider_engine_active(workspace_context.org_id, provider_id)
         return ExecutionPlan(
             org_id=workspace_context.org_id,
             workspace_id=workspace_context.workspace_id,
@@ -207,19 +184,21 @@ class ExecutionPlanResolver:
             requested_resource=requested,
             resolved_resource=resolved,
             connector_id=connector,
-            activation_source="org_switchboard",
-            enforced=True,
-            allowed=active,
+            activation_source="diagnostic_only",
+            enforced=False,
+            allowed=True,
             diagnostics={
-                "phase": "chat_enforcement",
+                "phase": "chat_observability",
                 "provider_id": provider_id,
-                "catalog_key": catalog_key,
+                "switchboard_enforced": False,
+                "compute_activation_check": "not_applicable",
+                "capability_gate_status": "deprecated_for_chat",
             },
             **_ownership_contract_kwargs(
                 workspace_context,
                 capability_key=cap,
                 requested_resource=requested,
-                org_policy_allowed=active,
+                org_policy_allowed=None,
             ),
         )
 
