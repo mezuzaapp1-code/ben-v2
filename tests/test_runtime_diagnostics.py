@@ -324,9 +324,9 @@ def test_chat_execution_plan_diagnostics_ownership_contract(_engine_seed):
     diag = get_request_diagnostics()
     assert diag is not None
     assert diag.execution_enforcement_owner == "execution_plan"
-    assert diag.execution_requested_capability == "engine-claude"
+    assert diag.execution_requested_capability == "claude"
     assert diag.execution_workspace_context_id == workspace.context_id
-    assert diag.execution_org_policy_allowed is True
+    assert diag.execution_org_policy_allowed is None
     assert diag.execution_workspace_intent_enabled is None
     assert diag.execution_allowed is True
     assert diag.execution_denial_reason is None

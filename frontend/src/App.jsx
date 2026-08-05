@@ -80,9 +80,6 @@ import {
   parseConversationalInitResponse,
 } from './lib/conversationalInitPayload.js'
 import { normalizeProjectSlug } from './lib/threadWorkspace.js'
-import {
-  isProviderGloballyActive,
-} from './lib/globalFeatureCatalog.js'
 import { ExpertOpinionMenu } from './components/ExpertOpinionMenu.jsx'
 import { useDismissOnOutside } from './hooks/useDismissOnOutside.js'
 import { readInitialNavDrawerOpen, useNavDrawerMode } from './hooks/useNavDrawerMode.js'
@@ -638,37 +635,19 @@ function App() {
 
   const apiThreadId = useMemo(() => serverThreadIdForApi(activeId), [activeId])
 
-  const activeProviderEnabled = useMemo(
-    () => isProviderGloballyActive(liveCatalogKeys, activeSpeakingProviderId),
-    [liveCatalogKeys, activeSpeakingProviderId]
-  )
-
+  // Phase 1: composer/provider select must not depend on Switchboard activations.
   const canSendComposer = useMemo(() => {
     if (loading) return false
-    if (!activeProviderEnabled) return false
     return Boolean(input.trim())
-  }, [loading, input, activeProviderEnabled])
+  }, [loading, input])
 
   const handleEngineSelect = useCallback((providerId) => {
-    if (!isProviderGloballyActive(liveCatalogKeys, providerId)) {
-      return
-    }
     setActiveSpeakingProviderId(providerId)
     const tier1 = getTier1Model(providerId)
     if (providerId === 'gpt') setSelectedGptModel(tier1)
     else if (providerId === 'claude') setSelectedClaudeModel(tier1)
     else if (providerId === 'gemini') setSelectedGeminiModel(tier1)
-  }, [liveCatalogKeys])
-
-  useEffect(() => {
-    if (isProviderGloballyActive(liveCatalogKeys, activeSpeakingProviderId)) {
-      return
-    }
-    const fallback = getSpeakingProviders().find((provider) =>
-      isProviderGloballyActive(liveCatalogKeys, provider.id)
-    )
-    if (fallback) handleEngineSelect(fallback.id)
-  }, [activeSpeakingProviderId, handleEngineSelect, liveCatalogKeys])
+  }, [])
 
   const activeSpeakingProvider = useMemo(
     () => getSpeakingProviderById(activeSpeakingProviderId),
@@ -2639,7 +2618,7 @@ function App() {
                 tierOptions: tierSelectOptions,
                 disabled: loading,
                 activeCatalogKeys: liveCatalogKeys,
-                gateProviders: true,
+                gateProviders: false,
               }}
             />
           </div>

@@ -311,15 +311,12 @@ def _attach_request_execution_plan(
 
 
 def _enforce_chat_execution_plan(plan) -> None:
-    if plan.allowed:
-        return
-    raise HTTPException(
-        status_code=403,
-        detail={
-            "error": "CapabilityInactiveException",
-            "message": "The requested compute engine is deactivated in this workspace Switchboard.",
-        },
-    )
+    """Phase 1: Switchboard compute activation must not kill chat.
+
+    ExecutionPlan is still attached for diagnostics/telemetry. Inactive
+    org_switchboard state is informational only on /chat and /chat/stream.
+    """
+    return
 
 
 

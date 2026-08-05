@@ -241,19 +241,26 @@ def test_list_active_global_channels_filters_disconnected(global_env):
     assert get_global_channel(org_id, active["id"])["status"] == "active"
 
 
-def test_chat_rejects_inactive_engine(global_env):
+def test_chat_allows_inactive_engine(global_env):
+    """Phase 1 — empty Switchboard must not 403 chat."""
     client = TestClient(main.app)
-    response = client.post(
-        "/chat",
-        headers=_beta_headers(),
-        json={"message": "hi", "tier": "free", "provider_id": "claude"},
-    )
-    assert response.status_code == 403
-    detail = response.json().get("detail")
-    assert isinstance(detail, dict)
-    assert detail.get("error") == "CapabilityInactiveException"
-    message = str(detail.get("message") or "").lower()
-    assert "deactivated" in message or "switchboard" in message
+
+    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, model_override=None, preferred_language=None):
+        return {
+            "thread_id": str(uuid.uuid4()),
+            "response": "ok",
+            "model_used": "m",
+            "cost_usd": 0.0,
+        }
+
+    with patch.object(main, "handle_chat", side_effect=fake_chat):
+        response = client.post(
+            "/chat",
+            headers=_beta_headers(),
+            json={"message": "hi", "tier": "free", "provider_id": "claude"},
+        )
+    assert response.status_code == 200
+    assert response.json().get("response") == "ok"
 
 
 def test_chat_allows_active_engine(global_env):

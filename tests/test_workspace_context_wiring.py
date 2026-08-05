@@ -191,7 +191,7 @@ def test_chat_attaches_execution_plan_ownership_diagnostics(client, workspace_en
     plan_mock.assert_called_once()
     plan = plan_mock.call_args[0][0]
     assert plan.enforcement_owner == "execution_plan"
-    assert plan.requested_capability == "engine-claude"
+    assert plan.requested_capability == "claude"
 
 
 @pytest.mark.asyncio
