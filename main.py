@@ -34,7 +34,6 @@ from auth.tenant_binding import TenantContext, build_tenant_context, log_tenant_
 from services.chat_intent import apply_chat_intent_to_request
 from services.chat_language import normalize_language_code
 from services.chat_service import handle_chat, stream_chat_response
-from services.engine_capability_gate import assert_provider_engine_active
 from services.model_gateway import (
     normalize_chat_provider_id,
     normalize_model_override,
@@ -930,10 +929,7 @@ async def api_adhoc_expert_stream(request: Request, thread_id: str, body: AdhocE
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if provider_id is None:
         raise HTTPException(status_code=400, detail="provider_id is required")
-    try:
-        assert_provider_engine_active(str(ctx.tenant_id), provider_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    # Gate 2: Switchboard compute activation must not block Add Opinion.
     org_id = uuid.UUID(ctx.tenant_id)
     message_type = "panel" if str(body.opinion_mode or "single").strip().lower() == "panel" else "expert_consult"
     stream_fn = stream_expert_opinion if body.anchor_message_id is not None else stream_adhoc_expert
@@ -970,10 +966,7 @@ async def api_adhoc_expert(request: Request, thread_id: str, body: AdhocExpertBo
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if provider_id is None:
         raise HTTPException(status_code=400, detail="provider_id is required")
-    try:
-        assert_provider_engine_active(str(ctx.tenant_id), provider_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    # Gate 2: Switchboard compute activation must not block Add Opinion.
     org_id = uuid.UUID(ctx.tenant_id)
     message_type = "panel" if str(body.opinion_mode or "single").strip().lower() == "panel" else "expert_consult"
     async with measure(subsystem="adhoc", operation="POST /api/threads/{id}/adhoc/expert"):
