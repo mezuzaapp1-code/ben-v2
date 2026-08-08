@@ -9,3 +9,5 @@ httpx
 feedparser==6.0.11
 uvicorn[standard]
 stripe
+# PDF text extraction for the Workspace File Library (services/workspace_files/extract.py).
+pypdf==6.15.0
