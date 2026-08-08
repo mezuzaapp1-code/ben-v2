@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -300,6 +301,89 @@ async def open_file_bytes(
         if not path.exists():
             raise HTTPException(status.HTTP_404_NOT_FOUND, "File bytes missing")
         return path, row.media_type, row.display_name
+
+
+@dataclass(frozen=True)
+class WorkspaceFilesContext:
+    """Rendered, size-capped block of ready Workspace File text for chat context."""
+
+    block: str
+    count: int
+    chars: int
+    truncated: bool
+
+
+def _sanitize_file_name(name: str | None) -> str:
+    cleaned = " ".join(str(name or "file").split())
+    return cleaned.replace('"', "'")[:256] or "file"
+
+
+async def load_ready_files_context(
+    org_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    *,
+    max_chars: int,
+) -> WorkspaceFilesContext:
+    """Read-only: assemble a filename-labeled, size-capped text block from the
+    ready Workspace Files of a single org + workspace.
+
+    - Queries only ``WorkspaceFile`` rows for the supplied ``org_id`` + ``workspace_id``.
+    - Includes only ``status == "ready"`` rows with non-empty ``extracted_text``.
+    - Deterministic ordering (``created_at``, then ``id``).
+    - Strict total size cap (``max_chars``); the last included file is truncated
+      deterministically when the cap is reached.
+    - Preserves workspace/org isolation: the SQL ``WHERE`` clause plus a per-row
+      re-check (defense-in-depth); RLS org scope is also set on the session.
+    - Never writes.
+    """
+    if max_chars <= 0:
+        return WorkspaceFilesContext(block="", count=0, chars=0, truncated=False)
+
+    async with get_db_session() as session:
+        await _set_org(session, org_id)
+        stmt = (
+            select(WorkspaceFile)
+            .where(
+                WorkspaceFile.org_id == org_id,
+                WorkspaceFile.workspace_id == workspace_id,
+                WorkspaceFile.status == "ready",
+            )
+            .order_by(WorkspaceFile.created_at.asc(), WorkspaceFile.id.asc())
+        )
+        rows = (await session.execute(stmt)).scalars().all()
+
+    parts: list[str] = []
+    total = 0
+    count = 0
+    truncated = False
+    for row in rows:
+        # Defense-in-depth: never emit a row outside the requested org/workspace,
+        # and only ready rows that actually carry extracted text.
+        if str(row.org_id) != str(org_id) or str(row.workspace_id) != str(workspace_id):
+            continue
+        if row.status != "ready":
+            continue
+        body = (row.extracted_text or "").strip()
+        if not body:
+            continue
+        remaining = max_chars - total
+        if remaining <= 0:
+            truncated = True
+            break
+        if len(body) > remaining:
+            body = body[:remaining]
+            truncated = True
+        name = _sanitize_file_name(row.display_name or row.original_filename)
+        parts.append(f'[file name="{name}"]\n{body}\n[/file]')
+        total += len(body)
+        count += 1
+        if truncated:
+            break
+
+    if not parts:
+        return WorkspaceFilesContext(block="", count=0, chars=0, truncated=truncated)
+    block = "<workspace_files>\n" + "\n".join(parts) + "\n</workspace_files>"
+    return WorkspaceFilesContext(block=block, count=count, chars=total, truncated=truncated)
 
 
 async def delete_file(
