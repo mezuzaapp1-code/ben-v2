@@ -31,7 +31,6 @@ from auth.shadow_auth import apply_auth_policy
 
 from auth.tenant_binding import TenantContext, build_tenant_context, log_tenant_bound, validate_body_tenant_matches_context
 
-from services.chat_intent import apply_chat_intent_to_request
 from services.chat_language import normalize_language_code
 from services.chat_service import handle_chat, stream_chat_response
 from services.model_gateway import (
@@ -592,12 +591,12 @@ async def chat_stream(request: Request, body: ChatBody):
         validate_chat_model_override(chat_provider_id, chat_model_override)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    resolved_provider_id, resolved_model_override, resolved_expert_opinion = apply_chat_intent_to_request(
-        body.message,
-        provider_id=chat_provider_id,
-        model_override=chat_model_override,
-        expert_opinion=bool(body.expert_opinion),
-    )
+    # Engine selection is button-only: the user's message text must never change
+    # the provider or model. Cross-engine turns happen through explicit actions
+    # (Add Opinion / Compare / Winning Answer), not natural-language routing.
+    resolved_provider_id = chat_provider_id
+    resolved_model_override = chat_model_override
+    resolved_expert_opinion = bool(body.expert_opinion)
     begin_request_diagnostics(route="/chat/stream", ctx=ctx, text_hint=body.message)
     workspace_ctx = _attach_request_workspace_context(
         ctx,
