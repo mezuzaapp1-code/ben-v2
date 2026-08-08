@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -20,7 +21,8 @@ from services.inference.gateway_meter import get_last_accounted_call
 from services.model_gateway import route_request, route_request_stream, validate_chat_model_override
 from services.ops.failure_classification import classify_failure
 from services.ops.runtime_diagnostics import attach_workspace_to_request_diagnostics
-from services.ops.structured_log import log_warning
+from services.ops.structured_log import log_info, log_warning
+from services.workspace_files.service import load_ready_files_context
 from services.rolling_context import (
     DEFAULT_OPINION_REQUEST,
     RAW_STREAM_SYSTEM,
@@ -36,6 +38,13 @@ from services.thread_service import (
     persist_chat_exchange_sqlite,
     resolve_thread_id,
     _load_chat_history_messages,
+)
+
+
+# Total character budget for the Workspace Files -> Chat Context bridge. Bounds
+# tokens/cost; when exceeded, file context is truncated deterministically.
+WORKSPACE_FILES_CONTEXT_MAX_CHARS = int(
+    os.getenv("BEN_WORKSPACE_FILES_CONTEXT_MAX_CHARS", "12000")
 )
 
 
@@ -215,6 +224,11 @@ async def stream_chat_response(
     # (Add Opinion / Compare / Winning Answer), not natural-language routing.
     resolved_provider_id = (provider_id or "").strip().lower() or None
 
+    # Workspace Files -> Chat Context diagnostics (see standard-chat branch).
+    workspace_files_injected = False
+    workspace_files_count = 0
+    workspace_files_chars = 0
+
     try:
         validate_chat_model_override(provider_id, model_override)
     except ValueError as e:
@@ -234,6 +248,40 @@ async def stream_chat_response(
         effective_message = apply_language_context(effective_message, preferred_language)
         stream_system = None
         persist_user_text = message
+        # Workspace Files -> Chat Context bridge (standard chat only). Ready files
+        # in the active workspace are made available to the selected primary engine
+        # identically, regardless of which provider is selected. A retrieval failure
+        # must never break the chat and must not imply the file was available.
+        if project_id is not None:
+            try:
+                wsf = await load_ready_files_context(
+                    org, project_id, max_chars=WORKSPACE_FILES_CONTEXT_MAX_CHARS
+                )
+                if wsf.block:
+                    effective_message = f"{wsf.block}\n\n{effective_message}"
+                    workspace_files_injected = True
+                    workspace_files_count = wsf.count
+                    workspace_files_chars = wsf.chars
+                    log_info(
+                        "workspace files injected into chat context",
+                        subsystem="chat",
+                        operation="workspace_files_context",
+                        outcome="ok",
+                        workspace_files_injected=True,
+                        workspace_files_count=wsf.count,
+                        workspace_files_chars=wsf.chars,
+                        workspace_files_truncated=wsf.truncated,
+                    )
+            except Exception as e:
+                log_warning(
+                    "workspace files context load failed",
+                    subsystem="chat",
+                    provider="database",
+                    category=classify_failure(e),
+                    exc=e,
+                    operation="workspace_files_context",
+                    outcome="error",
+                )
 
     yield _stream_ndjson(
         {
@@ -349,6 +397,9 @@ async def stream_chat_response(
             "provider_id": resolved_provider_id,
             "provider_used": provider_used,
             "mode": "rolling" if expert_opinion else "chat",
+            "workspace_files_injected": workspace_files_injected,
+            "workspace_files_count": workspace_files_count,
+            "workspace_files_chars": workspace_files_chars,
             "sqlite_user_id": sqlite_user_id,
             "sqlite_assistant_id": sqlite_assistant_id,
             "execution_id": accounted.get("execution_id"),
