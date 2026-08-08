@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Computed,
     Date,
     DateTime,
     Float,
@@ -18,7 +19,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 SCHEMA = "ben"
@@ -256,9 +257,18 @@ class WorkspaceFile(Base):
             "status IN ('uploaded','queued','processing','ready','failed')",
             name="ck_workspace_files_status",
         ),
+        CheckConstraint(
+            "extraction_status IN ('pending','extracting','complete','partial','failed')",
+            name="ck_workspace_files_extraction_status",
+        ),
+        CheckConstraint(
+            "index_status IN ('not_indexed','indexing','indexed','stale','failed')",
+            name="ck_workspace_files_index_status",
+        ),
         Index("ix_workspace_files_org_workspace", "org_id", "workspace_id"),
         Index("ix_workspace_files_workspace_created", "workspace_id", "created_at"),
         Index("ix_workspace_files_workspace_status", "workspace_id", "status"),
+        Index("ix_workspace_files_workspace_index_status", "workspace_id", "index_status"),
         Index("ix_workspace_files_checksum", "checksum"),
         {"schema": SCHEMA},
     )
@@ -285,6 +295,28 @@ class WorkspaceFile(Base):
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     failure_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     failure_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # --- Document Intelligence lifecycle (Gate 1) ---
+    # extraction_status and index_status are intentionally independent of `status`
+    # (upload/bytes lifecycle) so extraction gaps vs indexing failures stay
+    # unambiguous. Existing rows default to extraction pending + not_indexed and
+    # require no synchronous backfill. Detailed per-page coverage lives in
+    # WorkspaceFilePage; per-page counts / coverage_complete are DERIVED from it.
+    extraction_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'pending'")
+    )
+    index_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'not_indexed'")
+    )
+    page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    extraction_truncated: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    extraction_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chunking_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    indexing_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    indexed_chunk_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -667,3 +699,105 @@ class InferenceCallRecordRow(Base):
     finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     extras: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+
+
+class WorkspaceFilePage(Base):
+    """One authoritative record per detected source page (Document Intelligence).
+
+    Coverage truth lives here: every detected page has an explicit extraction
+    state, so BEN can report exactly which pages were read, which were not, and
+    why. It is the provenance parent for chunks and the future retry/OCR target.
+    Page text is intentionally NOT stored here (chunks hold text; the immutable
+    source bytes are the ground truth for re-extraction / re-chunking).
+    """
+
+    __tablename__ = "workspace_file_pages"
+    __table_args__ = (
+        CheckConstraint(
+            "extraction_status IN ('extracted','empty','needs_ocr','failed','skipped')",
+            name="ck_workspace_file_pages_extraction_status",
+        ),
+        UniqueConstraint(
+            "file_id",
+            "extraction_version",
+            "page_number",
+            name="uq_workspace_file_pages_file_version_page",
+        ),
+        Index("ix_workspace_file_pages_org_workspace_file", "org_id", "workspace_id", "file_id"),
+        Index("ix_workspace_file_pages_file_page", "file_id", "page_number"),
+        Index("ix_workspace_file_pages_file_status", "file_id", "extraction_status"),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    file_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.workspace_files.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    page_number: Mapped[int] = mapped_column(Integer, nullable=False)  # 1-based source page
+    extraction_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    char_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    needs_ocr: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    failure_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    failure_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extraction_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class WorkspaceFileChunk(Base):
+    """Deterministic, versioned, tenant-isolated chunk of extracted page text.
+
+    The persistent lexical-index unit (Postgres FTS via the generated tsvector).
+    Retains provenance to org / workspace / file / page. Duplicate indexing is
+    impossible per (file_id, chunking_version, document_chunk_index).
+    """
+
+    __tablename__ = "workspace_file_chunks"
+    __table_args__ = (
+        UniqueConstraint(
+            "file_id",
+            "chunking_version",
+            "document_chunk_index",
+            name="uq_workspace_file_chunks_file_version_docidx",
+        ),
+        Index("ix_workspace_file_chunks_org_workspace_file", "org_id", "workspace_id", "file_id"),
+        Index("ix_workspace_file_chunks_file_page", "file_id", "page_number", "page_chunk_index"),
+        Index("ix_workspace_file_chunks_page", "page_id"),
+        Index("ix_workspace_file_chunks_tsv", "text_tsv", postgresql_using="gin"),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    file_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.workspace_files.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    page_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.workspace_file_pages.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    page_chunk_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    document_chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    char_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    extraction_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    chunking_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    text_tsv: Mapped[Any] = mapped_column(
+        TSVECTOR, Computed("to_tsvector('simple', text)", persisted=True)
+    )
+    # NOTE: the `text` column above shadows the imported `text()` inside this class
+    # body, so use func.now() here for the server default.
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
