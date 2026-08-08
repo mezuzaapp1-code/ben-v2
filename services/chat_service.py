@@ -21,9 +21,7 @@ from services.model_gateway import route_request, route_request_stream, validate
 from services.ops.failure_classification import classify_failure
 from services.ops.runtime_diagnostics import attach_workspace_to_request_diagnostics
 from services.ops.structured_log import log_warning
-from services.chat_intent import apply_chat_intent_to_request, is_cross_engine_turn
 from services.rolling_context import (
-    CROSS_ENGINE_HANDOFF_SYSTEM,
     DEFAULT_OPINION_REQUEST,
     RAW_STREAM_SYSTEM,
     build_rolling_stream_prompt,
@@ -33,7 +31,6 @@ from services.project_agent_service import stream_project_agent_response
 from services.workspace_resolver import resolve_workspace_context_for_org
 from services.thread_service import (
     build_chat_message_with_thread_context,
-    build_cross_engine_thread_prompt,
     format_full_thread_history_for_handoff,
     is_project_setup_thread,
     persist_chat_exchange_sqlite,
@@ -213,19 +210,10 @@ async def stream_chat_response(
                 )
         return
 
-    # Standard chat threads: no filesystem tools in the LLM payload (lean latency path).
-    ui_provider_id = (provider_id or "").strip().lower() or None
-    provider_id, model_override, expert_opinion = apply_chat_intent_to_request(
-        message,
-        provider_id=provider_id,
-        model_override=model_override,
-        expert_opinion=expert_opinion,
-    )
+    # Engine selection is button-only. The user's message text never changes the
+    # provider or model; cross-engine turns happen through explicit actions
+    # (Add Opinion / Compare / Winning Answer), not natural-language routing.
     resolved_provider_id = (provider_id or "").strip().lower() or None
-    cross_engine = is_cross_engine_turn(
-        ui_provider_id=ui_provider_id,
-        resolved_provider_id=resolved_provider_id,
-    )
 
     try:
         validate_chat_model_override(provider_id, model_override)
@@ -240,13 +228,6 @@ async def stream_chat_response(
         effective_message = apply_language_context(effective_message, preferred_language)
         stream_system = RAW_STREAM_SYSTEM
         persist_user_text = opinion_request
-    elif cross_engine:
-        request_text = (message or "").strip()
-        contextual_message = await build_cross_engine_thread_prompt(org, tid, request_text)
-        effective_message = await inject_knowledge_few_shot(message, contextual_message)
-        effective_message = apply_language_context(effective_message, preferred_language)
-        stream_system = CROSS_ENGINE_HANDOFF_SYSTEM
-        persist_user_text = request_text
     else:
         contextual_message = await build_chat_message_with_thread_context(org, tid, message)
         effective_message = await inject_knowledge_few_shot(message, contextual_message)
@@ -258,7 +239,7 @@ async def stream_chat_response(
         {
             "type": "meta",
             "thread_id": str(tid),
-            "mode": "rolling" if expert_opinion else ("handoff" if cross_engine else "chat"),
+            "mode": "rolling" if expert_opinion else "chat",
             "provider_id": resolved_provider_id,
         }
     )
@@ -367,7 +348,7 @@ async def stream_chat_response(
             "cost_usd": stream_cost,
             "provider_id": resolved_provider_id,
             "provider_used": provider_used,
-            "mode": "rolling" if expert_opinion else ("handoff" if cross_engine else "chat"),
+            "mode": "rolling" if expert_opinion else "chat",
             "sqlite_user_id": sqlite_user_id,
             "sqlite_assistant_id": sqlite_assistant_id,
             "execution_id": accounted.get("execution_id"),

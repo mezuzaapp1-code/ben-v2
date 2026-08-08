@@ -34,26 +34,27 @@ def test_format_full_thread_history_labels_providers():
 
 
 @pytest.mark.asyncio
-async def test_stream_chat_response_cross_engine_uses_full_history():
+async def test_stream_chat_response_ignores_engine_names_in_message():
+    """Engine selection is button-only: a message that names another engine must
+    NOT reroute the primary chat turn. The provider stays the UI selection and the
+    turn uses the standard chat context (no natural-language handoff)."""
     from services.chat_service import stream_chat_response
 
     org = uuid.uuid4()
     tid = uuid.uuid4()
-    handoff_prompt = (
-        "<conversation_history>\nUser: Q\n\nGemini: A\n</conversation_history>\n\n"
-        "<user_message>\nHey Claude, continue\n</user_message>"
-    )
+    seen: dict = {}
 
     async def fake_stream(message, tenant_id, tier, provider_id=None, model_override=None, system=None):
-        assert message == handoff_prompt
-        assert system is not None
-        yield ("Claude reply", "claude-opus-4.8", "anthropic")
+        seen["provider_id"] = provider_id
+        seen["model_override"] = model_override
+        seen["system"] = system
+        yield ("Gemini reply", "gemini-3.5-flash", "google")
 
     with (
         patch("services.chat_service.resolve_thread_id", new=AsyncMock(return_value=tid)),
         patch(
-            "services.chat_service.build_cross_engine_thread_prompt",
-            new=AsyncMock(return_value=handoff_prompt),
+            "services.chat_service.build_chat_message_with_thread_context",
+            new=AsyncMock(side_effect=lambda _o, _t, m: m),
         ),
         patch("services.chat_service.inject_knowledge_few_shot", new=AsyncMock(side_effect=lambda _m, p: p)),
         patch("services.chat_service.apply_language_context", side_effect=lambda msg, _lang: msg),
@@ -62,7 +63,7 @@ async def test_stream_chat_response_cross_engine_uses_full_history():
     ):
         events = []
         async for line in stream_chat_response(
-            "Hey Claude, continue",
+            "Hey Claude, please switch to GPT and continue",
             "user-1",
             str(org),
             "free",
@@ -72,9 +73,17 @@ async def test_stream_chat_response_cross_engine_uses_full_history():
         ):
             events.append(json.loads(line))
 
+    # Provider dispatched to the model gateway is the button selection, untouched.
+    assert seen["provider_id"] == "gemini"
+    assert seen["model_override"] == "gemini-3.5-flash"
+    # Standard chat turn: no cross-engine handoff system prompt.
+    assert seen["system"] is None
+
     meta = events[0]
     assert meta["type"] == "meta"
-    assert meta["mode"] == "handoff"
-    assert meta["provider_id"] == "claude"
+    assert meta["mode"] == "chat"
+    assert meta["provider_id"] == "gemini"
     done = next(e for e in events if e["type"] == "done")
-    assert done["response"] == "Claude reply"
+    assert done["provider_id"] == "gemini"
+    assert done["mode"] == "chat"
+    assert done["response"] == "Gemini reply"
