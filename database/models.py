@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -270,6 +271,9 @@ class WorkspaceFile(Base):
         Index("ix_workspace_files_workspace_status", "workspace_id", "status"),
         Index("ix_workspace_files_workspace_index_status", "workspace_id", "index_status"),
         Index("ix_workspace_files_checksum", "checksum"),
+        # Backs the composite tenant-integrity FK from document_processing_jobs
+        # (file_id, org_id, workspace_id) -> workspace_files(id, org_id, workspace_id).
+        UniqueConstraint("id", "org_id", "workspace_id", name="uq_workspace_files_id_org_workspace"),
         {"schema": SCHEMA},
     )
     id: Mapped[uuid.UUID] = mapped_column(
@@ -801,3 +805,90 @@ class WorkspaceFileChunk(Base):
     # NOTE: the `text` column above shadows the imported `text()` inside this class
     # body, so use func.now() here for the server default.
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DocumentProcessingJob(Base):
+    """Durable, tenant-isolated orchestration ledger for the future extraction
+    processor (Gate 3A). Owns ONLY scheduling / ownership / attempts / lease /
+    outcome — never document text or bytes. No extraction is executed here.
+
+    Tenant integrity of the denormalized (org_id, workspace_id, file_id) triple is
+    DB-enforced by a composite FK to workspace_files(id, org_id, workspace_id),
+    which also cascades on WorkspaceFile deletion. At most one active job may exist
+    per (file_id, job_type, extraction_version, chunking_version) via a partial
+    unique index (queued/running). Cross-org claim/reaper are SECURITY DEFINER
+    functions owned by the `ben_doc_processor` role (see migration 024); product
+    sessions remain FORCE-RLS isolated on app.current_org_id.
+    """
+
+    __tablename__ = "document_processing_jobs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["file_id", "org_id", "workspace_id"],
+            [
+                f"{SCHEMA}.workspace_files.id",
+                f"{SCHEMA}.workspace_files.org_id",
+                f"{SCHEMA}.workspace_files.workspace_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_doc_processing_jobs_file_owner",
+        ),
+        CheckConstraint(
+            "status IN ('queued','running','succeeded','failed','cancelled')",
+            name="ck_doc_processing_jobs_status",
+        ),
+        CheckConstraint("attempts >= 0", name="ck_doc_processing_jobs_attempts"),
+        CheckConstraint("max_attempts >= 1", name="ck_doc_processing_jobs_max_attempts"),
+        CheckConstraint("char_length(job_type) > 0", name="ck_doc_processing_jobs_job_type"),
+        CheckConstraint(
+            "status <> 'running' OR (claimed_at IS NOT NULL AND lease_expires_at IS NOT NULL "
+            "AND worker_id IS NOT NULL)",
+            name="ck_doc_processing_jobs_running_lease",
+        ),
+        CheckConstraint(
+            "status <> 'queued' OR (claimed_at IS NULL AND lease_expires_at IS NULL "
+            "AND worker_id IS NULL)",
+            name="ck_doc_processing_jobs_queued_clear",
+        ),
+        Index(
+            "uq_doc_processing_jobs_active",
+            "file_id", "job_type", "extraction_version", "chunking_version",
+            unique=True,
+            postgresql_where=text("status IN ('queued','running')"),
+        ),
+        Index(
+            "ix_doc_processing_jobs_claim",
+            "available_at", "created_at", "id",
+            postgresql_where=text("status = 'queued'"),
+        ),
+        Index(
+            "ix_doc_processing_jobs_lease",
+            "lease_expires_at",
+            postgresql_where=text("status = 'running'"),
+        ),
+        Index("ix_doc_processing_jobs_org_workspace", "org_id", "workspace_id"),
+        Index("ix_doc_processing_jobs_file", "file_id"),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    file_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    job_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'structured_extraction'"))
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'queued'"))
+    extraction_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    chunking_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("5"))
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    worker_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
