@@ -218,9 +218,10 @@ async def test_drain_extraction_failure_not_falsely_ready(fresh_engine):
 
 @pytest.mark.asyncio
 async def test_drain_transient_failure_requeues_with_backoff(fresh_engine, monkeypatch):
-    async def raise_transient(**k):
+    async def raise_transient(*a, **k):
         raise RuntimeError("transient db blip")
-    monkeypatch.setattr("services.workspace_files.drain.process_file", raise_transient)
+    # Gate 3C: the async executor is the structured pipeline (not process_file).
+    monkeypatch.setattr("services.workspace_files.drain.run_structured_extraction", raise_transient)
     conn = await _open()
     org = uuid.uuid4(); ws = await _mk_workspace(conn, org)
     try:

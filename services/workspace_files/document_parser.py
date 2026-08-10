@@ -158,8 +158,17 @@ class PdfDocumentParser(DocumentParser):
                 [], source_page_count=0, parser_id=self.parser_id, parser_version="unavailable",
                 max_pages=max_pages, warnings=("pdf_parser_unavailable",),
             )
-        reader = PdfReader(str(path))
-        source_page_count = len(reader.pages)
+        try:
+            reader = PdfReader(str(path))
+            source_page_count = len(reader.pages)
+        except Exception as exc:  # noqa: BLE001
+            # Corrupt/unreadable document is a DETERMINATE failure (0 pages, no usable
+            # text), not an infrastructure error — so it does not trigger retries.
+            return _assemble_document(
+                [], source_page_count=0, parser_id=self.parser_id,
+                parser_version=self.parser_version, max_pages=max_pages,
+                warnings=(f"pdf_open_failed:{type(exc).__name__}",),
+            )
         items: list[tuple[str | None, bool, str | None]] = []
         for idx in range(min(source_page_count, max_pages)):
             items.append(self._page_signals(reader.pages[idx]))

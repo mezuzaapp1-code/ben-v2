@@ -41,9 +41,33 @@ from services.workspace_files.document_parser import (
     StructuredDocument,
     resolve_parser,
 )
+from services.workspace_files.extract import MAX_EXTRACT_CHARS
 
 # Bump when the physical index representation changes (FTS config/schema).
 INDEXING_VERSION = 1
+
+
+def _legacy_projection(
+    doc: StructuredDocument, extraction_status: str
+) -> tuple[str, str | None, str | None, str | None]:
+    """Gate 3C temporary compatibility bridge (removed when Gate 4 retrieval lands).
+
+    Derive the legacy WorkspaceFile.status + extracted_text from the SAME parsed
+    StructuredDocument (no second parse, no provider) so current chat retrieval
+    (status='ready' + extracted_text) keeps working. Structured lifecycle remains
+    authoritative; these legacy fields are a projection only.
+
+    Returns (status, extracted_text, failure_code, failure_message).
+    """
+    if extraction_status in ("complete", "partial"):
+        parts = [p.text for p in doc.pages if p.status == PAGE_EXTRACTED and p.text]
+        text = "\n".join(parts).replace("\x00", " ")
+        if len(text) > MAX_EXTRACT_CHARS:
+            text = text[:MAX_EXTRACT_CHARS]
+        # complete/partial always carry usable text (see derive_lifecycle).
+        return "ready", (text or None), None, None
+    # failed: no usable text — never claim ready, never fabricate text.
+    return "failed", None, "extraction_failed", "No usable text extracted from document."
 
 
 async def _set_org(session, org_id: uuid.UUID) -> None:
@@ -125,6 +149,8 @@ async def run_structured_extraction(
             await _mark(
                 file_id, org_id,
                 extraction_status="failed", index_status="not_indexed",
+                status="failed", extracted_text=None,
+                failure_code="missing_bytes", failure_message="Stored file bytes were not found.",
                 processing_error="missing_bytes", extraction_version=EXTRACTION_VERSION,
             )
             diag.update({"error": "missing_bytes", "final_extraction_status": "failed",
@@ -197,6 +223,12 @@ async def run_structured_extraction(
             file_row.indexed_chunk_count = len(chunks)
             file_row.indexed_at = datetime.now(timezone.utc) if index_status == "indexed" else None
             file_row.processing_error = None
+            # Legacy compatibility projection (same transaction, same parse).
+            legacy_status, legacy_text, legacy_code, legacy_msg = _legacy_projection(doc, extraction_status)
+            file_row.status = legacy_status
+            file_row.extracted_text = legacy_text
+            file_row.failure_code = legacy_code
+            file_row.failure_message = legacy_msg
             await session.commit()
         persist_ms = round((time.perf_counter() - t_persist) * 1000.0, 1)
 
@@ -221,9 +253,13 @@ async def run_structured_extraction(
         return diag
 
     except Exception as e:  # noqa: BLE001
+        # Infrastructure/persistence error (not a determinate document outcome):
+        # keep legacy status truthful and let the drain classify for retry.
         await _mark(
             file_id, org_id,
             extraction_status="failed", index_status="failed",
+            status="failed", extracted_text=None,
+            failure_code="extraction_error", failure_message=f"{type(e).__name__}"[:500],
             processing_error=f"{type(e).__name__}"[:64], extraction_version=EXTRACTION_VERSION,
         )
         diag.update({"error": type(e).__name__, "final_extraction_status": "failed",
