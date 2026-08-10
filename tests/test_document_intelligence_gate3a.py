@@ -587,12 +587,12 @@ def test_no_extraction_invocation_in_substrate():
 
 
 def test_upload_path_wired_to_jobs_as_of_gate3b():
-    """As of Gate 3B, upload_file enqueues a durable job (no longer processes
-    synchronously). The Gate 3A substrate itself still performs no extraction; the
-    wiring lives in upload_file, and the drain (Gate 3B) invokes process_file."""
+    """As of Gate 3B, upload_file can enqueue a durable job. The wiring is behind the
+    BEN_DOC_PROCESSING_ENABLED flag (OFF preserves the synchronous path); the Gate 3A
+    substrate itself still performs no extraction."""
     import pathlib
     src = pathlib.Path("services/workspace_files/service.py").read_text()
     assert "enqueue_document_processing_job" in src  # Gate 3B wiring present
     upload_fn = src.split("async def upload_file", 1)[1].split("async def process_file", 1)[0]
     assert "enqueue_document_processing_job" in upload_fn
-    assert "await process_file(" not in upload_fn  # no synchronous extraction on upload
+    assert "_doc_processing_enabled" in upload_fn  # flag-gated activation

@@ -94,6 +94,14 @@ async def fresh_engine():
     await dispose_engine()
 
 
+@pytest.fixture(autouse=True)
+def _enable_async(monkeypatch):
+    """Gate 3B async behavior is behind BEN_DOC_PROCESSING_ENABLED (default OFF).
+    These tests exercise the async path, so enable it by default; the explicit
+    OFF test overrides this within its own body."""
+    monkeypatch.setenv("BEN_DOC_PROCESSING_ENABLED", "on")
+
+
 async def _upload(org, ws, name, ct, data):
     return await file_service.upload_file(
         org_id=org, workspace_id=ws, upload=_Upload(name, ct, data), uploaded_by="tester"
@@ -293,10 +301,53 @@ async def test_process_file_rerun_is_idempotent(fresh_engine):
         await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws); await conn.close(); _cleanup_storage(org, ws)
 
 
-def test_upload_source_has_no_synchronous_process_file_call():
-    """Static guard: upload_file must enqueue, not call process_file synchronously."""
+@pytest.mark.asyncio
+async def test_flag_off_upload_is_synchronous(fresh_engine, monkeypatch):
+    """OFF (default/fail-safe): upload behaves exactly as current production —
+    synchronous extraction to READY, and NO durable job is created."""
+    monkeypatch.setenv("BEN_DOC_PROCESSING_ENABLED", "off")
+    conn = await _open()
+    org = uuid.uuid4(); ws = await _mk_workspace(conn, org)
+    try:
+        payload = await _upload(org, ws, "sync.txt", "text/plain", b"sync path body")
+        assert payload["status"] == "ready"  # processed within the request
+        fid = uuid.UUID(payload["id"])
+        f = await _file(conn, fid)
+        assert f["status"] == "ready" and f["extracted_text"] == "sync path body"
+        # No durable job in the synchronous path.
+        assert await conn.fetchval(
+            "SELECT count(*) FROM ben.document_processing_jobs WHERE file_id=$1", fid) == 0
+        # Immediately retrievable (synchronous READY).
+        ctx = await file_service.load_ready_files_context(org, ws, max_chars=10000)
+        assert ctx.count == 1 and "sync path body" in ctx.block
+    finally:
+        await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws); await conn.close(); _cleanup_storage(org, ws)
+
+
+@pytest.mark.asyncio
+async def test_flag_on_upload_is_async(fresh_engine, monkeypatch):
+    """ON: upload persists + enqueues (queued, no synchronous extraction, one job)."""
+    monkeypatch.setenv("BEN_DOC_PROCESSING_ENABLED", "on")
+    conn = await _open()
+    org = uuid.uuid4(); ws = await _mk_workspace(conn, org)
+    try:
+        payload = await _upload(org, ws, "async.txt", "text/plain", b"async path body")
+        assert payload["status"] == "queued"  # not processed in the request
+        fid = uuid.UUID(payload["id"])
+        f = await _file(conn, fid)
+        assert f["status"] == "queued" and f["extracted_text"] is None
+        assert await conn.fetchval(
+            "SELECT count(*) FROM ben.document_processing_jobs WHERE file_id=$1 AND status='queued'", fid) == 1
+    finally:
+        await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws); await conn.close(); _cleanup_storage(org, ws)
+
+
+def test_upload_source_is_flag_gated():
+    """Static guard: upload_file routes on BEN_DOC_PROCESSING_ENABLED — enqueue when
+    ON, synchronous process_file when OFF."""
     import pathlib
     src = pathlib.Path("services/workspace_files/service.py").read_text()
     upload_fn = src.split("async def upload_file", 1)[1].split("async def process_file", 1)[0]
-    assert "enqueue_document_processing_job" in upload_fn
-    assert "await process_file(" not in upload_fn
+    assert "_doc_processing_enabled" in upload_fn  # flag-gated
+    assert "enqueue_document_processing_job" in upload_fn  # ON path
+    assert "await process_file(" in upload_fn  # OFF path (synchronous, preserved)
