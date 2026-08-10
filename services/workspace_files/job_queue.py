@@ -23,6 +23,9 @@ from services.workspace_files.chunking import CHUNKING_VERSION
 from services.workspace_files.document_parser import EXTRACTION_VERSION
 
 JOB_TYPE_STRUCTURED_EXTRACTION = "structured_extraction"
+# Gate 3B: async execution of the existing legacy extraction (process_file), which
+# is what produces the READY state + extracted_text consumed by chat retrieval.
+JOB_TYPE_FILE_EXTRACTION = "file_extraction"
 ACTIVE_STATUSES = ("queued", "running")
 TERMINAL_STATUSES = ("succeeded", "failed", "cancelled")
 
@@ -62,6 +65,80 @@ def _job_dict(row) -> dict[str, Any]:
     return d
 
 
+async def _enqueue_in_session(
+    session,
+    org_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    file_id: uuid.UUID,
+    *,
+    extraction_version: int,
+    chunking_version: int,
+    job_type: str,
+    max_attempts: int,
+) -> dict[str, Any]:
+    """Insert (or idempotently find) the active job in the caller's transaction.
+
+    Does NOT commit — the caller owns the transaction boundary (this lets upload
+    persist the WorkspaceFile and enqueue its job atomically).
+    """
+    await _set_org(session, org_id)
+    owned = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM ben.workspace_files "
+                "WHERE id = :f AND org_id = :o AND workspace_id = :w"
+            ),
+            {"f": str(file_id), "o": str(org_id), "w": str(workspace_id)},
+        )
+    ).first()
+    if owned is None:
+        raise TenantOwnershipError("file does not belong to org/workspace")
+
+    params = {
+        "o": str(org_id), "w": str(workspace_id), "f": str(file_id),
+        "jt": job_type, "ev": extraction_version, "cv": chunking_version,
+        "ma": max_attempts,
+    }
+    inserted = (
+        await session.execute(
+            text(
+                """
+                INSERT INTO ben.document_processing_jobs
+                    (org_id, workspace_id, file_id, job_type, status,
+                     extraction_version, chunking_version, max_attempts, available_at)
+                VALUES (:o, :w, :f, :jt, 'queued', :ev, :cv, :ma, now())
+                ON CONFLICT (file_id, job_type, extraction_version, chunking_version)
+                    WHERE status IN ('queued','running')
+                DO NOTHING
+                RETURNING id, status, attempts, available_at, created_at
+                """
+            ),
+            params,
+        )
+    ).mappings().first()
+
+    if inserted is not None:
+        return {"created": True, **_job_dict(inserted)}
+
+    existing = (
+        await session.execute(
+            text(
+                """
+                SELECT id, status, attempts, available_at, created_at
+                  FROM ben.document_processing_jobs
+                 WHERE file_id = :f AND job_type = :jt
+                   AND extraction_version = :ev AND chunking_version = :cv
+                   AND status IN ('queued','running')
+                 ORDER BY created_at, id
+                 LIMIT 1
+                """
+            ),
+            params,
+        )
+    ).mappings().first()
+    return {"created": False, **_job_dict(existing)} if existing else {"created": False}
+
+
 async def enqueue_document_processing_job(
     org_id: uuid.UUID,
     workspace_id: uuid.UUID,
@@ -71,6 +148,7 @@ async def enqueue_document_processing_job(
     chunking_version: int = CHUNKING_VERSION,
     job_type: str = JOB_TYPE_STRUCTURED_EXTRACTION,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    session=None,
 ) -> dict[str, Any]:
     """Idempotently enqueue one processing job for a file+version.
 
@@ -78,66 +156,25 @@ async def enqueue_document_processing_job(
     DB-enforced (composite FK + RLS WITH CHECK); a light pre-check gives a clean
     error. Duplicate enqueue while an active job exists returns the existing job
     (created=False) rather than erroring.
+
+    If ``session`` is provided, the insert runs in the caller's transaction and is
+    NOT committed here (the caller commits — enabling atomic upload+enqueue). If
+    omitted, a dedicated session is opened and committed.
     """
-    async with get_db_session() as session:
-        await _set_org(session, org_id)
-        owned = (
-            await session.execute(
-                text(
-                    "SELECT 1 FROM ben.workspace_files "
-                    "WHERE id = :f AND org_id = :o AND workspace_id = :w"
-                ),
-                {"f": str(file_id), "o": str(org_id), "w": str(workspace_id)},
+    if session is not None:
+        result = await _enqueue_in_session(
+            session, org_id, workspace_id, file_id,
+            extraction_version=extraction_version, chunking_version=chunking_version,
+            job_type=job_type, max_attempts=max_attempts,
+        )
+    else:
+        async with get_db_session() as own_session:
+            result = await _enqueue_in_session(
+                own_session, org_id, workspace_id, file_id,
+                extraction_version=extraction_version, chunking_version=chunking_version,
+                job_type=job_type, max_attempts=max_attempts,
             )
-        ).first()
-        if owned is None:
-            raise TenantOwnershipError("file does not belong to org/workspace")
-
-        params = {
-            "o": str(org_id), "w": str(workspace_id), "f": str(file_id),
-            "jt": job_type, "ev": extraction_version, "cv": chunking_version,
-            "ma": max_attempts,
-        }
-        inserted = (
-            await session.execute(
-                text(
-                    """
-                    INSERT INTO ben.document_processing_jobs
-                        (org_id, workspace_id, file_id, job_type, status,
-                         extraction_version, chunking_version, max_attempts, available_at)
-                    VALUES (:o, :w, :f, :jt, 'queued', :ev, :cv, :ma, now())
-                    ON CONFLICT (file_id, job_type, extraction_version, chunking_version)
-                        WHERE status IN ('queued','running')
-                    DO NOTHING
-                    RETURNING id, status, attempts, available_at, created_at
-                    """
-                ),
-                params,
-            )
-        ).mappings().first()
-
-        if inserted is None:
-            existing = (
-                await session.execute(
-                    text(
-                        """
-                        SELECT id, status, attempts, available_at, created_at
-                          FROM ben.document_processing_jobs
-                         WHERE file_id = :f AND job_type = :jt
-                           AND extraction_version = :ev AND chunking_version = :cv
-                           AND status IN ('queued','running')
-                         ORDER BY created_at, id
-                         LIMIT 1
-                        """
-                    ),
-                    params,
-                )
-            ).mappings().first()
-            await session.commit()
-            result = {"created": False, **_job_dict(existing)} if existing else {"created": False}
-        else:
-            await session.commit()
-            result = {"created": True, **_job_dict(inserted)}
+            await own_session.commit()
 
     log_info(
         "processing job enqueue",

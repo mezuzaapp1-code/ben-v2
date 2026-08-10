@@ -1,0 +1,31 @@
+"""Gate 3B — internal document-processing drain endpoint.
+
+System path only (cron-secret authenticated). Triggers one bounded drain cycle
+that recovers expired leases, claims a bounded batch of document_processing_jobs,
+and runs the existing extraction (process_file) to reach READY. No user-facing
+behavior; not part of the product API surface.
+"""
+from __future__ import annotations
+
+from fastapi import APIRouter, Query, Request
+
+from auth.doc_processing_cron_auth import assert_doc_processing_cron
+from services.ops.request_context import attach_request_id
+from services.workspace_files.drain import (
+    DEFAULT_DRAIN_LIMIT,
+    default_worker_id,
+    drain_document_processing_jobs,
+)
+
+router = APIRouter(prefix="/api/internal/documents", tags=["document-processing"])
+
+
+@router.post("/processing/drain")
+async def drain_processing_jobs(
+    request: Request,
+    limit: int = Query(DEFAULT_DRAIN_LIMIT, ge=1, le=50),
+):
+    """Bounded drain of durable document-processing jobs (cron-secret only)."""
+    assert_doc_processing_cron(request)
+    summary = await drain_document_processing_jobs(worker_id=default_worker_id(), limit=limit)
+    return attach_request_id(summary)

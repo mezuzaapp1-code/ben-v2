@@ -15,6 +15,10 @@ from database.models import Project, WorkspaceFile
 from services.ops.request_context import attach_request_id
 from services.workspace_files import storage
 from services.workspace_files.extract import extract_text
+from services.workspace_files.job_queue import (
+    JOB_TYPE_FILE_EXTRACTION,
+    enqueue_document_processing_job,
+)
 from services.workspace_files.types import (
     MAX_UPLOAD_BYTES,
     REJECTED_EXTENSIONS,
@@ -139,18 +143,27 @@ async def upload_file(
             byte_size=byte_size,
             checksum=checksum,
             storage_key=storage_key,
-            status="uploaded",
+            # Gate 3B: file enters a non-ready processing state; a durable job (below)
+            # drives extraction asynchronously. It is NOT ready until a worker runs
+            # process_file, so retrieval (READY-only) will not expose it prematurely.
+            status="queued",
             uploaded_by=(uploaded_by or "")[:256] or None,
             source_chat_id=(source_chat_id or "")[:128] or None,
         )
         session.add(row)
+        await session.flush()
+        # Persist file + durable processing job ATOMICALLY in one transaction. If the
+        # enqueue fails, the whole transaction rolls back so a WorkspaceFile is never
+        # left without a job (no orphaned/stuck user file). The upload request does
+        # NOT perform extraction synchronously anymore.
+        await enqueue_document_processing_job(
+            org_id, workspace_id, row.id,
+            job_type=JOB_TYPE_FILE_EXTRACTION, session=session,
+        )
         await session.commit()
         await session.refresh(row)
-        file_uuid = row.id
-
-    # Synchronous processing for V1 (observable status transitions).
-    processed = await process_file(org_id=org_id, workspace_id=workspace_id, file_id=file_uuid)
-    return attach_request_id(processed)
+        payload = _payload(row)
+    return attach_request_id(payload)
 
 
 async def process_file(

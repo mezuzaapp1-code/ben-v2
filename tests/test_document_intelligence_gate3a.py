@@ -586,8 +586,13 @@ def test_no_extraction_invocation_in_substrate():
         assert forbidden not in src, f"substrate must not reference {forbidden}"
 
 
-def test_upload_path_still_unwired_to_jobs():
-    """upload_file/process_file must not enqueue or reference the job queue."""
+def test_upload_path_wired_to_jobs_as_of_gate3b():
+    """As of Gate 3B, upload_file enqueues a durable job (no longer processes
+    synchronously). The Gate 3A substrate itself still performs no extraction; the
+    wiring lives in upload_file, and the drain (Gate 3B) invokes process_file."""
     import pathlib
     src = pathlib.Path("services/workspace_files/service.py").read_text()
-    assert "job_queue" not in src and "enqueue_document_processing_job" not in src
+    assert "enqueue_document_processing_job" in src  # Gate 3B wiring present
+    upload_fn = src.split("async def upload_file", 1)[1].split("async def process_file", 1)[0]
+    assert "enqueue_document_processing_job" in upload_fn
+    assert "await process_file(" not in upload_fn  # no synchronous extraction on upload
