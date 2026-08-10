@@ -1,6 +1,7 @@
 """Workspace File Library V1 — upload, process, list, search, download, delete."""
 from __future__ import annotations
 
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -15,11 +16,25 @@ from database.models import Project, WorkspaceFile
 from services.ops.request_context import attach_request_id
 from services.workspace_files import storage
 from services.workspace_files.extract import extract_text
+from services.workspace_files.job_queue import (
+    JOB_TYPE_FILE_EXTRACTION,
+    enqueue_document_processing_job,
+)
 from services.workspace_files.types import (
     MAX_UPLOAD_BYTES,
     REJECTED_EXTENSIONS,
     SUPPORTED_TYPES,
 )
+
+
+def _doc_processing_enabled() -> bool:
+    """Gate 3B activation flag (fail-safe OFF).
+
+    OFF (default): preserve the existing synchronous upload path
+    (persist -> await process_file -> READY), i.e. exactly current production.
+    ON: use the Gate 3B durable path (persist + enqueue -> queued -> drain -> READY).
+    """
+    return os.getenv("BEN_DOC_PROCESSING_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _iso(dt: datetime | None) -> str | None:
@@ -126,6 +141,9 @@ async def upload_file(
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
+    # Gate 3B activation flag (fail-safe OFF -> synchronous, current production).
+    async_enabled = _doc_processing_enabled()
+
     async with get_db_session() as session:
         await _set_org(session, org_id)
         row = WorkspaceFile(
@@ -139,16 +157,33 @@ async def upload_file(
             byte_size=byte_size,
             checksum=checksum,
             storage_key=storage_key,
-            status="uploaded",
+            # ON: 'queued' (a durable job drives extraction; NOT ready until a worker
+            # runs process_file, so READY-only retrieval never exposes it early).
+            # OFF: 'uploaded', then synchronous process_file below (unchanged behavior).
+            status="queued" if async_enabled else "uploaded",
             uploaded_by=(uploaded_by or "")[:256] or None,
             source_chat_id=(source_chat_id or "")[:128] or None,
         )
         session.add(row)
+        await session.flush()
+        if async_enabled:
+            # Persist file + durable processing job ATOMICALLY in one transaction. If
+            # the enqueue fails, the whole transaction rolls back so a WorkspaceFile is
+            # never left without a job (no orphaned/stuck user file).
+            await enqueue_document_processing_job(
+                org_id, workspace_id, row.id,
+                job_type=JOB_TYPE_FILE_EXTRACTION, session=session,
+            )
         await session.commit()
         await session.refresh(row)
         file_uuid = row.id
+        payload = _payload(row)
 
-    # Synchronous processing for V1 (observable status transitions).
+    if async_enabled:
+        # Durable async path: return 'queued'; a drain will process it to READY.
+        return attach_request_id(payload)
+
+    # OFF (default): preserve the existing synchronous processing path.
     processed = await process_file(org_id=org_id, workspace_id=workspace_id, file_id=file_uuid)
     return attach_request_id(processed)
 

@@ -93,6 +93,7 @@ from database.knowledge_store import init_knowledge_store
 from database.thread_store import init_thread_store
 from routers.knowledge import project_knowledge_router, router as knowledge_router
 from routers.platform_capabilities import router as platform_capabilities_router
+from routers.document_processing import router as document_processing_router
 from routers.repositories import router as project_repositories_router
 from routers.workspace_files import (
     project_alias_router as workspace_files_project_router,
@@ -191,6 +192,7 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(projects_router)
 app.include_router(workspace_files_router)
 app.include_router(workspace_files_project_router)
+app.include_router(document_processing_router)
 app.include_router(knowledge_router)
 app.include_router(project_knowledge_router)
 app.include_router(project_repositories_router)
