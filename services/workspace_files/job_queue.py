@@ -15,7 +15,8 @@ import os
 import uuid
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
+from sqlalchemy.dialects.postgresql import ARRAY, UUID as PG_UUID
 
 from database.connection import get_db_session
 from services.ops.structured_log import log_info, log_warning
@@ -37,11 +38,12 @@ RETRY_CAP_SECONDS = int(os.getenv("BEN_DOC_JOB_RETRY_CAP_SECONDS", "3600"))
 _SUBSYSTEM = "doc_processing"
 
 
-def _pg_uuid_array(ids: list[uuid.UUID]) -> str | None:
-    """Postgres uuid[] literal, or NULL when empty (fail-closed at SQL)."""
-    if not ids:
-        return None
-    return "{" + ",".join(str(x) for x in ids) + "}"
+def _pg_uuid_array(ids: list[uuid.UUID]) -> list[uuid.UUID]:
+    """Native uuid[] bind value. Empty list is fail-closed at SQL (cardinality 0)."""
+    return list(ids)
+
+
+_UUID_ARRAY = ARRAY(PG_UUID(as_uuid=True))
 
 
 class TenantOwnershipError(ValueError):
@@ -290,12 +292,16 @@ async def claim_jobs_for_allowlist(
     if not file_ids and not workspace_ids:
         return []
     async with get_db_session() as session:
+        stmt = text(
+            "SELECT * FROM ben.claim_document_processing_jobs_for_allowlist("
+            ":w, :l, :n, :files, :workspaces)"
+        ).bindparams(
+            bindparam("files", type_=_UUID_ARRAY),
+            bindparam("workspaces", type_=_UUID_ARRAY),
+        )
         rows = (
             await session.execute(
-                text(
-                    "SELECT * FROM ben.claim_document_processing_jobs_for_allowlist("
-                    ":w, :l, :n, CAST(:files AS uuid[]), CAST(:workspaces AS uuid[]))"
-                ),
+                stmt,
                 {
                     "w": worker_id,
                     "l": lease_seconds,
@@ -340,12 +346,16 @@ async def reap_expired_jobs_for_allowlist(
     if not file_ids and not workspace_ids:
         return []
     async with get_db_session() as session:
+        stmt = text(
+            "SELECT * FROM ben.reap_expired_document_processing_jobs_for_allowlist("
+            ":files, :workspaces, :b, :c, :n)"
+        ).bindparams(
+            bindparam("files", type_=_UUID_ARRAY),
+            bindparam("workspaces", type_=_UUID_ARRAY),
+        )
         rows = (
             await session.execute(
-                text(
-                    "SELECT * FROM ben.reap_expired_document_processing_jobs_for_allowlist("
-                    "CAST(:files AS uuid[]), CAST(:workspaces AS uuid[]), :b, :c, :n)"
-                ),
+                stmt,
                 {
                     "files": _pg_uuid_array(file_ids),
                     "workspaces": _pg_uuid_array(workspace_ids),

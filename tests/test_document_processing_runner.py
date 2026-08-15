@@ -92,6 +92,16 @@ def _cleanup_storage(org, ws):
         pass
 
 
+async def _cleanup_ws(conn, *workspaces):
+    """Remove jobs/files/projects so global FIFO tests stay isolated."""
+    for ws in workspaces:
+        if ws is None:
+            continue
+        await conn.execute("DELETE FROM ben.document_processing_jobs WHERE workspace_id=$1", ws)
+        await conn.execute("DELETE FROM ben.workspace_files WHERE workspace_id=$1", ws)
+        await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws)
+
+
 @pytest_asyncio.fixture
 async def fresh_engine():
     from database.connection import dispose_engine
@@ -231,8 +241,7 @@ async def test_runner_disabled_claims_nothing(fresh_engine, monkeypatch):
         assert (await _job(conn, hid))["status"] == "queued" and (await _job(conn, hid))["attempts"] == 0
         assert (await _job(conn, cid))["status"] == "queued" and (await _job(conn, cid))["attempts"] == 0
     finally:
-        if ws is not None:
-            await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws)
+        await _cleanup_ws(conn, ws)
         await conn.close()
         if org is not None and ws is not None:
             _cleanup_storage(org, ws)
@@ -252,8 +261,7 @@ async def test_runner_fail_closed_empty_allowlist(fresh_engine, monkeypatch):
         assert (await _job(conn, hid))["attempts"] == 0
         assert (await _job(conn, cid))["attempts"] == 0
     finally:
-        if ws is not None:
-            await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws)
+        await _cleanup_ws(conn, ws)
         await conn.close()
         if org is not None and ws is not None:
             _cleanup_storage(org, ws)
@@ -281,8 +289,7 @@ async def test_file_allowlist_claims_only_match_and_leaves_historical(fresh_engi
         assert hist["worker_id"] is None
         assert (await _file(conn, hid))["status"] == "queued"
     finally:
-        if ws is not None:
-            await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws)
+        await _cleanup_ws(conn, ws)
         await conn.close()
         if org is not None and ws is not None:
             _cleanup_storage(org, ws)
@@ -309,10 +316,7 @@ async def test_workspace_allowlist_does_not_claim_other_workspace(fresh_engine, 
         assert (await _file(conn, aid))["status"] == "ready"
         assert (await _job(conn, bid))["status"] == "queued" and (await _job(conn, bid))["attempts"] == 0
     finally:
-        if ws_a is not None:
-            await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws_a)
-        if ws_b is not None:
-            await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws_b)
+        await _cleanup_ws(conn, ws_a, ws_b)
         await conn.close()
         if org is not None:
             if ws_a is not None:
@@ -349,8 +353,7 @@ async def test_mixed_queue_bounded_deterministic_order(fresh_engine, monkeypatch
         assert (await _job(conn, sid))["status"] == "succeeded"
         assert (await _job(conn, hid))["attempts"] == 0
     finally:
-        if ws is not None:
-            await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws)
+        await _cleanup_ws(conn, ws)
         await conn.close()
         if org is not None and ws is not None:
             _cleanup_storage(org, ws)
@@ -373,8 +376,7 @@ async def test_invalid_allowlist_tokens_claim_nothing(fresh_engine, monkeypatch)
         assert (await _job(conn, hid))["attempts"] == 0
         assert (await _job(conn, cid))["attempts"] == 0
     finally:
-        if ws is not None:
-            await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws)
+        await _cleanup_ws(conn, ws)
         await conn.close()
         if org is not None and ws is not None:
             _cleanup_storage(org, ws)
@@ -423,8 +425,7 @@ async def test_overlapping_allowlist_claim_skip_locked(fresh_engine):
     finally:
         if conn_b is not None:
             await conn_b.close()
-        if ws is not None:
-            await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws)
+        await _cleanup_ws(conn, ws)
         await conn.close()
         if org is not None and ws is not None:
             _cleanup_storage(org, ws)
@@ -453,8 +454,7 @@ async def test_runner_transient_failure_requeues_only_allowlisted(fresh_engine, 
         hist = await _job(conn, hid)
         assert hist["status"] == "queued" and hist["attempts"] == 0
     finally:
-        if ws is not None:
-            await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws)
+        await _cleanup_ws(conn, ws)
         await conn.close()
         if org is not None and ws is not None:
             _cleanup_storage(org, ws)
@@ -476,8 +476,7 @@ async def test_runner_terminal_failure_does_not_ready_or_touch_historical(fresh_
         assert (await _job(conn, hid))["status"] == "failed"
         assert (await _job(conn, cid))["status"] == "queued" and (await _job(conn, cid))["attempts"] == 0
     finally:
-        if ws is not None:
-            await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws)
+        await _cleanup_ws(conn, ws)
         await conn.close()
         if org is not None and ws is not None:
             _cleanup_storage(org, ws)
@@ -501,8 +500,7 @@ async def test_sql_empty_allowlist_claims_nothing(fresh_engine):
         assert (await _job(conn, hid))["attempts"] == 0
         assert (await _job(conn, cid))["attempts"] == 0
     finally:
-        if ws is not None:
-            await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws)
+        await _cleanup_ws(conn, ws)
         await conn.close()
         if org is not None and ws is not None:
             _cleanup_storage(org, ws)
@@ -528,8 +526,7 @@ async def test_claim_global_does_not_override_file_allowlist(fresh_engine, monke
         assert hist["status"] == "queued" and hist["attempts"] == 0
         assert hist["worker_id"] is None
     finally:
-        if ws is not None:
-            await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws)
+        await _cleanup_ws(conn, ws)
         await conn.close()
         if org is not None and ws is not None:
             _cleanup_storage(org, ws)
@@ -548,13 +545,31 @@ async def test_generic_fifo_drain_still_claims_oldest_due_job(fresh_engine, monk
         older = await _upload(org, ws, "older.txt", "text/plain", b"older fifo body")
         newer = await _upload(org, ws, "newer.txt", "text/plain", b"newer fifo body")
         oid, nid = uuid.UUID(older["id"]), uuid.UUID(newer["id"])
+        # Generic claim is global FIFO. Make this pair the oldest due rows so
+        # leftover fixtures from other tests cannot steal the claim.
         await conn.execute(
-            "UPDATE ben.document_processing_jobs SET available_at = now() - interval '2 hours' "
-            "WHERE file_id=$1", oid,
+            """
+            UPDATE ben.document_processing_jobs
+               SET available_at = (
+                   SELECT COALESCE(min(available_at), now()) - interval '2 hours'
+                     FROM ben.document_processing_jobs
+                    WHERE status = 'queued'
+               )
+             WHERE file_id = $1
+            """,
+            oid,
         )
         await conn.execute(
-            "UPDATE ben.document_processing_jobs SET available_at = now() - interval '1 hour' "
-            "WHERE file_id=$1", nid,
+            """
+            UPDATE ben.document_processing_jobs
+               SET available_at = (
+                   SELECT COALESCE(min(available_at), now()) + interval '1 hour'
+                     FROM ben.document_processing_jobs
+                    WHERE file_id = $1
+               )
+             WHERE file_id = $2
+            """,
+            oid, nid,
         )
         monkeypatch.delenv("BEN_DOC_RUNNER_ENABLED", raising=False)
         summary = await drain_document_processing_jobs(worker_id="generic-fifo", limit=1)
@@ -562,8 +577,7 @@ async def test_generic_fifo_drain_still_claims_oldest_due_job(fresh_engine, monk
         assert (await _job(conn, oid))["status"] == "succeeded"
         assert (await _job(conn, nid))["status"] == "queued" and (await _job(conn, nid))["attempts"] == 0
     finally:
-        if ws is not None:
-            await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws)
+        await _cleanup_ws(conn, ws)
         await conn.close()
         if org is not None and ws is not None:
             _cleanup_storage(org, ws)
@@ -595,8 +609,7 @@ async def test_runner_stats_are_read_only(fresh_engine, monkeypatch):
         assert hist["status"] == "queued" and hist["attempts"] == 0
         assert canary["status"] == "queued" and canary["attempts"] == 0
     finally:
-        if ws is not None:
-            await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws)
+        await _cleanup_ws(conn, ws)
         await conn.close()
         if org is not None and ws is not None:
             _cleanup_storage(org, ws)
