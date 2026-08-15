@@ -255,7 +255,10 @@ async def stream_chat_response(
         if project_id is not None:
             try:
                 wsf = await load_ready_files_context(
-                    org, project_id, max_chars=WORKSPACE_FILES_CONTEXT_MAX_CHARS
+                    org,
+                    project_id,
+                    max_chars=WORKSPACE_FILES_CONTEXT_MAX_CHARS,
+                    user_query=message,
                 )
                 if wsf.block:
                     effective_message = f"{wsf.block}\n\n{effective_message}"
