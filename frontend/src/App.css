@@ -194,6 +194,36 @@
   color: #eee;
 }
 
+.auth-btn--signin {
+  border-color: var(--ben-accent-blue, #5b8cff);
+  color: var(--ben-text-bright, #eee);
+}
+
+.clerk-signin-banner {
+  margin: 0.75rem 1rem 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--ben-border-strong, #333);
+  background: var(--ben-bg-elevated, #141414);
+  border-radius: 8px;
+  color: var(--ben-text-bright, #eee);
+}
+
+.clerk-signin-banner__title {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.clerk-signin-banner__hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  color: var(--ben-text-secondary, #aaa);
+}
+
+.clerk-signin-banner .auth-btn {
+  width: auto;
+}
+
 .new-btn {
   background: var(--ben-bg-surface);
   color: var(--ben-text-bright);

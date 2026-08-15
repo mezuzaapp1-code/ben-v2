@@ -59,9 +59,10 @@ export function AppTopBar({
   onSettingsClose,
   settingsPanelRef,
   authControls = null,
+  shellAuth = null,
 }) {
   return (
-    <header className="app-topbar">
+    <header className={`app-topbar${shellAuth ? ' app-topbar--with-shell-auth' : ''}`}>
       <button
         ref={menuButtonRef}
         type="button"
@@ -73,6 +74,7 @@ export function AppTopBar({
         <HamburgerIcon />
       </button>
       <span className="app-topbar__brand">BEN</span>
+      {shellAuth ? <div className="app-topbar__shell-auth">{shellAuth}</div> : null}
       <div className="app-topbar__settings-wrap">
         <button
           ref={settingsButtonRef}

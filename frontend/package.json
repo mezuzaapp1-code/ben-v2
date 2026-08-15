@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:news": "node scripts/test-news-ui.mjs",
-    "test:files": "node scripts/test-files-ui.mjs"
+    "test:files": "node scripts/test-files-ui.mjs",
+    "test:auth": "node scripts/test-clerk-persistent-access.mjs"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.61.3",
