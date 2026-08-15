@@ -139,13 +139,15 @@ async def test_max_chars_cap_truncates_deterministically(monkeypatch):
         _row(text="B" * 100, name="two.txt", created_at=2),
     ]
     _patch_session(monkeypatch, rows)
-    out = await load_ready_files_context(ORG_A, WS_A, max_chars=150)
+    # Empty query: recency DESC, then global budget. Newer file is selected first.
+    out = await load_ready_files_context(ORG_A, WS_A, max_chars=150, per_file_max=10_000)
     assert out.truncated is True
-    assert out.chars == 150  # 100 from file one + 50 from file two
+    assert out.chars == 150  # 100 from newer two.txt + 50 from one.txt
     assert out.count == 2
-    assert ("A" * 100) in out.block
-    assert ("B" * 50) in out.block
-    assert ("B" * 51) not in out.block
+    assert ("B" * 100) in out.block
+    assert ("A" * 50) in out.block
+    assert ("A" * 51) not in out.block
+    assert out.block.index("two.txt") < out.block.index("one.txt")
 
 
 @pytest.mark.asyncio
@@ -156,7 +158,7 @@ async def test_max_chars_zero_returns_empty(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_multiple_files_preserve_order(monkeypatch):
+async def test_multiple_files_default_recency_order(monkeypatch):
     rows = [
         _row(text="first", name="a.txt", created_at=1),
         _row(text="second", name="b.txt", created_at=2),
@@ -164,7 +166,8 @@ async def test_multiple_files_preserve_order(monkeypatch):
     _patch_session(monkeypatch, rows)
     out = await load_ready_files_context(ORG_A, WS_A, max_chars=10_000)
     assert out.count == 2
-    assert out.block.index('a.txt') < out.block.index('b.txt')
+    # Equal relevance (no query): newer file is selected first.
+    assert out.block.index("b.txt") < out.block.index("a.txt")
 
 
 # --------------------------------------------------------------------------- #
@@ -220,7 +223,7 @@ async def test_ready_file_reaches_route_request_stream(monkeypatch):
     captured: dict = {}
     _patch_stream_pipeline(monkeypatch, captured)
 
-    async def fake_ctx(_org, _ws, *, max_chars):
+    async def fake_ctx(_org, _ws, *, max_chars, user_query=None, **_k):
         return WorkspaceFilesContext(block=_BLOCK, count=1, chars=16, truncated=False)
 
     monkeypatch.setattr("services.chat_service.load_ready_files_context", fake_ctx)
@@ -236,7 +239,7 @@ async def test_ready_file_reaches_route_request_stream(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_gpt_and_claude_receive_identical_context(monkeypatch):
-    async def fake_ctx(_org, _ws, *, max_chars):
+    async def fake_ctx(_org, _ws, *, max_chars, user_query=None, **_k):
         return WorkspaceFilesContext(block=_BLOCK, count=1, chars=16, truncated=False)
 
     monkeypatch.setattr("services.chat_service.load_ready_files_context", fake_ctx)
@@ -277,7 +280,7 @@ async def test_file_context_failure_does_not_break_chat(monkeypatch):
     captured: dict = {}
     _patch_stream_pipeline(monkeypatch, captured)
 
-    async def boom(_org, _ws, *, max_chars):
+    async def boom(_org, _ws, *, max_chars, user_query=None, **_k):
         raise RuntimeError("db exploded")
 
     monkeypatch.setattr("services.chat_service.load_ready_files_context", boom)
