@@ -327,9 +327,8 @@ async def drain_document_processing_jobs_for_runner(
             wid, file_ids=files, workspace_ids=workspaces,
             lease_seconds=lease_seconds, limit=limit,
         )
-    else:
-        # explicit global only — never reached unless CLAIM_GLOBAL is on
-        # and both allowlists are empty after UUID parsing.
+    elif policy == "global":
+        # explicit BEN_DOC_RUNNER_CLAIM_GLOBAL only — never a silent FIFO fallback.
         if reap:
             try:
                 summary["reaped"] = len(await reap_expired_jobs())
@@ -341,6 +340,16 @@ async def drain_document_processing_jobs_for_runner(
                     operation="runner_reap", outcome="error",
                 )
         claimed = await claim_jobs(wid, lease_seconds=lease_seconds, limit=limit)
+    else:
+        log_info(
+            "runner drain skipped",
+            subsystem=_SUBSYSTEM,
+            operation="runner_drain",
+            outcome="fail_closed",
+            worker_id=wid,
+            claim_policy=policy,
+        )
+        return summary
 
     allowed_files = {str(x) for x in files}
     allowed_ws = {str(x) for x in workspaces}

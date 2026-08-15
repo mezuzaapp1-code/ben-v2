@@ -185,6 +185,7 @@ def test_runner_source_never_imports_gate4a():
         "async def drain_document_processing_job_for_file", 1
     )[0]
     assert "claim_jobs_for_allowlist(" in runner_fn
+    assert 'elif policy == "global"' in runner_fn
     assert "claim_jobs(" in generic
     # Generic path must not call the allowlist claim.
     assert "claim_jobs_for_allowlist(" not in generic
@@ -223,6 +224,58 @@ def test_invalid_enabled_flag_is_off(monkeypatch):
     monkeypatch.setenv("BEN_DOC_RUNNER_ENABLED", "maybe")
     monkeypatch.setenv("BEN_DOC_RUNNER_CLAIM_GLOBAL", "yes-please")
     assert resolve_runner_claim_policy() == "disabled"
+
+
+@pytest.mark.asyncio
+async def test_unknown_policy_cannot_reach_global_fifo(fresh_engine, monkeypatch):
+    """Unexpected policy values must fail closed — never generic FIFO."""
+    calls = {"claim_jobs": 0, "reap": 0, "allowlist_claim": 0, "allowlist_reap": 0}
+
+    async def _claim_jobs(*_a, **_k):
+        calls["claim_jobs"] += 1
+        return []
+
+    async def _reap(*_a, **_k):
+        calls["reap"] += 1
+        return []
+
+    async def _allowlist_claim(*_a, **_k):
+        calls["allowlist_claim"] += 1
+        return []
+
+    async def _allowlist_reap(*_a, **_k):
+        calls["allowlist_reap"] += 1
+        return []
+
+    monkeypatch.setattr(
+        "services.workspace_files.drain.resolve_runner_claim_policy",
+        lambda: "not-a-real-policy",
+    )
+    monkeypatch.setattr("services.workspace_files.drain.claim_jobs", _claim_jobs)
+    monkeypatch.setattr("services.workspace_files.drain.reap_expired_jobs", _reap)
+    monkeypatch.setattr(
+        "services.workspace_files.drain.claim_jobs_for_allowlist", _allowlist_claim,
+    )
+    monkeypatch.setattr(
+        "services.workspace_files.drain.reap_expired_jobs_for_allowlist", _allowlist_reap,
+    )
+
+    conn = await _open()
+    org = ws = None
+    try:
+        org, ws, hid, cid = await _queue_hist_and_canary(conn)
+        summary = await drain_document_processing_jobs_for_runner(worker_id="r-unknown", limit=10)
+        assert summary["claim_policy"] == "not-a-real-policy"
+        assert summary["claimed"] == 0
+        assert summary["reaped"] == 0
+        assert calls == {"claim_jobs": 0, "reap": 0, "allowlist_claim": 0, "allowlist_reap": 0}
+        assert (await _job(conn, hid))["status"] == "queued" and (await _job(conn, hid))["attempts"] == 0
+        assert (await _job(conn, cid))["status"] == "queued" and (await _job(conn, cid))["attempts"] == 0
+    finally:
+        await _cleanup_ws(conn, ws)
+        await conn.close()
+        if org is not None and ws is not None:
+            _cleanup_storage(org, ws)
 
 
 # =========================================================================== #
