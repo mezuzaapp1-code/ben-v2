@@ -12,7 +12,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Upload
 from fastapi.responses import FileResponse
 
 from auth.beta_gate import maybe_beta_auditor_context
-from auth.config import is_enforce_auth
+from auth.persistent_access import assert_persistent_customer_identity
 from auth.tenant_binding import (
     authenticate_request,
     build_tenant_context,
@@ -33,7 +33,11 @@ def _principal(ctx) -> str | None:
 
 
 async def _require_files_tenant(request: Request, *, route_operation: str):
-    """Clerk/beta when present; otherwise same shadow product gate as News when not enforcing."""
+    """Persistent file operations require a customer identity (Gate A).
+
+    Clerk personal/org JWT or isolated beta alias. Never the shared anonymous org,
+    regardless of ENFORCE_AUTH.
+    """
     outcome, claims, auth_present = authenticate_request(request)
     beta_ctx = maybe_beta_auditor_context(request)
     if beta_ctx:
@@ -41,13 +45,9 @@ async def _require_files_tenant(request: Request, *, route_operation: str):
         return beta_ctx
 
     if outcome == "auth_valid" and claims:
-        ctx = build_tenant_context(outcome, claims, auth_present)
-        if ctx.tenant_type != "anonymous":
-            log_tenant_bound(route_operation=route_operation, ctx=ctx)
-            return ctx
-
-    if not is_enforce_auth():
-        ctx = build_tenant_context(outcome, claims, auth_present)
+        ctx = assert_persistent_customer_identity(
+            build_tenant_context(outcome, claims, auth_present)
+        )
         log_tenant_bound(route_operation=route_operation, ctx=ctx)
         return ctx
 

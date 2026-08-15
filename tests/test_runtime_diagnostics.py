@@ -58,6 +58,14 @@ def _auth_env(monkeypatch):
     monkeypatch.setenv("BEN_ANONYMOUS_ORG_ID", "00000000-0000-0000-0000-000000000001")
 
 
+@pytest.fixture(autouse=True)
+def _gate_a_customer():
+    from tests.helpers_auth import patch_main_persistent_tenant
+
+    with patch_main_persistent_tenant("00000000-0000-0000-0000-000000000001"):
+        yield
+
+
 @pytest.fixture
 def client():
     return TestClient(main.app)

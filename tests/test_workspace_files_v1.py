@@ -88,6 +88,17 @@ def test_upload_requires_auth_when_enforced(monkeypatch):
     assert res.status_code == 401
 
 
+def test_unsigned_file_ops_401_even_when_global_enforce_off():
+    client = TestClient(main.app)
+    assert client.get(f"/api/workspaces/{WS_A}/files").status_code == 401
+    assert client.post(
+        f"/api/workspaces/{WS_A}/files",
+        files={"file": ("notes.txt", b"hello world", "text/plain")},
+    ).status_code == 401
+    assert client.get(f"/api/workspaces/{WS_A}/files/{FILE_A}/content").status_code == 401
+    assert client.delete(f"/api/workspaces/{WS_A}/files/{FILE_A}").status_code == 401
+
+
 def test_authenticated_upload_succeeds_and_bound_to_workspace():
     payload = _file_payload(source_chat_id="chat-1")
     with patch(

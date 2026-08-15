@@ -8,6 +8,7 @@ import main
 import pytest
 from fastapi.testclient import TestClient
 from services.global_service_store import init_global_service_schema
+from tests.helpers_auth import patch_main_persistent_tenant
 from database.thread_store import (
     init_thread_store,
     insert_thread_message,
@@ -16,6 +17,12 @@ from database.thread_store import (
 )
 
 ORG = "00000000-0000-0000-0000-000000000001"
+
+
+@pytest.fixture(autouse=True)
+def _gate_a_customer():
+    with patch_main_persistent_tenant(ORG):
+        yield
 
 
 @pytest.fixture()

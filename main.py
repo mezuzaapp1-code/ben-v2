@@ -27,6 +27,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 
 from auth.beta_gate import extract_beta_feedback_meta, maybe_beta_auditor_context
+from auth.persistent_access import assert_persistent_customer_identity
 from auth.shadow_auth import apply_auth_policy
 
 from auth.tenant_binding import TenantContext, build_tenant_context, log_tenant_bound, validate_body_tenant_matches_context
@@ -337,7 +338,12 @@ def _fail_request_from_http(exc: HTTPException, *, route: str) -> None:
         fail_request_diagnostics(outcome="error", category=str(code) if code else None, route=route)
 
 
-async def _tenant_ctx_from_request(request: Request, *, route_operation: str):
+async def _tenant_ctx_from_request(
+    request: Request,
+    *,
+    route_operation: str,
+    require_customer: bool = False,
+):
 
     outcome, claims, auth_present = await apply_auth_policy(request, route_operation=route_operation)
 
@@ -347,6 +353,9 @@ async def _tenant_ctx_from_request(request: Request, *, route_operation: str):
     if beta_ctx:
         log_tenant_bound(route_operation=route_operation, ctx=beta_ctx)
         return beta_ctx
+
+    if require_customer:
+        ctx = assert_persistent_customer_identity(ctx)
 
     log_tenant_bound(route_operation=route_operation, ctx=ctx)
 
@@ -456,7 +465,9 @@ class ChatBody(BaseModel):
 
 async def chat(request: Request, body: ChatBody):
 
-    ctx = await _tenant_ctx_from_request(request, route_operation="POST /chat")
+    ctx = await _tenant_ctx_from_request(
+        request, route_operation="POST /chat", require_customer=True
+    )
 
     validate_body_tenant_matches_context(body, ctx)
 
@@ -574,7 +585,9 @@ async def chat(request: Request, body: ChatBody):
 
 @app.post("/chat/stream")
 async def chat_stream(request: Request, body: ChatBody):
-    ctx = await _tenant_ctx_from_request(request, route_operation="POST /chat/stream")
+    ctx = await _tenant_ctx_from_request(
+        request, route_operation="POST /chat/stream", require_customer=True
+    )
     validate_body_tenant_matches_context(body, ctx)
     tid = _parse_thread_id(body.thread_id)
     try:
@@ -676,7 +689,9 @@ class CouncilBody(BaseModel):
 
 async def council(request: Request, body: CouncilBody):
 
-    ctx = await _tenant_ctx_from_request(request, route_operation="POST /council")
+    ctx = await _tenant_ctx_from_request(
+        request, route_operation="POST /council", require_customer=True
+    )
 
     validate_body_tenant_matches_context(body, ctx)
 
@@ -771,7 +786,9 @@ async def council(request: Request, body: CouncilBody):
 
 @app.post("/council/stream")
 async def council_stream(request: Request, body: CouncilBody):
-    ctx = await _tenant_ctx_from_request(request, route_operation="POST /council/stream")
+    ctx = await _tenant_ctx_from_request(
+        request, route_operation="POST /council/stream", require_customer=True
+    )
     validate_body_tenant_matches_context(body, ctx)
 
     tid = _parse_thread_id(body.thread_id)
@@ -817,7 +834,9 @@ async def api_create_project_workspace(
     request: Request,
     body: ProjectWorkspaceCreateBody | None = None,
 ):
-    ctx = await _tenant_ctx_from_request(request, route_operation="POST /api/threads/project-workspace")
+    ctx = await _tenant_ctx_from_request(
+        request, route_operation="POST /api/threads/project-workspace", require_customer=True
+    )
     payload = body or ProjectWorkspaceCreateBody()
     return await create_project_workspace_thread(
         uuid.UUID(ctx.tenant_id),
@@ -830,7 +849,9 @@ async def api_create_project_workspace(
 
 async def api_list_threads(request: Request):
 
-    ctx = await _tenant_ctx_from_request(request, route_operation="GET /api/threads")
+    ctx = await _tenant_ctx_from_request(
+        request, route_operation="GET /api/threads", require_customer=True
+    )
 
     return await list_threads(uuid.UUID(ctx.tenant_id))
 
@@ -842,7 +863,9 @@ async def api_list_threads(request: Request):
 
 async def api_get_thread(request: Request, thread_id: str):
 
-    ctx = await _tenant_ctx_from_request(request, route_operation="GET /api/threads/{id}")
+    ctx = await _tenant_ctx_from_request(
+        request, route_operation="GET /api/threads/{id}", require_customer=True
+    )
 
     tid = _parse_thread_id(thread_id)
 
@@ -855,7 +878,9 @@ async def api_get_thread(request: Request, thread_id: str):
 
 @app.delete("/api/threads/{thread_id}")
 async def api_delete_thread(request: Request, thread_id: str):
-    ctx = await _tenant_ctx_from_request(request, route_operation="DELETE /api/threads/{id}")
+    ctx = await _tenant_ctx_from_request(
+        request, route_operation="DELETE /api/threads/{id}", require_customer=True
+    )
     tid = _parse_thread_id(thread_id)
     if tid is None:
         raise HTTPException(422, "Invalid thread_id")
@@ -870,7 +895,9 @@ class PromoteThreadBody(BaseModel):
 
 @app.post("/api/threads/{thread_id}/promote")
 async def api_promote_thread(request: Request, thread_id: str, body: PromoteThreadBody):
-    ctx = await _tenant_ctx_from_request(request, route_operation="POST /api/threads/{id}/promote")
+    ctx = await _tenant_ctx_from_request(
+        request, route_operation="POST /api/threads/{id}/promote", require_customer=True
+    )
     tid = _parse_thread_id(thread_id)
     if tid is None:
         raise HTTPException(422, "Invalid thread_id")
@@ -883,7 +910,9 @@ async def api_promote_thread(request: Request, thread_id: str, body: PromoteThre
 
 @app.get("/api/threads/{thread_id}/continuity")
 async def api_thread_continuity(request: Request, thread_id: str):
-    ctx = await _tenant_ctx_from_request(request, route_operation="GET /api/threads/{id}/continuity")
+    ctx = await _tenant_ctx_from_request(
+        request, route_operation="GET /api/threads/{id}/continuity", require_customer=True
+    )
     tid = _parse_thread_id(thread_id)
     if tid is None:
         raise HTTPException(422, "Invalid thread_id")
@@ -918,7 +947,9 @@ class AdhocExpertBody(BaseModel):
 @app.post("/api/threads/{thread_id}/adhoc/expert/stream")
 async def api_adhoc_expert_stream(request: Request, thread_id: str, body: AdhocExpertBody):
     ctx = await _tenant_ctx_from_request(
-        request, route_operation="POST /api/threads/{id}/adhoc/expert/stream"
+        request,
+        route_operation="POST /api/threads/{id}/adhoc/expert/stream",
+        require_customer=True,
     )
     tid = _parse_thread_id(thread_id)
     if tid is None:
@@ -955,7 +986,9 @@ async def api_adhoc_expert_stream(request: Request, thread_id: str, body: AdhocE
 @app.post("/api/threads/{thread_id}/adhoc/expert")
 async def api_adhoc_expert(request: Request, thread_id: str, body: AdhocExpertBody):
     ctx = await _tenant_ctx_from_request(
-        request, route_operation="POST /api/threads/{id}/adhoc/expert"
+        request,
+        route_operation="POST /api/threads/{id}/adhoc/expert",
+        require_customer=True,
     )
     tid = _parse_thread_id(thread_id)
     if tid is None:

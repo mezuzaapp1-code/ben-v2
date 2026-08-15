@@ -104,24 +104,14 @@ def test_jwt_missing_org_council_returns_403_when_require_org(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_unsigned_anonymous_chat_still_works(monkeypatch):
-    captured: dict[str, str] = {}
-
-    async def capture_chat(
-        message, user_id, tenant_id, tier, *,
-        thread_id=None,
-        provider_id=None,
-        model_override=None,
-        preferred_language=None,
-    ):
-        captured["tenant_id"] = tenant_id
-        return {"thread_id": ANON, "response": "ok", "model_used": "m", "cost_usd": 0.0}
+async def test_unsigned_anonymous_chat_is_rejected(monkeypatch):
+    async def capture_chat(*_a, **_k):
+        raise AssertionError("unsigned chat must not persist to the shared anonymous tenant")
 
     with patch.object(main, "handle_chat", side_effect=capture_chat):
         with TestClient(main.app) as client:
             r = client.post("/chat", json={"message": "hi", "tier": "free"})
-    assert r.status_code == 200
-    assert captured["tenant_id"] == ANON
+    assert r.status_code == 401
 
 
 @pytest.mark.asyncio

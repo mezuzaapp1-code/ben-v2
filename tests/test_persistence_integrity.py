@@ -55,6 +55,14 @@ def _env(monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _gate_a_customer():
+    from tests.helpers_auth import patch_main_persistent_tenant
+
+    with patch_main_persistent_tenant(ANON):
+        yield
+
+
 @pytest.fixture
 def client():
     return TestClient(main.app)

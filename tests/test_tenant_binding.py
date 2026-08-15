@@ -76,24 +76,9 @@ def test_forged_body_rejected_for_jwt():
 
 
 @pytest.mark.asyncio
-async def test_unsigned_chat_ignores_body_tenant(monkeypatch):
-    captured: dict[str, str] = {}
-
-    async def capture_chat(
-        message, user_id, tenant_id, tier, *,
-        thread_id=None,
-        provider_id=None,
-        model_override=None,
-        preferred_language=None,
-    ):
-        captured["tenant_id"] = tenant_id
-        captured["user_id"] = user_id
-        return {
-            "thread_id": ANON,
-            "response": "ok",
-            "model_used": "m",
-            "cost_usd": 0.0,
-        }
+async def test_unsigned_chat_does_not_use_shared_anonymous_tenant(monkeypatch):
+    async def capture_chat(*_a, **_k):
+        raise AssertionError("unsigned chat must not bind BEN_ANONYMOUS_ORG_ID")
 
     monkeypatch.setenv("ENFORCE_AUTH", "false")
     with patch.object(main, "handle_chat", side_effect=capture_chat):
@@ -102,9 +87,7 @@ async def test_unsigned_chat_ignores_body_tenant(monkeypatch):
                 "/chat",
                 json={"message": "hi", "tenant_id": ORG_B, "tier": "free"},
             )
-    assert r.status_code == 200
-    assert captured["tenant_id"] == ANON
-    assert captured["user_id"] == "anonymous"
+    assert r.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -241,8 +224,8 @@ async def test_council_passes_bound_org(monkeypatch):
     with patch.object(main, "run_council", side_effect=capture_run):
         with TestClient(main.app) as client:
             r = client.post("/council", json={"question": "q?"})
-    assert r.status_code == 200
-    assert captured["org"] == ANON
+    assert r.status_code == 401
+    assert "org" not in captured
 
 
 def test_health_includes_tenant_binding_flags():
