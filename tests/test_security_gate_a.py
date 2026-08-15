@@ -26,6 +26,7 @@ from auth.tenant_ids import personal_tenant_id
 from tests.helpers_auth import AUTH_HEADER, patch_clerk_user
 
 ORG_A = "11111111-1111-1111-1111-111111111111"
+ORG_B = "22222222-2222-2222-2222-222222222222"
 WS_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 FILE_A = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 THREAD_A = "dddddddd-dddd-dddd-dddd-dddddddddddd"
@@ -353,6 +354,99 @@ def test_organization_signed_in_project_files_chat_still_work():
     assert chat.status_code == 200
     assert created == [ORG_A]
     assert captured["tenant_id"] == ORG_A
+
+
+def test_organization_b_cannot_see_organization_a_scope():
+    seen: list[str] = []
+
+    async def list_projects(org_id):
+        seen.append(f"projects:{org_id}")
+        return {"projects": []}
+
+    async def list_files(*, org_id, workspace_id, **_k):
+        seen.append(f"files:{org_id}")
+        return {"items": [], "count": 0, "workspace_id": str(workspace_id)}
+
+    async def list_threads(org_id):
+        seen.append(f"threads:{org_id}")
+        return {"threads": []}
+
+    client = TestClient(main.app)
+    with patch("routers.projects.list_projects", side_effect=list_projects), patch(
+        "routers.workspace_files.file_service.list_files", side_effect=list_files
+    ), patch.object(main, "list_threads", side_effect=list_threads):
+        with patch_clerk_user("org_a_user", org_id=ORG_A, org_role="org:member"):
+            a_p = client.get("/api/projects", headers=AUTH_HEADER)
+            a_f = client.get(f"/api/workspaces/{WS_A}/files", headers=AUTH_HEADER)
+            a_t = client.get("/api/threads", headers=AUTH_HEADER)
+        with patch_clerk_user("org_b_user", org_id=ORG_B, org_role="org:member"):
+            b_p = client.get("/api/projects", headers=AUTH_HEADER)
+            b_f = client.get(f"/api/workspaces/{WS_A}/files", headers=AUTH_HEADER)
+            b_t = client.get("/api/threads", headers=AUTH_HEADER)
+
+    assert {a_p.status_code, a_f.status_code, a_t.status_code} == {200}
+    assert {b_p.status_code, b_f.status_code, b_t.status_code} == {200}
+    assert seen == [
+        f"projects:{ORG_A}",
+        f"files:{ORG_A}",
+        f"threads:{ORG_A}",
+        f"projects:{ORG_B}",
+        f"files:{ORG_B}",
+        f"threads:{ORG_B}",
+    ]
+    assert ORG_A != ORG_B
+
+
+def test_doc_processing_cron_auth_unchanged():
+    """Gate A must not convert the drain path into customer-JWT or anonymous tenant auth."""
+    drained = {"n": 0}
+
+    async def fake_drain(*, worker_id, limit):
+        drained["n"] += 1
+        return {"claimed": 0, "completed": 0, "requeued": 0, "failed": 0, "worker_id": worker_id}
+
+    client = TestClient(main.app)
+    with patch(
+        "routers.document_processing.drain_document_processing_jobs",
+        side_effect=fake_drain,
+    ):
+        missing = client.post("/api/internal/documents/processing/drain")
+        assert missing.status_code == 503
+        assert drained["n"] == 0
+
+        with patch.dict("os.environ", {"BEN_DOC_PROCESSING_CRON_SECRET": "cron-secret"}):
+            bad = client.post(
+                "/api/internal/documents/processing/drain",
+                headers={"X-BEN-Doc-Processing-Cron-Secret": "wrong"},
+            )
+            assert bad.status_code == 401
+            assert drained["n"] == 0
+
+            ok = client.post(
+                "/api/internal/documents/processing/drain",
+                headers={"X-BEN-Doc-Processing-Cron-Secret": "cron-secret"},
+            )
+    assert ok.status_code == 200
+    assert drained["n"] == 1
+
+
+def test_old_anonymous_fallback_no_longer_lists_shared_projects():
+    """Phase 1F — old leak was unsigned GET /api/projects → BEN_ANONYMOUS_ORG_ID list.
+
+    New behavior: 401 and list_projects is never invoked for the shared anonymous tenant.
+    """
+    called = {"orgs": []}
+
+    async def capture_list(org_id):
+        called["orgs"].append(str(org_id))
+        return {"projects": [{"id": WS_A, "name": "Local Files Workspace"}]}
+
+    with patch("routers.projects.list_projects", side_effect=capture_list):
+        client = TestClient(main.app)
+        res = client.get("/api/projects")
+    assert res.status_code == 401
+    assert called["orgs"] == []
+    assert "projects" not in res.json()
 
 
 def test_personal_does_not_require_organization():
