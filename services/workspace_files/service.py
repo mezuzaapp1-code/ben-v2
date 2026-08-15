@@ -166,6 +166,11 @@ async def upload_file(
             filename=safe_name,
             upload=upload,
         )
+    except storage.DurableStorageUnavailable as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            str(exc) or "Durable file storage is required but unavailable.",
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
