@@ -480,6 +480,62 @@ def test_scoped_drain_requires_cron_secret_and_does_not_call_generic():
             assert generic["n"] == 0
 
 
+def test_runner_drain_and_stats_require_cron_secret_and_do_not_call_generic():
+    runner = {"n": 0}
+    stats = {"n": 0}
+    generic = {"n": 0}
+
+    async def fake_runner(*, worker_id, limit):
+        runner["n"] += 1
+        return {"claimed": 0, "claim_policy": "disabled", "worker_id": worker_id}
+
+    async def fake_stats():
+        stats["n"] += 1
+        return {"due_queue_depth": 0, "claim_policy": "disabled"}
+
+    async def fake_generic(**_k):
+        generic["n"] += 1
+        return {"claimed": 0}
+
+    client = TestClient(main.app)
+    with patch(
+        "routers.document_processing.drain_document_processing_jobs_for_runner",
+        side_effect=fake_runner,
+    ), patch(
+        "routers.document_processing.runner_processing_stats",
+        side_effect=fake_stats,
+    ), patch(
+        "routers.document_processing.drain_document_processing_jobs",
+        side_effect=fake_generic,
+    ):
+        drain_path = "/api/internal/documents/processing/runner/drain"
+        stats_path = "/api/internal/documents/processing/runner/stats"
+        assert client.post(drain_path).status_code == 503
+        assert client.get(stats_path).status_code == 503
+        assert runner["n"] == 0 and stats["n"] == 0 and generic["n"] == 0
+
+        with patch.dict("os.environ", {"BEN_DOC_PROCESSING_CRON_SECRET": "cron-secret"}):
+            assert client.post(
+                drain_path, headers={"X-BEN-Doc-Processing-Cron-Secret": "wrong"},
+            ).status_code == 401
+            assert client.get(
+                stats_path, headers={"X-BEN-Doc-Processing-Cron-Secret": "wrong"},
+            ).status_code == 401
+            assert runner["n"] == 0 and stats["n"] == 0 and generic["n"] == 0
+
+            ok_drain = client.post(
+                drain_path, headers={"X-BEN-Doc-Processing-Cron-Secret": "cron-secret"},
+            )
+            ok_stats = client.get(
+                stats_path, headers={"X-BEN-Doc-Processing-Cron-Secret": "cron-secret"},
+            )
+            assert ok_drain.status_code == 200
+            assert ok_drain.json()["claim_policy"] == "disabled"
+            assert ok_stats.status_code == 200
+            assert runner["n"] == 1 and stats["n"] == 1
+            assert generic["n"] == 0
+
+
 def test_old_anonymous_fallback_no_longer_lists_shared_projects():
     """Phase 1F — old leak was unsigned GET /api/projects → BEN_ANONYMOUS_ORG_ID list.
 

@@ -27,11 +27,19 @@ from services.workspace_files.job_queue import (
     JOB_TYPE_STRUCTURED_EXTRACTION,
     claim_job_for_file,
     claim_jobs,
+    claim_jobs_for_allowlist,
     complete_job,
     compute_retry_delay_seconds,
+    document_processing_job_stats,
     reap_expired_jobs,
+    reap_expired_jobs_for_allowlist,
     reap_expired_jobs_for_file,
     requeue_job,
+)
+from services.workspace_files.runner_config import (
+    resolve_runner_claim_policy,
+    runner_file_ids,
+    runner_workspace_ids,
 )
 
 _SUBSYSTEM = "doc_processing"
@@ -105,14 +113,17 @@ async def _run_claimed_jobs(
             continue
 
         diag: dict[str, Any] | None = None
+        error_code: str | None = None
         try:
             diag = await asyncio.wait_for(executor(org, ws, fid), timeout=per_job_timeout_s)
         except asyncio.TimeoutError:
-            outcome = await _retry_or_fail(jid, attempts, "timeout",
+            error_code = "timeout"
+            outcome = await _retry_or_fail(jid, attempts, error_code,
                                            f"per-job timeout {per_job_timeout_s}s", max_attempts=max_attempts)
             summary["requeued" if outcome == "requeued" else "failed"] += 1
         except Exception as e:  # noqa: BLE001  (transient infra around the pipeline)
-            outcome = await _retry_or_fail(jid, attempts, classify_failure(e),
+            error_code = classify_failure(e)
+            outcome = await _retry_or_fail(jid, attempts, error_code,
                                            type(e).__name__, max_attempts=max_attempts)
             summary["requeued" if outcome == "requeued" else "failed"] += 1
         else:
@@ -125,24 +136,40 @@ async def _run_claimed_jobs(
             elif err is None and status == "failed":
                 # Determinate: parsed to completion but no usable text (needs_ocr-only /
                 # empty / corrupt / unsupported). Terminal — must NOT retry.
-                await complete_job(jid, "failed", error_code="no_usable_text",
+                error_code = "no_usable_text"
+                await complete_job(jid, "failed", error_code=error_code,
                                    error_detail="extraction produced no usable text")
                 summary["failed"] += 1
                 outcome = "failed_determinate"
             elif err in _DETERMINISTIC_ERRORS:
-                await complete_job(jid, "failed", error_code=str(err))
+                error_code = str(err)
+                await complete_job(jid, "failed", error_code=error_code)
                 summary["failed"] += 1
                 outcome = "failed_determinate"
             else:
                 # Transient infra error swallowed by the pipeline -> retry idempotently.
-                outcome = await _retry_or_fail(jid, attempts, str(err or "unknown"),
+                error_code = str(err or "unknown")
+                outcome = await _retry_or_fail(jid, attempts, error_code,
                                                "pipeline error", max_attempts=max_attempts)
                 summary["requeued" if outcome == "requeued" else "failed"] += 1
 
         fields = {k: diag.get(k) for k in _DIAG_KEYS} if diag else {}
-        log_info("drain job processed", subsystem=_SUBSYSTEM, operation="drain_job", outcome="ok",
-                 job_id=str(jid), org_id=str(org), workspace_id=str(ws), file_id=str(fid),
-                 attempt=attempts, job_type=jtype, result=outcome, worker_id=worker_id, **fields)
+        log_info(
+            "drain job processed",
+            subsystem=_SUBSYSTEM,
+            operation="drain_job",
+            outcome=str(outcome),
+            job_id=str(jid),
+            org_id=str(org),
+            workspace_id=str(ws),
+            file_id=str(fid),
+            attempts=attempts,
+            job_type=jtype,
+            result=outcome,
+            worker_id=worker_id,
+            error_code=error_code,
+            **fields,
+        )
 
 
 def _scoped_outcome(summary: dict[str, Any]) -> str:
@@ -238,3 +265,154 @@ async def drain_document_processing_job_for_file(
     log_info("scoped drain cycle complete", subsystem=_SUBSYSTEM, operation="drain_for_file",
              outcome="ok", **log_fields)
     return summary
+
+
+async def drain_document_processing_jobs_for_runner(
+    *,
+    worker_id: str | None = None,
+    limit: int = DEFAULT_DRAIN_LIMIT,
+    lease_seconds: int = DEFAULT_LEASE_SECONDS,
+    per_job_timeout_s: float = PER_JOB_TIMEOUT_S,
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    reap: bool = True,
+) -> dict[str, Any]:
+    """Bounded runner drain. Never silently uses generic FIFO.
+
+    disabled / fail_closed: claim nothing.
+    allowlist: claim only matching file_id or workspace_id.
+    global: explicit BEN_DOC_RUNNER_CLAIM_GLOBAL only, empty allowlists.
+    """
+    wid = worker_id or default_worker_id()
+    policy = resolve_runner_claim_policy()
+    files = runner_file_ids()
+    workspaces = runner_workspace_ids()
+    summary: dict[str, Any] = {
+        "worker_id": wid,
+        "claim_policy": policy,
+        "reaped": 0,
+        "claimed": 0,
+        "succeeded": 0,
+        "failed": 0,
+        "requeued": 0,
+        "file_ids": [str(x) for x in files],
+        "workspace_ids": [str(x) for x in workspaces],
+        "outcome": policy,
+    }
+
+    if policy in ("disabled", "fail_closed"):
+        log_info(
+            "runner drain skipped",
+            subsystem=_SUBSYSTEM,
+            operation="runner_drain",
+            outcome=policy,
+            worker_id=wid,
+            claim_policy=policy,
+        )
+        return summary
+
+    if policy == "allowlist":
+        if reap:
+            try:
+                summary["reaped"] = len(await reap_expired_jobs_for_allowlist(
+                    file_ids=files, workspace_ids=workspaces,
+                ))
+            except Exception as e:  # noqa: BLE001
+                log_warning(
+                    "runner allowlist reaper failed",
+                    subsystem=_SUBSYSTEM, provider="database",
+                    category=classify_failure(e), exc=e,
+                    operation="runner_reap", outcome="error",
+                )
+        claimed = await claim_jobs_for_allowlist(
+            wid, file_ids=files, workspace_ids=workspaces,
+            lease_seconds=lease_seconds, limit=limit,
+        )
+    elif policy == "global":
+        # explicit BEN_DOC_RUNNER_CLAIM_GLOBAL only — never a silent FIFO fallback.
+        if reap:
+            try:
+                summary["reaped"] = len(await reap_expired_jobs())
+            except Exception as e:  # noqa: BLE001
+                log_warning(
+                    "runner global reaper failed",
+                    subsystem=_SUBSYSTEM, provider="database",
+                    category=classify_failure(e), exc=e,
+                    operation="runner_reap", outcome="error",
+                )
+        claimed = await claim_jobs(wid, lease_seconds=lease_seconds, limit=limit)
+    else:
+        log_info(
+            "runner drain skipped",
+            subsystem=_SUBSYSTEM,
+            operation="runner_drain",
+            outcome="fail_closed",
+            worker_id=wid,
+            claim_policy=policy,
+        )
+        return summary
+
+    allowed_files = {str(x) for x in files}
+    allowed_ws = {str(x) for x in workspaces}
+    if policy == "allowlist":
+        for job in claimed:
+            fid = str(job.get("file_id"))
+            ws = str(job.get("workspace_id"))
+            if allowed_files and fid in allowed_files:
+                continue
+            if allowed_ws and ws in allowed_ws:
+                continue
+            raise RuntimeError("runner refused a claim outside the allowlist")
+
+    summary["claimed"] = len(claimed)
+    await _run_claimed_jobs(
+        claimed, summary, worker_id=wid,
+        per_job_timeout_s=per_job_timeout_s, max_attempts=max_attempts,
+    )
+    if summary["succeeded"]:
+        summary["outcome"] = "succeeded"
+    elif summary["requeued"]:
+        summary["outcome"] = "requeued"
+    elif summary["failed"]:
+        summary["outcome"] = "failed"
+    elif summary["reaped"]:
+        summary["outcome"] = "reaped"
+    elif summary["claimed"] == 0:
+        summary["outcome"] = "no_eligible_job"
+    log_info(
+        "runner drain cycle complete",
+        subsystem=_SUBSYSTEM,
+        operation="runner_drain",
+        outcome=str(summary["outcome"]),
+        worker_id=wid,
+        claim_policy=policy,
+        reaped=summary["reaped"],
+        claimed=summary["claimed"],
+        succeeded=summary["succeeded"],
+        failed=summary["failed"],
+        requeued=summary["requeued"],
+    )
+    return summary
+
+
+async def runner_processing_stats() -> dict[str, Any]:
+    """DB-derived queue gauges. Does not claim or mutate jobs."""
+    stats = await document_processing_job_stats()
+    payload = {
+        "claim_policy": resolve_runner_claim_policy(),
+        "runner_enabled": resolve_runner_claim_policy() != "disabled",
+        "file_ids": [str(x) for x in runner_file_ids()],
+        "workspace_ids": [str(x) for x in runner_workspace_ids()],
+        **stats,
+    }
+    log_info(
+        "runner stats",
+        subsystem=_SUBSYSTEM,
+        operation="runner_stats",
+        outcome="ok",
+        due_queue_depth=payload.get("due_queue_depth"),
+        running_count=payload.get("running_count"),
+        failed_count=payload.get("failed_count"),
+        retry_count=payload.get("retry_count"),
+        succeeded_24h=payload.get("succeeded_24h"),
+    )
+    return payload

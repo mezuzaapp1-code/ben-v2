@@ -15,7 +15,8 @@ import os
 import uuid
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
+from sqlalchemy.dialects.postgresql import ARRAY, UUID as PG_UUID
 
 from database.connection import get_db_session
 from services.ops.structured_log import log_info, log_warning
@@ -35,6 +36,14 @@ RETRY_BASE_SECONDS = int(os.getenv("BEN_DOC_JOB_RETRY_BASE_SECONDS", "30"))
 RETRY_CAP_SECONDS = int(os.getenv("BEN_DOC_JOB_RETRY_CAP_SECONDS", "3600"))
 
 _SUBSYSTEM = "doc_processing"
+
+
+def _pg_uuid_array(ids: list[uuid.UUID]) -> list[uuid.UUID]:
+    """Native uuid[] bind value. Empty list is fail-closed at SQL (cardinality 0)."""
+    return list(ids)
+
+
+_UUID_ARRAY = ARRAY(PG_UUID(as_uuid=True))
 
 
 class TenantOwnershipError(ValueError):
@@ -266,6 +275,129 @@ async def reap_expired_jobs(
             job_id=j.get("job_id"), status=j.get("outcome"),
         )
     return reaped
+
+
+async def claim_jobs_for_allowlist(
+    worker_id: str,
+    *,
+    file_ids: list[uuid.UUID],
+    workspace_ids: list[uuid.UUID],
+    lease_seconds: int = DEFAULT_LEASE_SECONDS,
+    limit: int = 1,
+) -> list[dict[str, Any]]:
+    """Claim due queued jobs matching file_id or workspace_id allowlists.
+
+    Empty allowlists return no rows (SQL fail-closed). Never falls back to FIFO.
+    """
+    if not file_ids and not workspace_ids:
+        return []
+    async with get_db_session() as session:
+        stmt = text(
+            "SELECT * FROM ben.claim_document_processing_jobs_for_allowlist("
+            ":w, :l, :n, :files, :workspaces)"
+        ).bindparams(
+            bindparam("files", type_=_UUID_ARRAY),
+            bindparam("workspaces", type_=_UUID_ARRAY),
+        )
+        rows = (
+            await session.execute(
+                stmt,
+                {
+                    "w": worker_id,
+                    "l": lease_seconds,
+                    "n": limit,
+                    "files": _pg_uuid_array(file_ids),
+                    "workspaces": _pg_uuid_array(workspace_ids),
+                },
+            )
+        ).mappings().all()
+        await session.commit()
+    claimed = [_job_dict(r) for r in rows]
+    allowed_files = {str(x) for x in file_ids}
+    allowed_ws = {str(x) for x in workspace_ids}
+    for j in claimed:
+        fid = str(j.get("file_id"))
+        ws = str(j.get("workspace_id"))
+        if allowed_files and fid in allowed_files:
+            pass
+        elif allowed_ws and ws in allowed_ws:
+            pass
+        else:
+            raise RuntimeError("allowlist claim returned a job outside the allowlist")
+        log_info(
+            "processing job claimed", subsystem=_SUBSYSTEM, operation="claim_allowlist",
+            outcome="ok", job_id=j.get("job_id"), org_id=j.get("org_id"),
+            workspace_id=j.get("workspace_id"), file_id=j.get("file_id"),
+            job_type=j.get("job_type"), attempt=j.get("attempts"),
+            status="running", worker_id=worker_id,
+        )
+    return claimed
+
+
+async def reap_expired_jobs_for_allowlist(
+    *,
+    file_ids: list[uuid.UUID],
+    workspace_ids: list[uuid.UUID],
+    base_seconds: int = RETRY_BASE_SECONDS,
+    cap_seconds: int = RETRY_CAP_SECONDS,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """Reap expired leases only for allowlisted files/workspaces."""
+    if not file_ids and not workspace_ids:
+        return []
+    async with get_db_session() as session:
+        stmt = text(
+            "SELECT * FROM ben.reap_expired_document_processing_jobs_for_allowlist("
+            ":files, :workspaces, :b, :c, :n)"
+        ).bindparams(
+            bindparam("files", type_=_UUID_ARRAY),
+            bindparam("workspaces", type_=_UUID_ARRAY),
+        )
+        rows = (
+            await session.execute(
+                stmt,
+                {
+                    "files": _pg_uuid_array(file_ids),
+                    "workspaces": _pg_uuid_array(workspace_ids),
+                    "b": base_seconds,
+                    "c": cap_seconds,
+                    "n": limit,
+                },
+            )
+        ).mappings().all()
+        await session.commit()
+    reaped = [_job_dict(r) for r in rows]
+    for j in reaped:
+        log_warning(
+            "processing job lease reaped", subsystem=_SUBSYSTEM, operation="reap_allowlist",
+            outcome="ok", job_id=j.get("job_id"), status=j.get("outcome"),
+        )
+    return reaped
+
+
+async def document_processing_job_stats() -> dict[str, Any]:
+    """Cross-org operational gauges. No document text."""
+    async with get_db_session() as session:
+        row = (
+            await session.execute(text("SELECT * FROM ben.document_processing_job_stats()"))
+        ).mappings().first()
+    if row is None:
+        return {
+            "due_queue_depth": 0,
+            "oldest_due_queued_age_s": None,
+            "running_count": 0,
+            "failed_count": 0,
+            "retry_count": 0,
+            "succeeded_24h": 0,
+        }
+    d = dict(row)
+    age = d.get("oldest_due_queued_age_s")
+    if age is not None:
+        d["oldest_due_queued_age_s"] = float(age)
+    for k in ("due_queue_depth", "running_count", "failed_count", "retry_count", "succeeded_24h"):
+        if d.get(k) is not None:
+            d[k] = int(d[k])
+    return d
 
 
 async def reap_expired_jobs_for_file(
