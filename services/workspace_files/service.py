@@ -15,6 +15,28 @@ from database.connection import get_db_session
 from database.models import Project, WorkspaceFile
 from services.ops.request_context import attach_request_id
 from services.workspace_files import storage
+from services.workspace_files.chunk_retriever import (
+    MAX_CHARS_PER_FILE,
+    MAX_EVIDENCE_CHARS,
+    ReadyFile,
+    apply_chunk_budget,
+    build_or_tsquery,
+    chunk_retrieval_enabled,
+    claimed_indexed_ids,
+    diagnostics_from_pack,
+    group_chunks_by_file,
+    log_index_chunk_mismatch,
+    named_ready_files,
+    normalize_query_tokens,
+    pack_coverage,
+    prove_chunk_rows,
+    qualify_indexed_ids,
+    ready_file_from_row,
+    render_chunk_group,
+    render_evidence_block,
+    render_legacy_group,
+    search_chunks_bounded,
+)
 from services.workspace_files.extract import extract_text
 from services.workspace_files.file_resolver import (
     PER_FILE_MAX_CHARS,
@@ -352,11 +374,139 @@ class WorkspaceFilesContext:
     count: int
     chars: int
     truncated: bool
+    retrieval_mode: str = "off"
+    files_eligible: int = 0
+    files_searched: int = 0
+    files_searched_ids: tuple[str, ...] = ()
+    files_legacy: int = 0
+    chunks_considered: int = 0
+    chunks_selected: int = 0
+    evidence_chars: int = 0
+    evidence_pages: tuple[int, ...] = ()
+    fts_latency_ms: float | None = None
+    fallback_reason: str | None = None
+    extraction_coverage: str = "legacy"
 
 
 def _sanitize_file_name(name: str | None) -> str:
     cleaned = " ".join(str(name or "file").split())
     return cleaned.replace('"', "'")[:256] or "file"
+
+
+def _context_from_gate3d(
+    eligible,
+    user_query: str | None,
+    max_chars: int,
+    per_file_max: int | None,
+    *,
+    retrieval_mode: str = "off",
+    fallback_reason: str | None = "flag_off",
+    files_eligible: int = 0,
+) -> WorkspaceFilesContext:
+    """Exact Gate 3D injection format. Used when chunk retrieval is OFF."""
+    ranked = rank_eligible_files(eligible, user_query)
+    budgeted, truncated = apply_context_budget(
+        ranked,
+        max_chars=max_chars,
+        per_file_max=per_file_max if per_file_max is not None else PER_FILE_MAX_CHARS,
+        sanitize_name=_sanitize_file_name,
+    )
+    if not budgeted:
+        return WorkspaceFilesContext(
+            block="",
+            count=0,
+            chars=0,
+            truncated=truncated,
+            retrieval_mode=retrieval_mode,
+            files_eligible=files_eligible,
+            fallback_reason=fallback_reason,
+            extraction_coverage="legacy",
+        )
+    parts = [f'[file name="{item.name}"]\n{item.text}\n[/file]' for item in budgeted]
+    total = sum(item.chars for item in budgeted)
+    block = "<workspace_files>\n" + "\n".join(parts) + "\n</workspace_files>"
+    return WorkspaceFilesContext(
+        block=block,
+        count=len(budgeted),
+        chars=total,
+        truncated=truncated,
+        retrieval_mode=retrieval_mode,
+        files_eligible=files_eligible,
+        files_legacy=len(budgeted),
+        evidence_chars=total,
+        fallback_reason=fallback_reason,
+        extraction_coverage="legacy",
+    )
+
+
+def _labeled_prefix_context(
+    eligible,
+    user_query: str | None,
+    max_chars: int,
+    per_file_max: int | None,
+    *,
+    allow_ids: set[str] | None,
+    diag: RetrievalDiagnostics,
+) -> WorkspaceFilesContext:
+    ranked = rank_eligible_files(eligible, user_query)
+    if allow_ids is not None:
+        ranked = [item for item in ranked if str(item.file.id) in allow_ids]
+    budget = min(max_chars, MAX_EVIDENCE_CHARS)
+    file_cap = min(
+        per_file_max if per_file_max is not None else PER_FILE_MAX_CHARS,
+        MAX_CHARS_PER_FILE,
+    )
+    budgeted, truncated = apply_context_budget(
+        ranked,
+        max_chars=budget,
+        per_file_max=file_cap,
+        sanitize_name=_sanitize_file_name,
+    )
+    if not budgeted:
+        return WorkspaceFilesContext(
+            block="",
+            count=0,
+            chars=0,
+            truncated=truncated,
+            retrieval_mode=diag.retrieval_mode,
+            files_eligible=diag.files_eligible,
+            files_searched=diag.files_searched,
+            files_searched_ids=diag.files_searched_ids,
+            files_legacy=0,
+            chunks_considered=diag.chunks_considered,
+            chunks_selected=0,
+            evidence_chars=0,
+            evidence_pages=(),
+            fts_latency_ms=diag.fts_latency_ms,
+            fallback_reason=diag.fallback_reason,
+            extraction_coverage=diag.extraction_coverage,
+        )
+    parts = [render_legacy_group(item.name, item.text) for item in budgeted]
+    total = sum(item.chars for item in budgeted)
+    coverage = "legacy"
+    block = render_evidence_block(
+        retrieval_mode="prefix_fallback",
+        coverage=coverage,
+        file_parts=parts,
+    )
+    return WorkspaceFilesContext(
+        block=block,
+        count=len(budgeted),
+        chars=total,
+        truncated=truncated,
+        retrieval_mode="prefix_fallback",
+        files_eligible=diag.files_eligible,
+        files_searched=diag.files_searched,
+        files_searched_ids=diag.files_searched_ids,
+        files_legacy=len(budgeted),
+        chunks_considered=diag.chunks_considered,
+        chunks_selected=0,
+        evidence_chars=total,
+        evidence_pages=(),
+        fts_latency_ms=diag.fts_latency_ms,
+        fallback_reason=diag.fallback_reason,
+        extraction_coverage=coverage,
+    )
 
 
 async def load_ready_files_context(
@@ -370,13 +520,17 @@ async def load_ready_files_context(
     """Read-only: assemble a filename-labeled, size-capped text block from the
     ready Workspace Files of a single org + workspace.
 
-    Gate 3D pipeline (selection before budgeting):
+    Gate 3D pipeline (selection before budgeting) when chunk retrieval is OFF:
 
     1. Query READY rows for the supplied ``org_id`` + ``workspace_id``.
     2. Filter eligibility (org/workspace/status/non-empty text) with no budget.
     3. Rank the full eligible set from ``user_query`` (explicit filename, then
        lexical overlap, then recency).
     4. Apply per-file and global character budgets only to the ranked list.
+
+    Gate 4A (flag ON) searches authorized indexed chunks across the eligible
+    READY set (or the explicitly named subset). Gate 3D ranking is used only
+    for labeled prefix fallback, never as the FTS recall cutoff.
 
     Isolation is unchanged: SQL ``WHERE`` plus per-row re-check; RLS org scope
     is set on the session. Never writes. Ranking cannot admit a non-eligible row.
@@ -402,22 +556,183 @@ async def load_ready_files_context(
         if item is not None:
             eligible.append(item)
 
-    ranked = rank_eligible_files(eligible, user_query)
-    budgeted, truncated = apply_context_budget(
-        ranked,
+    if not chunk_retrieval_enabled(workspace_id):
+        return _context_from_gate3d(
+            eligible,
+            user_query,
+            max_chars,
+            per_file_max,
+            retrieval_mode="off",
+            fallback_reason="flag_off",
+            files_eligible=len(eligible),
+        )
+
+    return await _load_gate4a_context(
+        org_id,
+        workspace_id,
+        rows,
+        eligible,
+        user_query=user_query,
         max_chars=max_chars,
-        per_file_max=per_file_max if per_file_max is not None else PER_FILE_MAX_CHARS,
-        sanitize_name=_sanitize_file_name,
+        per_file_max=per_file_max,
     )
 
-    if not budgeted:
-        return WorkspaceFilesContext(block="", count=0, chars=0, truncated=truncated)
 
-    parts = [f'[file name="{item.name}"]\n{item.text}\n[/file]' for item in budgeted]
-    total = sum(item.chars for item in budgeted)
-    block = "<workspace_files>\n" + "\n".join(parts) + "\n</workspace_files>"
+async def _load_gate4a_context(
+    org_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    rows,
+    eligible,
+    *,
+    user_query: str | None,
+    max_chars: int,
+    per_file_max: int | None,
+) -> WorkspaceFilesContext:
+    ready: list[ReadyFile] = []
+    for row in rows:
+        item = ready_file_from_row(row, org_id, workspace_id)
+        if item is not None:
+            ready.append(item)
+
+    named = named_ready_files(ready, user_query)
+    search_set = named if named else ready
+    named_ids = {str(f.id) for f in named} if named else None
+
+    tokens = normalize_query_tokens(user_query)
+    tsquery = build_or_tsquery(tokens)
+    claimed, mismatch = claimed_indexed_ids(search_set)
+
+    base_diag = diagnostics_from_pack(
+        mode="prefix_fallback",
+        eligible=len(ready),
+        searched_ids=[],
+        legacy_count=0,
+        considered=0,
+        selected=[],
+        evidence_chars=0,
+        latency_ms=None,
+        fallback_reason="not_indexed",
+        coverage="legacy",
+        mismatch_ids=mismatch,
+    )
+
+    def _prefix(reason: str, *, searched: list | None = None, latency: float | None = None) -> WorkspaceFilesContext:
+        diag = diagnostics_from_pack(
+            mode="prefix_fallback",
+            eligible=len(ready),
+            searched_ids=searched if searched is not None else [],
+            legacy_count=0,
+            considered=0,
+            selected=[],
+            evidence_chars=0,
+            latency_ms=latency if latency is not None else base_diag.fts_latency_ms,
+            fallback_reason=reason,
+            coverage="legacy",
+            mismatch_ids=mismatch,
+        )
+        return _labeled_prefix_context(
+            eligible,
+            user_query,
+            max_chars,
+            per_file_max,
+            allow_ids=named_ids,
+            diag=diag,
+        )
+
+    if not tokens or not tsquery:
+        return _prefix("no_tokens")
+
+    async with get_db_session() as session:
+        await _set_org(session, org_id)
+        try:
+            counts = await prove_chunk_rows(
+                session, org_id=org_id, workspace_id=workspace_id, file_ids=claimed
+            )
+        except Exception:
+            return _prefix("fts_error")
+        qualified, mismatch_all = qualify_indexed_ids(claimed, mismatch, counts)
+        mismatch = mismatch_all
+        if mismatch:
+            log_index_chunk_mismatch(mismatch)
+        if not qualified:
+            return _prefix("index_chunk_mismatch" if mismatch else "not_indexed")
+
+        hits, latency, error = await search_chunks_bounded(
+            session,
+            org_id=org_id,
+            workspace_id=workspace_id,
+            file_ids=qualified,
+            tsquery=tsquery,
+        )
+
+    if error:
+        return _prefix(error, searched=qualified, latency=latency)
+    if not hits:
+        return _prefix("no_lexical_match", searched=qualified, latency=latency)
+
+    selected = apply_chunk_budget(hits)
+    by_id = {str(f.id): f for f in search_set}
+    grouped = group_chunks_by_file(selected)
+    chunk_files = [by_id[str(fid)] for fid, _ch in grouped if str(fid) in by_id]
+    chunk_ids = {str(fid) for fid, _ch in grouped}
+
+    parts: list[str] = []
+    evidence_chars = 0
+    for fid, chunks in grouped:
+        meta = by_id.get(str(fid))
+        if meta is None:
+            continue
+        parts.append(render_chunk_group(meta, chunks))
+        evidence_chars += sum(len(c.text) for c in chunks)
+
+    legacy_budgeted = []
+    if named_ids:
+        leftover_ids = named_ids - chunk_ids
+        if leftover_ids:
+            remaining = min(max_chars, MAX_EVIDENCE_CHARS) - evidence_chars
+            if remaining > 0:
+                ranked = rank_eligible_files(eligible, user_query)
+                ranked = [item for item in ranked if str(item.file.id) in leftover_ids]
+                file_cap = min(
+                    per_file_max if per_file_max is not None else PER_FILE_MAX_CHARS,
+                    MAX_CHARS_PER_FILE,
+                    remaining,
+                )
+                legacy_budgeted, _trunc_legacy = apply_context_budget(
+                    ranked,
+                    max_chars=remaining,
+                    per_file_max=file_cap,
+                    sanitize_name=_sanitize_file_name,
+                )
+                for item in legacy_budgeted:
+                    parts.append(render_legacy_group(item.name, item.text))
+                    evidence_chars += item.chars
+
+    if not parts:
+        return _prefix("no_lexical_match", searched=qualified, latency=latency)
+
+    has_legacy = bool(legacy_budgeted)
+    mode = "mixed" if has_legacy else "chunks"
+    coverage = pack_coverage(chunk_files, has_chunks=True, has_legacy=has_legacy)
+    block = render_evidence_block(retrieval_mode=mode, coverage=coverage, file_parts=parts)
+    truncated = len(hits) > len(selected) or evidence_chars >= MAX_EVIDENCE_CHARS
     return WorkspaceFilesContext(
-        block=block, count=len(budgeted), chars=total, truncated=truncated
+        block=block,
+        count=len(grouped) + len(legacy_budgeted),
+        chars=evidence_chars,
+        truncated=truncated,
+        retrieval_mode=mode,
+        files_eligible=len(ready),
+        files_searched=len(qualified),
+        files_searched_ids=tuple(str(i) for i in qualified),
+        files_legacy=len(legacy_budgeted),
+        chunks_considered=len(hits),
+        chunks_selected=len(selected),
+        evidence_chars=evidence_chars,
+        evidence_pages=tuple(h.page_number for h in selected),
+        fts_latency_ms=latency,
+        fallback_reason=None,
+        extraction_coverage=coverage,
     )
 
 
