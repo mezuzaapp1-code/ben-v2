@@ -100,6 +100,40 @@ def _tokens(text: str) -> frozenset[str]:
     )
 
 
+def significant_tokens_in_order(
+    text: str,
+    *,
+    extra_stopwords: frozenset[str] | None = None,
+    limit: int | None = None,
+) -> list[str]:
+    """First-seen significant tokens. Does not change Gate 3D rank math."""
+    stop = _STOPWORDS if not extra_stopwords else (_STOPWORDS | extra_stopwords)
+    seen: set[str] = set()
+    out: list[str] = []
+    for token in _TOKEN_RE.findall((text or "").casefold()):
+        if len(token) < 3 or token in stop or token in seen:
+            continue
+        seen.add(token)
+        out.append(token)
+        if limit is not None and len(out) >= limit:
+            break
+    return out
+
+
+def file_is_explicitly_named(user_query: str, display_name: str, original_filename: str) -> bool:
+    """True when the query mentions this file's display name, basename, or stem."""
+    return _explicit_name_match(
+        user_query,
+        EligibleFile(
+            id=None,
+            created_at=None,
+            display_name=display_name,
+            original_filename=original_filename,
+            text="",
+        ),
+    )
+
+
 def _name_candidates(file: EligibleFile) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()

@@ -228,6 +228,17 @@ async def stream_chat_response(
     workspace_files_injected = False
     workspace_files_count = 0
     workspace_files_chars = 0
+    workspace_retrieval_mode = "off"
+    workspace_files_eligible = 0
+    workspace_files_searched = 0
+    workspace_files_legacy = 0
+    workspace_chunks_considered = 0
+    workspace_chunks_selected = 0
+    workspace_evidence_chars = 0
+    workspace_evidence_pages: tuple[int, ...] = ()
+    workspace_fts_latency_ms = None
+    workspace_fallback_reason = None
+    workspace_extraction_coverage = "legacy"
 
     try:
         validate_chat_model_override(provider_id, model_override)
@@ -265,6 +276,17 @@ async def stream_chat_response(
                     workspace_files_injected = True
                     workspace_files_count = wsf.count
                     workspace_files_chars = wsf.chars
+                    workspace_retrieval_mode = wsf.retrieval_mode
+                    workspace_files_eligible = wsf.files_eligible
+                    workspace_files_searched = wsf.files_searched
+                    workspace_files_legacy = wsf.files_legacy
+                    workspace_chunks_considered = wsf.chunks_considered
+                    workspace_chunks_selected = wsf.chunks_selected
+                    workspace_evidence_chars = wsf.evidence_chars
+                    workspace_evidence_pages = wsf.evidence_pages
+                    workspace_fts_latency_ms = wsf.fts_latency_ms
+                    workspace_fallback_reason = wsf.fallback_reason
+                    workspace_extraction_coverage = wsf.extraction_coverage
                     log_info(
                         "workspace files injected into chat context",
                         subsystem="chat",
@@ -274,6 +296,17 @@ async def stream_chat_response(
                         workspace_files_count=wsf.count,
                         workspace_files_chars=wsf.chars,
                         workspace_files_truncated=wsf.truncated,
+                        retrieval_mode=wsf.retrieval_mode,
+                        files_eligible=wsf.files_eligible,
+                        files_searched=wsf.files_searched,
+                        files_legacy=wsf.files_legacy,
+                        chunks_considered=wsf.chunks_considered,
+                        chunks_selected=wsf.chunks_selected,
+                        evidence_chars=wsf.evidence_chars,
+                        evidence_pages=list(wsf.evidence_pages),
+                        fts_latency_ms=wsf.fts_latency_ms,
+                        fallback_reason=wsf.fallback_reason,
+                        extraction_coverage=wsf.extraction_coverage,
                     )
             except Exception as e:
                 log_warning(
@@ -403,6 +436,17 @@ async def stream_chat_response(
             "workspace_files_injected": workspace_files_injected,
             "workspace_files_count": workspace_files_count,
             "workspace_files_chars": workspace_files_chars,
+            "retrieval_mode": workspace_retrieval_mode,
+            "files_eligible": workspace_files_eligible,
+            "files_searched": workspace_files_searched,
+            "files_legacy": workspace_files_legacy,
+            "chunks_considered": workspace_chunks_considered,
+            "chunks_selected": workspace_chunks_selected,
+            "evidence_chars": workspace_evidence_chars,
+            "evidence_pages": list(workspace_evidence_pages),
+            "fts_latency_ms": workspace_fts_latency_ms,
+            "fallback_reason": workspace_fallback_reason,
+            "extraction_coverage": workspace_extraction_coverage,
             "sqlite_user_id": sqlite_user_id,
             "sqlite_assistant_id": sqlite_assistant_id,
             "execution_id": accounted.get("execution_id"),
