@@ -213,6 +213,36 @@ async def claim_jobs(
     return claimed
 
 
+async def claim_job_for_file(
+    worker_id: str, file_id: uuid.UUID, *, lease_seconds: int = DEFAULT_LEASE_SECONDS
+) -> list[dict[str, Any]]:
+    """Claim at most one due queued job for an exact file_id.
+
+    Never falls back to the generic queue. Empty result is a no-op (no eligible
+    queued job for that file). Same lease/attempt semantics as claim_jobs.
+    """
+    async with get_db_session() as session:
+        rows = (
+            await session.execute(
+                text("SELECT * FROM ben.claim_document_processing_job_for_file(:w, :l, :f)"),
+                {"w": worker_id, "l": lease_seconds, "f": str(file_id)},
+            )
+        ).mappings().all()
+        await session.commit()
+    claimed = [_job_dict(r) for r in rows]
+    for j in claimed:
+        if str(j.get("file_id")) != str(file_id):
+            raise RuntimeError("scoped claim returned a job for a different file_id")
+        log_info(
+            "processing job claimed", subsystem=_SUBSYSTEM, operation="claim_for_file",
+            outcome="ok", job_id=j.get("job_id"), org_id=j.get("org_id"),
+            workspace_id=j.get("workspace_id"), file_id=j.get("file_id"),
+            job_type=j.get("job_type"), attempt=j.get("attempts"),
+            status="running", worker_id=worker_id,
+        )
+    return claimed
+
+
 async def reap_expired_jobs(
     *, base_seconds: int = RETRY_BASE_SECONDS, cap_seconds: int = RETRY_CAP_SECONDS, limit: int = 100
 ) -> list[dict[str, Any]]:
@@ -234,6 +264,31 @@ async def reap_expired_jobs(
         log_warning(
             "processing job lease reaped", subsystem=_SUBSYSTEM, operation="reap", outcome="ok",
             job_id=j.get("job_id"), status=j.get("outcome"),
+        )
+    return reaped
+
+
+async def reap_expired_jobs_for_file(
+    file_id: uuid.UUID,
+    *,
+    base_seconds: int = RETRY_BASE_SECONDS,
+    cap_seconds: int = RETRY_CAP_SECONDS,
+) -> list[dict[str, Any]]:
+    """Recover an expired lease for one file_id only. Does not touch other files."""
+    async with get_db_session() as session:
+        rows = (
+            await session.execute(
+                text("SELECT * FROM ben.reap_expired_document_processing_jobs_for_file(:f, :b, :c)"),
+                {"f": str(file_id), "b": base_seconds, "c": cap_seconds},
+            )
+        ).mappings().all()
+        await session.commit()
+    reaped = [_job_dict(r) for r in rows]
+    for j in reaped:
+        log_warning(
+            "processing job lease reaped", subsystem=_SUBSYSTEM, operation="reap_for_file",
+            outcome="ok", job_id=j.get("job_id"), status=j.get("outcome"),
+            file_id=str(file_id),
         )
     return reaped
 

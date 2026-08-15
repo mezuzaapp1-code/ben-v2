@@ -25,10 +25,12 @@ from services.workspace_files.job_queue import (
     DEFAULT_MAX_ATTEMPTS,
     JOB_TYPE_FILE_EXTRACTION,
     JOB_TYPE_STRUCTURED_EXTRACTION,
+    claim_job_for_file,
     claim_jobs,
     complete_job,
     compute_retry_delay_seconds,
     reap_expired_jobs,
+    reap_expired_jobs_for_file,
     requeue_job,
 )
 
@@ -77,32 +79,15 @@ async def _retry_or_fail(
     return "requeued"
 
 
-async def drain_document_processing_jobs(
+async def _run_claimed_jobs(
+    claimed: list[dict[str, Any]],
+    summary: dict[str, Any],
     *,
-    worker_id: str | None = None,
-    limit: int = DEFAULT_DRAIN_LIMIT,
-    lease_seconds: int = DEFAULT_LEASE_SECONDS,
-    per_job_timeout_s: float = PER_JOB_TIMEOUT_S,
-    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
-    reap: bool = True,
-) -> dict[str, Any]:
-    """Run one bounded drain cycle. Returns a non-sensitive summary (no doc text)."""
-    wid = worker_id or default_worker_id()
-    summary: dict[str, Any] = {
-        "worker_id": wid, "reaped": 0, "claimed": 0,
-        "succeeded": 0, "failed": 0, "requeued": 0,
-    }
-
-    if reap:
-        try:
-            summary["reaped"] = len(await reap_expired_jobs())
-        except Exception as e:  # noqa: BLE001
-            log_warning("drain reaper failed", subsystem=_SUBSYSTEM, provider="database",
-                        category=classify_failure(e), exc=e, operation="drain_reap", outcome="error")
-
-    claimed = await claim_jobs(wid, lease_seconds=lease_seconds, limit=limit)
-    summary["claimed"] = len(claimed)
-
+    worker_id: str,
+    per_job_timeout_s: float,
+    max_attempts: int,
+) -> None:
+    """Execute already-claimed jobs. Does not claim or reap."""
     for job in claimed:
         jid = uuid.UUID(job["job_id"])
         org = uuid.UUID(job["org_id"])
@@ -116,7 +101,7 @@ async def drain_document_processing_jobs(
             await complete_job(jid, "failed", error_code="unknown_job_type", error_detail=jtype)
             summary["failed"] += 1
             log_warning("drain unknown job_type", subsystem=_SUBSYSTEM, operation="drain_job",
-                        outcome="error", job_id=str(jid), job_type=jtype, worker_id=wid)
+                        outcome="error", job_id=str(jid), job_type=jtype, worker_id=worker_id)
             continue
 
         diag: dict[str, Any] | None = None
@@ -157,7 +142,99 @@ async def drain_document_processing_jobs(
         fields = {k: diag.get(k) for k in _DIAG_KEYS} if diag else {}
         log_info("drain job processed", subsystem=_SUBSYSTEM, operation="drain_job", outcome="ok",
                  job_id=str(jid), org_id=str(org), workspace_id=str(ws), file_id=str(fid),
-                 attempt=attempts, job_type=jtype, result=outcome, worker_id=wid, **fields)
+                 attempt=attempts, job_type=jtype, result=outcome, worker_id=worker_id, **fields)
+
+
+def _scoped_outcome(summary: dict[str, Any]) -> str:
+    if summary["succeeded"]:
+        return "succeeded"
+    if summary["requeued"]:
+        return "requeued"
+    if summary["failed"]:
+        return "failed"
+    if summary["reaped"]:
+        return "reaped"
+    return "no_eligible_job"
+
+
+async def drain_document_processing_jobs(
+    *,
+    worker_id: str | None = None,
+    limit: int = DEFAULT_DRAIN_LIMIT,
+    lease_seconds: int = DEFAULT_LEASE_SECONDS,
+    per_job_timeout_s: float = PER_JOB_TIMEOUT_S,
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    reap: bool = True,
+) -> dict[str, Any]:
+    """Run one bounded drain cycle. Returns a non-sensitive summary (no doc text)."""
+    wid = worker_id or default_worker_id()
+    summary: dict[str, Any] = {
+        "worker_id": wid, "reaped": 0, "claimed": 0,
+        "succeeded": 0, "failed": 0, "requeued": 0,
+    }
+
+    if reap:
+        try:
+            summary["reaped"] = len(await reap_expired_jobs())
+        except Exception as e:  # noqa: BLE001
+            log_warning("drain reaper failed", subsystem=_SUBSYSTEM, provider="database",
+                        category=classify_failure(e), exc=e, operation="drain_reap", outcome="error")
+
+    claimed = await claim_jobs(wid, lease_seconds=lease_seconds, limit=limit)
+    summary["claimed"] = len(claimed)
+    await _run_claimed_jobs(
+        claimed, summary, worker_id=wid,
+        per_job_timeout_s=per_job_timeout_s, max_attempts=max_attempts,
+    )
 
     log_info("drain cycle complete", subsystem=_SUBSYSTEM, operation="drain", outcome="ok", **summary)
+    return summary
+
+
+async def drain_document_processing_job_for_file(
+    file_id: uuid.UUID,
+    *,
+    worker_id: str | None = None,
+    lease_seconds: int = DEFAULT_LEASE_SECONDS,
+    per_job_timeout_s: float = PER_JOB_TIMEOUT_S,
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    reap: bool = True,
+) -> dict[str, Any]:
+    """Drain at most one job for an exact file_id. Never claims another file.
+
+    Reaps an expired lease for this file only, then claims a due queued job for
+    this file only. No generic-queue fallback. Missing/ineligible file_id is a
+    safe no-op (claimed=0, outcome=no_eligible_job).
+    """
+    wid = worker_id or default_worker_id()
+    fid = str(file_id)
+    summary: dict[str, Any] = {
+        "worker_id": wid, "file_id": fid, "job_id": None,
+        "reaped": 0, "claimed": 0,
+        "succeeded": 0, "failed": 0, "requeued": 0,
+        "outcome": "no_eligible_job",
+    }
+
+    if reap:
+        try:
+            summary["reaped"] = len(await reap_expired_jobs_for_file(file_id))
+        except Exception as e:  # noqa: BLE001
+            log_warning("scoped drain reaper failed", subsystem=_SUBSYSTEM, provider="database",
+                        category=classify_failure(e), exc=e, operation="drain_reap_for_file",
+                        outcome="error", file_id=fid)
+
+    claimed = await claim_job_for_file(wid, file_id, lease_seconds=lease_seconds)
+    if any(str(job.get("file_id")) != fid for job in claimed):
+        raise RuntimeError("scoped drain refused a claim for a different file_id")
+    summary["claimed"] = len(claimed)
+    if claimed:
+        summary["job_id"] = claimed[0].get("job_id")
+    await _run_claimed_jobs(
+        claimed, summary, worker_id=wid,
+        per_job_timeout_s=per_job_timeout_s, max_attempts=max_attempts,
+    )
+    summary["outcome"] = _scoped_outcome(summary)
+    log_fields = {k: v for k, v in summary.items() if k != "outcome"}
+    log_info("scoped drain cycle complete", subsystem=_SUBSYSTEM, operation="drain_for_file",
+             outcome="ok", **log_fields)
     return summary
