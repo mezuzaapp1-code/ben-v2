@@ -195,21 +195,9 @@ def _org_from_ctx(ctx) -> uuid.UUID:
 
 @router.get("")
 async def api_list_projects(request: Request):
-    # Product read path: when auth is not enforced, allow the same shadow/anonymous
-    # tenant binding as News so Workspace Files can resolve an active workspace locally.
-    try:
-        ctx = await build_project_tenant_context_from_request(
-            request, route_operation="GET /api/projects"
-        )
-    except HTTPException as exc:
-        from auth.config import is_enforce_auth
-        from auth.tenant_binding import authenticate_request, build_tenant_context, log_tenant_bound
-
-        if is_enforce_auth() or exc.status_code not in (401, 403):
-            raise
-        outcome, claims, auth_present = authenticate_request(request)
-        ctx = build_tenant_context(outcome, claims, auth_present)
-        log_tenant_bound(route_operation="GET /api/projects", ctx=ctx)
+    ctx = await build_project_tenant_context_from_request(
+        request, route_operation="GET /api/projects"
+    )
     async with measure(subsystem="projects", operation="GET /api/projects"):
         return await list_projects(_org_from_ctx(ctx))
 

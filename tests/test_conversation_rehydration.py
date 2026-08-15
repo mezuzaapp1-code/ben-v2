@@ -37,6 +37,14 @@ def _auth_env(monkeypatch):
     monkeypatch.setenv("BEN_ANONYMOUS_ORG_ID", ORG)
 
 
+@pytest.fixture(autouse=True)
+def _gate_a_customer():
+    from tests.helpers_auth import patch_main_persistent_tenant
+
+    with patch_main_persistent_tenant(ORG):
+        yield
+
+
 def test_encode_decode_chat_assistant():
     raw = encode_chat_assistant(
         "hello",

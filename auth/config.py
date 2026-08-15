@@ -12,7 +12,11 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def is_enforce_auth() -> bool:
-    """When True, /chat and /council require valid Bearer token."""
+    """When True, apply_auth_policy rejects unsigned/invalid JWT on routes that use it.
+
+    Persistent customer routes (projects, workspace files, threads, chat, council)
+    require a customer identity regardless of this flag (Security Gate A).
+    """
     return _env_bool("ENFORCE_AUTH", False)
 
 

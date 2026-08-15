@@ -56,7 +56,15 @@ def _env(monkeypatch):
 
 
 @pytest.fixture
-def client():
+def _gate_a_customer():
+    from tests.helpers_auth import patch_main_persistent_tenant
+
+    with patch_main_persistent_tenant(ANON):
+        yield
+
+
+@pytest.fixture
+def client(_gate_a_customer):
     return TestClient(main.app)
 
 
@@ -234,7 +242,7 @@ def test_malformed_legacy_rehydration_safe():
     assert out["content"] == "not json at all"
 
 
-def test_get_thread_tenant_b_cannot_read_tenant_a():
+def test_get_thread_tenant_b_cannot_read_tenant_a(_gate_a_customer):
     with patch(
         "main.get_thread_detail",
         new=AsyncMock(side_effect=HTTPException(404, "Thread not found")),
@@ -302,7 +310,7 @@ def test_idempotent_replay_does_not_double_invoke_run_council(client):
     assert call_count["n"] == 1
 
 
-def test_get_thread_detail_integrity_warnings_on_duplicate_synthesis():
+def test_get_thread_detail_integrity_warnings_on_duplicate_synthesis(_gate_a_customer):
     syn = {"recommendation": "R", "consensus_points": "C", "agreement_estimate": "3/3"}
     raw = encode_council_synthesis(synthesis=syn, cost_usd=0.1, display_text="d")
     fake_detail = {

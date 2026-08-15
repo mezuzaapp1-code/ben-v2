@@ -4,9 +4,18 @@ from __future__ import annotations
 import inspect
 from unittest.mock import AsyncMock, patch
 
+import pytest
 import main
 from fastapi.testclient import TestClient
 from services.global_service_store import init_global_service_schema
+
+
+@pytest.fixture(autouse=True)
+def _gate_a_customer():
+    from tests.helpers_auth import patch_main_persistent_tenant
+
+    with patch_main_persistent_tenant("00000000-0000-0000-0000-000000000001"):
+        yield
 
 
 def test_chat_succeeds_when_switchboard_store_raises(tmp_path, monkeypatch):
