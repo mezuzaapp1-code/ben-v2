@@ -354,8 +354,10 @@ def test_generic_claim_sql_still_unscoped_queue_order():
 
 def test_scoped_drain_source_never_calls_generic_claim():
     src = pathlib.Path("services/workspace_files/drain.py").read_text()
-    scoped = src.split("async def drain_document_processing_job_for_file", 1)[1]
-    generic = src.split("async def drain_document_processing_jobs", 1)[1].split(
+    scoped = src.split("async def drain_document_processing_job_for_file", 1)[1].split(
+        "async def drain_document_processing_jobs_for_runner", 1
+    )[0]
+    generic = src.split("async def drain_document_processing_jobs(", 1)[1].split(
         "async def drain_document_processing_job_for_file", 1
     )[0]
     assert "claim_job_for_file(" in scoped

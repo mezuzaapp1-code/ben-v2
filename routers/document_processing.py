@@ -21,6 +21,8 @@ from services.workspace_files.drain import (
     default_worker_id,
     drain_document_processing_job_for_file,
     drain_document_processing_jobs,
+    drain_document_processing_jobs_for_runner,
+    runner_processing_stats,
 )
 
 router = APIRouter(prefix="/api/internal/documents", tags=["document-processing"])
@@ -45,3 +47,23 @@ async def drain_processing_job_for_file(request: Request, file_id: uuid.UUID):
         file_id, worker_id=default_worker_id(),
     )
     return attach_request_id(summary)
+
+
+@router.post("/processing/runner/drain")
+async def drain_processing_jobs_for_runner(
+    request: Request,
+    limit: int = Query(DEFAULT_DRAIN_LIMIT, ge=1, le=50),
+):
+    """Allowlisted runner drain. Cron-secret only. Never a silent FIFO fallback."""
+    assert_doc_processing_cron(request)
+    summary = await drain_document_processing_jobs_for_runner(
+        worker_id=default_worker_id(), limit=limit,
+    )
+    return attach_request_id(summary)
+
+
+@router.get("/processing/runner/stats")
+async def document_processing_runner_stats(request: Request):
+    """Queue gauges for the runner. Cron-secret only. Read-only."""
+    assert_doc_processing_cron(request)
+    return attach_request_id(await runner_processing_stats())
