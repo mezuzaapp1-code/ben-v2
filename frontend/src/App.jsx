@@ -35,6 +35,10 @@ import {
   recoverStaleCouncilUi,
 } from './runtimeRecovery.js'
 import { useBenAuthContext } from './auth/BenAuthContext.jsx'
+import {
+  isClerkPersistentSessionReady,
+  shouldShowClerkSignIn,
+} from './auth/clerkPersistentAccess.js'
 import { useBetaSession } from './auth/BetaSessionContext.jsx'
 import {
   DRAFT_PREFIX,
@@ -229,10 +233,11 @@ function OrgRecoveryBanner({ banner, onDismiss }) {
   )
 }
 
-function ClerkAuthControlsInner() {
+function ClerkAuthControlsInner({ variant = 'settings' }) {
   const { isSignedIn } = useAuth()
+  if (variant === 'shell' && isSignedIn) return null
   return (
-    <div className="auth-controls">
+    <div className={`auth-controls${variant === 'shell' ? ' auth-controls--shell' : ''}`}>
       {isSignedIn ? (
         <>
           <OrganizationSwitcher hidePersonal />
@@ -244,7 +249,7 @@ function ClerkAuthControlsInner() {
         </>
       ) : (
         <SignInButton mode="modal">
-          <button type="button" className="auth-btn">
+          <button type="button" className="auth-btn auth-btn--signin">
             Sign in
           </button>
         </SignInButton>
@@ -253,9 +258,26 @@ function ClerkAuthControlsInner() {
   )
 }
 
-function ClerkAuthControls() {
+function ClerkSignInBanner() {
+  return (
+    <div className="clerk-signin-banner" role="status">
+      <p className="clerk-signin-banner__title">Sign in to use BEN</p>
+      <p className="clerk-signin-banner__hint">
+        Projects, conversations, and files require a Clerk account. Beta access is not a customer
+        session.
+      </p>
+      <SignInButton mode="modal">
+        <button type="button" className="auth-btn auth-btn--signin">
+          Sign in
+        </button>
+      </SignInButton>
+    </div>
+  )
+}
+
+function ClerkAuthControls({ variant = 'settings' }) {
   if (!HAS_CLERK_UI) return null
-  return <ClerkAuthControlsInner />
+  return <ClerkAuthControlsInner variant={variant} />
 }
 
 function CopyIcon({ size = 14 }) {
@@ -462,7 +484,13 @@ function CopyConversationButton({ messages }) {
 }
 
 function App() {
-  const { getToken } = useBenAuthContext()
+  const { getToken, clerkEnabled, isLoaded, isSignedIn } = useBenAuthContext()
+  const persistentReady = isClerkPersistentSessionReady({
+    clerkEnabled,
+    isLoaded,
+    isSignedIn,
+  })
+  const showClerkSignIn = shouldShowClerkSignIn({ clerkEnabled, isLoaded, isSignedIn })
   const betaSession = useBetaSession()
   const [threads, setThreads] = useState([])
   const [activeId, setActiveId] = useState(null)
@@ -617,7 +645,7 @@ function App() {
     [threads, activeId]
   )
 
-  const platformFeatures = usePlatformActiveFeatures(buildAppHeaders)
+  const platformFeatures = usePlatformActiveFeatures(persistentReady ? buildAppHeaders : null)
 
   const [catalogKeysOverride, setCatalogKeysOverride] = useState(null)
 
@@ -637,9 +665,9 @@ function App() {
 
   // Phase 1: composer/provider select must not depend on Switchboard activations.
   const canSendComposer = useMemo(() => {
-    if (loading) return false
+    if (loading || !persistentReady) return false
     return Boolean(input.trim())
-  }, [loading, input])
+  }, [loading, persistentReady, input])
 
   const handleEngineSelect = useCallback((providerId) => {
     setActiveSpeakingProviderId(providerId)
@@ -680,7 +708,7 @@ function App() {
         id: 'attach',
         label: 'Attach file',
         icon: '📎',
-        disabled: loading || receiptCapturing || fileUploading,
+        disabled: loading || receiptCapturing || fileUploading || !persistentReady,
         onClick: () => {
           // Defer so the attach menu can close without cancelling the native picker.
           window.setTimeout(() => attachFileRef.current?.click(), 0)
@@ -690,24 +718,25 @@ function App() {
         id: 'invoice',
         label: 'Capture invoice',
         icon: '🧾',
-        disabled: loading || receiptCapturing || fileUploading,
+        disabled: loading || receiptCapturing || fileUploading || !persistentReady,
         onClick: () => invoiceCaptureRef.current?.open(),
       },
       {
         id: 'credit',
         label: 'Credit memo',
         icon: '↩',
-        disabled: loading || receiptCapturing || fileUploading,
+        disabled: loading || receiptCapturing || fileUploading || !persistentReady,
         onClick: () => creditCaptureRef.current?.open(),
       },
     ],
-    [loading, receiptCapturing, fileUploading]
+    [loading, receiptCapturing, fileUploading, persistentReady]
   )
 
   const openFilesLibrary = useCallback(() => {
+    if (!persistentReady) return
     closeNavDrawerIfOverlay()
     setFilesOpen(true)
-  }, [closeNavDrawerIfOverlay])
+  }, [closeNavDrawerIfOverlay, persistentReady])
 
   const closeFilesLibrary = useCallback(() => setFilesOpen(false), [])
 
@@ -719,7 +748,10 @@ function App() {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      if (!getToken) return
+      if (!persistentReady || !getToken) {
+        if (!cancelled) setProjectOptions([])
+        return
+      }
       try {
         const headers = await buildAppHeaders()
         const data = await fetchProjects(headers)
@@ -734,7 +766,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [getToken, buildAppHeaders, activeProjectId])
+  }, [persistentReady, getToken, buildAppHeaders, activeProjectId])
 
   useEffect(() => {
     const footer = composerFooterRef.current
@@ -810,6 +842,10 @@ function App() {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
+      if (!persistentReady) {
+        setHydrating(false)
+        return
+      }
       setHydrating(true)
       try {
         const headers = await buildAppHeaders()
@@ -863,7 +899,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [getToken, loadThreadMessages])
+  }, [persistentReady, getToken, loadThreadMessages, buildAppHeaders])
 
   const newThread = useCallback(() => {
     const id = `${DRAFT_PREFIX}${crypto.randomUUID()}`
@@ -1673,7 +1709,7 @@ function App() {
 
   const handleWorkspaceFileAttach = useCallback(
     async (file) => {
-      if (!file || fileUploading || loading) return
+      if (!persistentReady || !file || fileUploading || loading) return
       let tid = activeId
       if (!tid || !threads.some((x) => x.id === tid)) tid = newThread()
 
@@ -1745,6 +1781,7 @@ function App() {
       fileUploading,
       loading,
       newThread,
+      persistentReady,
       threads,
     ]
   )
@@ -2280,8 +2317,8 @@ function App() {
       <DiscoveryCenterOverlay
         open={catalogOpen}
         onClose={() => setCatalogOpen(false)}
-        buildHeaders={buildAppHeaders}
-        disabled={loading}
+        buildHeaders={persistentReady ? buildAppHeaders : null}
+        disabled={loading || !persistentReady}
         featureState={platformFeatures}
         onFeaturesChange={handleWorkspaceFeaturesChange}
       />
@@ -2299,8 +2336,8 @@ function App() {
         onClose={closeFilesLibrary}
         workspaceId={activeProjectId}
         workspaceName={activeProjectName}
-        buildHeaders={buildAppHeaders}
-        disabled={fileUploading}
+        buildHeaders={persistentReady ? buildAppHeaders : null}
+        disabled={fileUploading || !persistentReady}
       />
       <AppTopBar
         menuButtonRef={navMenuButtonRef}
@@ -2318,6 +2355,9 @@ function App() {
         onSettingsClose={closeSettings}
         settingsPanelRef={settingsPanelRef}
         authControls={HAS_CLERK_UI ? <ClerkAuthControls /> : null}
+        shellAuth={
+          showClerkSignIn ? <ClerkAuthControls variant="shell" /> : null
+        }
       />
 
       <div className="app-layout">
@@ -2340,33 +2380,35 @@ function App() {
               >
                 <span className="new-btn__label new-btn__label--long">+ New chat</span>
               </button>
-              <button
-                type="button"
-                className="new-btn new-btn--compact new-btn--project"
-                onClick={() => {
-                  closeNavDrawerIfOverlay()
-                  setNewProjectError(null)
-                  setNewProjectModalOpen(true)
-                }}
-              >
-                <span className="new-btn__label new-btn__label--long">+ New project</span>
-              </button>
+              {canCreateProject ? (
+                <button
+                  type="button"
+                  className="new-btn new-btn--compact new-btn--project"
+                  onClick={() => {
+                    closeNavDrawerIfOverlay()
+                    setNewProjectError(null)
+                    setNewProjectModalOpen(true)
+                  }}
+                >
+                  <span className="new-btn__label new-btn__label--long">+ New project</span>
+                </button>
+              ) : null}
             </div>
             <FileLibraryNavTrigger
               onOpen={openFilesLibrary}
               active={filesOpen}
-              disabled={loading}
+              disabled={loading || !persistentReady}
             />
             <KnowledgeBasesPanel
               embedded
-              buildHeaders={buildAppHeaders}
-              disabled={loading}
+              buildHeaders={persistentReady ? buildAppHeaders : null}
+              disabled={loading || !persistentReady}
             />
             <KnowledgeSidebar
               projectSlug={active?.projectSlug || null}
               workspaceId={activeProjectId}
-              buildHeaders={buildAppHeaders}
-              disabled={loading || fileUploading}
+              buildHeaders={persistentReady ? buildAppHeaders : null}
+              disabled={loading || fileUploading || !persistentReady}
               attentionFocusRequest={attentionFocusRequest}
               onOpenFileLibrary={openFilesLibrary}
             />
@@ -2375,7 +2417,7 @@ function App() {
                 closeNavDrawerIfOverlay()
                 setCatalogOpen(true)
               }}
-              disabled={loading}
+              disabled={loading || !persistentReady}
             />
             <NewsNavTrigger
               onOpen={openNewsFeed}
@@ -2384,8 +2426,8 @@ function App() {
             />
             <ProjectRepositoriesDashboard
               projectSlug={active?.projectSlug || null}
-              buildHeaders={buildAppHeaders}
-              disabled={loading}
+              buildHeaders={persistentReady ? buildAppHeaders : null}
+              disabled={loading || !persistentReady}
             />
           </section>
 
@@ -2402,6 +2444,7 @@ function App() {
         <main className="main main--copilot main--focused">
         <ProjectSuccessToast message={projectToast} visible={Boolean(projectToast)} />
         <OrgRecoveryBanner banner={orgBanner} onDismiss={() => setOrgBanner(null)} />
+        {showClerkSignIn ? <ClerkSignInBanner /> : null}
         <div className="messages" ref={messagesScrollRef}>
           <div className="chat-centered-channel">
           <ChatHeader
@@ -2415,7 +2458,7 @@ function App() {
             onPromote={handlePromoteActiveConversation}
           />
           <SystemTelemetryBadge message={toolTelemetry} active={Boolean(toolTelemetry)} />
-          {hydrating && threads.length === 0 ? (
+          {hydrating && persistentReady && threads.length === 0 ? (
             <div className="hydrate-hint">Loading conversations…</div>
           ) : null}
           {(active?.messages ?? []).map((m, i) => {
@@ -2565,7 +2608,7 @@ function App() {
               onSubmit={handleComposerSubmit}
               placeholder={composerPlaceholder}
               ariaLabel={composerAriaLabel}
-              disabled={loading}
+              disabled={loading || !persistentReady}
               canSend={canSendComposer}
               loading={loading}
               sendLabel="Send"
@@ -2580,7 +2623,7 @@ function App() {
                     className="receipt-file-input"
                     tabIndex={-1}
                     aria-hidden="true"
-                    disabled={loading || receiptCapturing || fileUploading}
+                    disabled={loading || receiptCapturing || fileUploading || !persistentReady}
                     onChange={(event) => {
                       const file = event.target.files?.[0] || null
                       event.target.value = ''
@@ -2589,7 +2632,7 @@ function App() {
                   />
                   <CameraCaptureInput
                     ref={invoiceCaptureRef}
-                    disabled={loading || receiptCapturing || fileUploading}
+                    disabled={loading || receiptCapturing || fileUploading || !persistentReady}
                     triggerClassName="receipt-capture-btn receipt-capture-btn--capsule"
                     onFile={(file) => void handleReceiptFile(file, { creditMemo: false })}
                     className="hw-capture-wrap--composer"
@@ -2598,7 +2641,7 @@ function App() {
                   </CameraCaptureInput>
                   <CameraCaptureInput
                     ref={creditCaptureRef}
-                    disabled={loading || receiptCapturing || fileUploading}
+                    disabled={loading || receiptCapturing || fileUploading || !persistentReady}
                     mode="credit"
                     triggerClassName="receipt-capture-btn receipt-capture-btn--capsule"
                     onFile={(file) => void handleReceiptFile(file, { creditMemo: true })}
