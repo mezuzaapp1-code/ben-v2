@@ -430,6 +430,56 @@ def test_doc_processing_cron_auth_unchanged():
     assert drained["n"] == 1
 
 
+def test_scoped_drain_requires_cron_secret_and_does_not_call_generic():
+    """File-id drain is the same cron-secret gate; it never falls back to generic claim."""
+    scoped = {"ids": []}
+    generic = {"n": 0}
+    fid = uuid.uuid4()
+
+    async def fake_scoped(file_id, *, worker_id):
+        scoped["ids"].append(file_id)
+        return {
+            "claimed": 0, "file_id": str(file_id), "outcome": "no_eligible_job",
+            "worker_id": worker_id,
+        }
+
+    async def fake_generic(**_k):
+        generic["n"] += 1
+        return {"claimed": 0}
+
+    path = f"/api/internal/documents/processing/files/{fid}/drain"
+    client = TestClient(main.app)
+    with patch(
+        "routers.document_processing.drain_document_processing_job_for_file",
+        side_effect=fake_scoped,
+    ), patch(
+        "routers.document_processing.drain_document_processing_jobs",
+        side_effect=fake_generic,
+    ):
+        missing = client.post(path)
+        assert missing.status_code == 503
+        assert scoped["ids"] == [] and generic["n"] == 0
+
+        with patch.dict("os.environ", {"BEN_DOC_PROCESSING_CRON_SECRET": "cron-secret"}):
+            bad = client.post(path, headers={"X-BEN-Doc-Processing-Cron-Secret": "wrong"})
+            assert bad.status_code == 401
+            assert scoped["ids"] == [] and generic["n"] == 0
+
+            ok = client.post(path, headers={"X-BEN-Doc-Processing-Cron-Secret": "cron-secret"})
+            assert ok.status_code == 200
+            assert ok.json()["file_id"] == str(fid)
+            assert ok.json()["outcome"] == "no_eligible_job"
+            assert scoped["ids"] == [fid]
+            assert generic["n"] == 0
+
+            invalid = client.post(
+                "/api/internal/documents/processing/files/not-a-uuid/drain",
+                headers={"X-BEN-Doc-Processing-Cron-Secret": "cron-secret"},
+            )
+            assert invalid.status_code == 422
+            assert generic["n"] == 0
+
+
 def test_old_anonymous_fallback_no_longer_lists_shared_projects():
     """Phase 1F — old leak was unsigned GET /api/projects → BEN_ANONYMOUS_ORG_ID list.
 
