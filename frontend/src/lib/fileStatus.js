@@ -37,9 +37,7 @@ export function isNonTerminalFileStatus(status) {
  * Only filenames the backend reported as actually injected.
  * Never infer from workspace inventory, UI selection, or model text.
  */
-export function usedFilesFromDoneEvent(event) {
-  if (!event || event.workspace_files_injected !== true) return []
-  const used = event.workspace_files_used
+export function sanitizeUsedFiles(used) {
   if (!Array.isArray(used) || used.length === 0) return []
   const out = []
   const seen = new Set()
@@ -52,6 +50,11 @@ export function usedFilesFromDoneEvent(event) {
     out.push({ id, name })
   }
   return out
+}
+
+export function usedFilesFromDoneEvent(event) {
+  if (!event || event.workspace_files_injected !== true) return []
+  return sanitizeUsedFiles(event.workspace_files_used)
 }
 
 export function unavailableChatNote(count) {
