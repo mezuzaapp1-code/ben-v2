@@ -92,6 +92,11 @@ import { DEFAULT_SPEAKING_PROVIDER_ID, getSpeakingProviderById, getSpeakingProvi
 import { DEFAULT_PROVIDER_MODELS, coerceRegisteredModel, getTier1Model } from './providers/providerModelChoices.js'
 import { getMessageTextDirection } from './lib/markdownDirection.js'
 import { singleDeleteConfirmMessage } from './lib/uiStrings.js'
+import {
+  fileStatusLabel,
+  unavailableChatNote,
+  usedFilesFromDoneEvent,
+} from './lib/fileStatus.js'
 import './App.css'
 
 const HAS_CLERK_UI = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim())
@@ -1202,6 +1207,10 @@ function App() {
                   ttft_ms: event.ttft_ms ?? null,
                   tps: event.tps ?? null,
                   sqlite_message_id: event.sqlite_assistant_id ?? last.sqlite_message_id ?? null,
+                  used_files: usedFilesFromDoneEvent(event),
+                  workspace_files_unavailable_note: unavailableChatNote(
+                    event.workspace_files_unavailable_count
+                  ),
                 }
               }
               if (event.sqlite_user_id != null && msgs.length >= 2) {
@@ -1743,7 +1752,7 @@ function App() {
         const result = await uploadWorkspaceFile(activeProjectId, file, headers, {
           sourceChatId: chatId,
         })
-        const status = result?.status || 'ready'
+        const status = result?.status || 'uploaded'
         const failed = status === 'failed'
         appendThreadMessages(tid, [
           {
@@ -1751,7 +1760,7 @@ function App() {
             kind: failed ? 'api_error' : 'file_library',
             content: failed
               ? `Upload failed: ${result?.failure_message || result?.failure_code || 'processing error'}`
-              : `Saved to Workspace Files: ${result?.display_name || file.name} (${status}).`,
+              : `Saved to Workspace Files: ${result?.display_name || file.name} — ${fileStatusLabel(status)}.`,
             file_id: result?.id,
             workspace_id: result?.workspace_id || activeProjectId,
             model_used: '',
@@ -2557,6 +2566,19 @@ function App() {
                   ) : (
                     <div className="bubble-text">{m.content}</div>
                   )}
+                  {m.role === 'assistant' && !m.kind && m.used_files?.length ? (
+                    <div className="used-files">
+                      <div className="used-files__label">Used files:</div>
+                      <ul className="used-files__list">
+                        {m.used_files.map((file) => (
+                          <li key={file.id}>{file.name}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {m.role === 'assistant' && !m.kind && m.workspace_files_unavailable_note ? (
+                    <p className="used-files__unavailable">{m.workspace_files_unavailable_note}</p>
+                  ) : null}
                   {m.role === 'assistant' &&
                     m.kind !== 'council_error' &&
                     m.kind !== 'api_error' &&

@@ -92,6 +92,7 @@ class BudgetedFile:
     text: str
     chars: int
     clipped: bool
+    file_id: str = ""
 
 
 def _tokens(text: str) -> frozenset[str]:
@@ -257,7 +258,16 @@ def apply_context_budget(
         if not body:
             continue
         name = sanitize_name(item.file.display_name or item.file.original_filename)
-        out.append(BudgetedFile(name=name, text=body, chars=len(body), clipped=clipped))
+        file_id = str(item.file.id) if getattr(item.file, "id", None) is not None else ""
+        out.append(
+            BudgetedFile(
+                name=name,
+                text=body,
+                chars=len(body),
+                clipped=clipped,
+                file_id=file_id,
+            )
+        )
         total += len(body)
     return out, truncated
 

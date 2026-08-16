@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -53,6 +53,8 @@ from services.workspace_files.types import (
     REJECTED_EXTENSIONS,
     SUPPORTED_TYPES,
 )
+
+NON_READY_CHAT_STATUSES = frozenset({"queued", "processing", "uploaded"})
 
 
 def _doc_processing_enabled() -> bool:
@@ -391,11 +393,44 @@ class WorkspaceFilesContext:
     fts_latency_ms: float | None = None
     fallback_reason: str | None = None
     extraction_coverage: str = "legacy"
+    used_files: tuple[dict[str, str], ...] = ()
+    unavailable_count: int = 0
 
 
 def _sanitize_file_name(name: str | None) -> str:
     cleaned = " ".join(str(name or "file").split())
     return cleaned.replace('"', "'")[:256] or "file"
+
+
+def _used_files_payload(entries: list[tuple[Any, str]]) -> tuple[dict[str, str], ...]:
+    """Tenant-scoped filenames of files actually injected. IDs must be present."""
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for file_id, name in entries:
+        fid = str(file_id or "").strip()
+        if not fid or fid in seen:
+            continue
+        seen.add(fid)
+        out.append({"id": fid, "name": _sanitize_file_name(name)})
+    return tuple(out)
+
+
+def _used_files_from_budgeted(budgeted) -> tuple[dict[str, str], ...]:
+    return _used_files_payload(
+        [(getattr(item, "file_id", ""), item.name) for item in budgeted]
+    )
+
+
+def _unavailable_count(rows, org_id: uuid.UUID, workspace_id: uuid.UUID) -> int:
+    n = 0
+    for row in rows:
+        if str(getattr(row, "org_id", "")) != str(org_id):
+            continue
+        if str(getattr(row, "workspace_id", "")) != str(workspace_id):
+            continue
+        if getattr(row, "status", None) in NON_READY_CHAT_STATUSES:
+            n += 1
+    return n
 
 
 def _context_from_gate3d(
@@ -416,6 +451,7 @@ def _context_from_gate3d(
         per_file_max=per_file_max if per_file_max is not None else PER_FILE_MAX_CHARS,
         sanitize_name=_sanitize_file_name,
     )
+    used_files = _used_files_from_budgeted(budgeted)
     if not budgeted:
         return WorkspaceFilesContext(
             block="",
@@ -426,6 +462,7 @@ def _context_from_gate3d(
             files_eligible=files_eligible,
             fallback_reason=fallback_reason,
             extraction_coverage="legacy",
+            used_files=used_files,
         )
     parts = [f'[file name="{item.name}"]\n{item.text}\n[/file]' for item in budgeted]
     total = sum(item.chars for item in budgeted)
@@ -441,6 +478,7 @@ def _context_from_gate3d(
         evidence_chars=total,
         fallback_reason=fallback_reason,
         extraction_coverage="legacy",
+        used_files=used_files,
     )
 
 
@@ -467,6 +505,7 @@ def _labeled_prefix_context(
         per_file_max=file_cap,
         sanitize_name=_sanitize_file_name,
     )
+    used_files = _used_files_from_budgeted(budgeted)
     if not budgeted:
         return WorkspaceFilesContext(
             block="",
@@ -485,6 +524,7 @@ def _labeled_prefix_context(
             fts_latency_ms=diag.fts_latency_ms,
             fallback_reason=diag.fallback_reason,
             extraction_coverage=diag.extraction_coverage,
+            used_files=used_files,
         )
     parts = [render_legacy_group(item.name, item.text) for item in budgeted]
     total = sum(item.chars for item in budgeted)
@@ -511,6 +551,7 @@ def _labeled_prefix_context(
         fts_latency_ms=diag.fts_latency_ms,
         fallback_reason=diag.fallback_reason,
         extraction_coverage=coverage,
+        used_files=used_files,
     )
 
 
@@ -550,11 +591,11 @@ async def load_ready_files_context(
             .where(
                 WorkspaceFile.org_id == org_id,
                 WorkspaceFile.workspace_id == workspace_id,
-                WorkspaceFile.status == "ready",
             )
         )
         rows = (await session.execute(stmt)).scalars().all()
 
+    unavailable = _unavailable_count(rows, org_id, workspace_id)
     eligible = []
     for row in rows:
         item = eligible_from_row(row, org_id, workspace_id)
@@ -562,7 +603,7 @@ async def load_ready_files_context(
             eligible.append(item)
 
     if not chunk_retrieval_enabled(workspace_id):
-        return _context_from_gate3d(
+        ctx = _context_from_gate3d(
             eligible,
             user_query,
             max_chars,
@@ -571,8 +612,9 @@ async def load_ready_files_context(
             fallback_reason="flag_off",
             files_eligible=len(eligible),
         )
+        return replace(ctx, unavailable_count=unavailable)
 
-    return await _load_gate4a_context(
+    ctx = await _load_gate4a_context(
         org_id,
         workspace_id,
         rows,
@@ -581,6 +623,7 @@ async def load_ready_files_context(
         max_chars=max_chars,
         per_file_max=per_file_max,
     )
+    return replace(ctx, unavailable_count=unavailable)
 
 
 async def _load_gate4a_context(
@@ -721,6 +764,14 @@ async def _load_gate4a_context(
     coverage = pack_coverage(chunk_files, has_chunks=True, has_legacy=has_legacy)
     block = render_evidence_block(retrieval_mode=mode, coverage=coverage, file_parts=parts)
     truncated = len(hits) > len(selected) or evidence_chars >= MAX_EVIDENCE_CHARS
+    used_entries: list[tuple[Any, str]] = []
+    for fid, _chunks in grouped:
+        meta = by_id.get(str(fid))
+        if meta is None:
+            continue
+        used_entries.append((meta.id, meta.display_name or meta.original_filename))
+    for item in legacy_budgeted:
+        used_entries.append((item.file_id, item.name))
     return WorkspaceFilesContext(
         block=block,
         count=len(grouped) + len(legacy_budgeted),
@@ -738,6 +789,7 @@ async def _load_gate4a_context(
         fts_latency_ms=latency,
         fallback_reason=None,
         extraction_coverage=coverage,
+        used_files=_used_files_payload(used_entries),
     )
 
 

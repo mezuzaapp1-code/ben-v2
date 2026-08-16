@@ -4,6 +4,12 @@ import {
   listWorkspaceFiles,
   uploadWorkspaceFile,
 } from '../api/workspaceFiles.js'
+import {
+  createBoundedStatusPoller,
+  fileStatusLabel,
+  isNonTerminalFileStatus,
+  normalizeFileStatus,
+} from '../lib/fileStatus.js'
 import './KnowledgeSidebar.css'
 
 const HEAD_SECTIONS = [
@@ -61,24 +67,27 @@ export function KnowledgeSidebar({
 }) {
   const inputRef = useRef(null)
   const [files, setFiles] = useState([])
+  const filesRef = useRef(files)
+  filesRef.current = files
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState(null)
   const [focusData, setFocusData] = useState(null)
   const [focusLoading, setFocusLoading] = useState(false)
   const [focusError, setFocusError] = useState(null)
 
-  const loadFiles = useCallback(async () => {
+  const loadFiles = useCallback(async ({ silent = false } = {}) => {
     if (!buildHeaders) {
       setFiles([])
       return
     }
     // Prefer Workspace File Library when workspace UUID is available.
     if (workspaceId) {
-      setLoading(true)
-      setError(null)
+      if (!silent) {
+        setLoading(true)
+        setError(null)
+      }
       try {
         const headers = await buildHeaders()
         const data = await listWorkspaceFiles(workspaceId, headers, { limit: 50 })
@@ -91,10 +100,12 @@ export function KnowledgeSidebar({
           }))
         )
       } catch (e) {
-        setError(e?.message || 'Could not load workspace files')
-        setFiles([])
+        if (!silent) {
+          setError(e?.message || 'Could not load workspace files')
+          setFiles([])
+        }
       } finally {
-        setLoading(false)
+        if (!silent) setLoading(false)
       }
       return
     }
@@ -126,6 +137,18 @@ export function KnowledgeSidebar({
   useEffect(() => {
     void loadFiles()
   }, [loadFiles])
+
+  const hasNonTerminal = Boolean(workspaceId) && files.some((file) => isNonTerminalFileStatus(file.status))
+
+  useEffect(() => {
+    if (!workspaceId || !hasNonTerminal) return undefined
+    const poller = createBoundedStatusPoller({
+      shouldPoll: () => filesRef.current.some((file) => isNonTerminalFileStatus(file.status)),
+      refresh: () => loadFiles({ silent: true }),
+    })
+    poller.start()
+    return () => poller.stop()
+  }, [workspaceId, hasNonTerminal, loadFiles])
 
   useEffect(() => {
     const req = attentionFocusRequest
@@ -167,7 +190,7 @@ export function KnowledgeSidebar({
   }, [attentionFocusRequest, projectSlug, buildHeaders])
 
   const handlePickFile = () => {
-    if (disabled || uploading || processing) return
+    if (disabled || uploading) return
     if (!workspaceId) {
       setError('Select an active workspace/project before uploading.')
       onOpenFileLibrary?.()
@@ -186,7 +209,6 @@ export function KnowledgeSidebar({
     }
 
     setUploading(true)
-    setProcessing(false)
     setProgress(0)
     setError(null)
 
@@ -198,13 +220,11 @@ export function KnowledgeSidebar({
         onProgress: (pct) => setProgress(pct),
       })
       setProgress(100)
-      setProcessing(true)
       await loadFiles()
     } catch (e) {
       setError(e?.message || 'Upload failed')
     } finally {
       setUploading(false)
-      setProcessing(false)
     }
   }
 
@@ -228,16 +248,16 @@ export function KnowledgeSidebar({
           type="file"
           accept=".pdf,.docx,.doc,.txt,.md,.markdown,.csv,.xlsx,.pptx,.png,.jpg,.jpeg,.gif,.webp,.json,application/pdf,text/plain,text/markdown,text/csv,image/*"
           className="knowledge-sidebar__file-input"
-          disabled={disabled || uploading || processing || !workspaceId}
+          disabled={disabled || uploading || !workspaceId}
           onChange={(e) => void handleFileChange(e)}
         />
         <button
           type="button"
           className="knowledge-sidebar__upload-btn"
-          disabled={disabled || uploading || processing}
+          disabled={disabled || uploading}
           onClick={handlePickFile}
         >
-          {uploading ? `Uploading… ${progress}%` : processing ? 'Processing…' : '+ Upload file'}
+          {uploading ? `Uploading… ${progress}%` : '+ Upload file'}
         </button>
         {onOpenFileLibrary ? (
           <button
@@ -313,10 +333,18 @@ export function KnowledgeSidebar({
           <ul className="knowledge-sidebar__files">
             {files.map((file, index) => (
               <li key={file.id || `${file.name}-${index}`} className="knowledge-sidebar__file-row">
-                <span className="knowledge-sidebar__file-name" title={file.name}>
-                  {file.name}
-                  {file.status ? ` (${file.status})` : ''}
-                </span>
+                <div className="knowledge-sidebar__file-main">
+                  <span className="knowledge-sidebar__file-name" title={file.name}>
+                    {file.name}
+                  </span>
+                  {file.status ? (
+                    <span
+                      className={`knowledge-sidebar__file-status knowledge-sidebar__file-status--${normalizeFileStatus(file.status)}`}
+                    >
+                      {fileStatusLabel(file.status)}
+                    </span>
+                  ) : null}
+                </div>
                 <span className="knowledge-sidebar__file-meta">{formatBytes(file.size)}</span>
               </li>
             ))}

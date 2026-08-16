@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test:news": "node scripts/test-news-ui.mjs",
     "test:files": "node scripts/test-files-ui.mjs",
+    "test:files-status": "node scripts/test-files-status-honesty.mjs",
     "test:auth": "node scripts/test-clerk-persistent-access.mjs"
   },
   "dependencies": {

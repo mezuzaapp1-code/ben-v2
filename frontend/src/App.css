@@ -505,6 +505,28 @@
   color: #c9a227;
 }
 
+.used-files {
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--ben-text-muted);
+}
+
+.used-files__label {
+  font-weight: 650;
+}
+
+.used-files__list {
+  margin: 0.2rem 0 0;
+  padding-inline-start: 1.15rem;
+}
+
+.used-files__unavailable {
+  margin: 0.4rem 0 0;
+  font-size: 0.75rem;
+  color: var(--ben-text-muted);
+  opacity: 0.92;
+}
+
 .synthesis-reasoning-extras {
   margin-top: 0.6rem;
   display: flex;
