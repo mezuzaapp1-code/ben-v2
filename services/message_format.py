@@ -23,6 +23,32 @@ def provider_display_label(provider_id: str) -> str:
     return _registry_provider_label(provider_id)
 
 
+def _sanitize_used_files(raw: Any) -> list[dict[str, str]]:
+    """Only persist/restore backend-injected {id, name}. Never infer filenames."""
+    if not isinstance(raw, (list, tuple)):
+        return []
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        file_id = str(item.get("id") or "").strip()
+        name = " ".join(str(item.get("name") or "").split()).replace('"', "'")[:256]
+        if not file_id or not name or file_id in seen:
+            continue
+        seen.add(file_id)
+        out.append({"id": file_id, "name": name})
+    return out
+
+
+def _sanitize_unavailable_count(raw: Any) -> int:
+    try:
+        count = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return count if count > 0 else 0
+
+
 def encode_chat_assistant(
     text: str,
     *,
@@ -30,8 +56,19 @@ def encode_chat_assistant(
     cost_usd: float = 0.0,
     provider_id: str = "",
     provider_used: str = "",
+    used_files: Any = None,
+    unavailable_count: Any = None,
 ) -> str:
-    if not model_used and not cost_usd and not provider_id and not provider_used:
+    clean_used = _sanitize_used_files(used_files)
+    clean_unavailable = _sanitize_unavailable_count(unavailable_count)
+    if (
+        not model_used
+        and not cost_usd
+        and not provider_id
+        and not provider_used
+        and not clean_used
+        and not clean_unavailable
+    ):
         return text
     payload: dict[str, Any] = {
         "ben": 1,
@@ -44,6 +81,10 @@ def encode_chat_assistant(
         payload["provider_id"] = provider_id
     if provider_used:
         payload["provider_used"] = provider_used
+    if clean_used:
+        payload["used_files"] = clean_used
+    if clean_unavailable:
+        payload["unavailable_count"] = clean_unavailable
     return json.dumps(payload, ensure_ascii=False)
 
 
@@ -196,6 +237,8 @@ def decode_message(role: str, content: str) -> dict[str, Any]:
                 "cost_usd": float(data.get("cost_usd") or 0),
                 "provider_id": data.get("provider_id") or "",
                 "provider_used": data.get("provider_used") or "",
+                "used_files": _sanitize_used_files(data.get("used_files")),
+                "unavailable_count": _sanitize_unavailable_count(data.get("unavailable_count")),
             }
         if kind == "council_expert":
             expert = data.get("expert") or "Advisor"

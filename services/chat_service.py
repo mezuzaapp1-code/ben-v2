@@ -88,6 +88,8 @@ async def _persist_chat_messages(
     cost: float,
     resolved_provider_id: str,
     provider_used: str,
+    used_files: list | None = None,
+    unavailable_count: int = 0,
 ) -> None:
     user_message_id: uuid.UUID | None = None
     assistant_message_id: uuid.UUID | None = None
@@ -97,6 +99,8 @@ async def _persist_chat_messages(
         cost_usd=float(cost or 0),
         provider_id=resolved_provider_id,
         provider_used=provider_used,
+        used_files=used_files,
+        unavailable_count=unavailable_count,
     )
     try:
         async with get_db_session() as session:
@@ -404,6 +408,8 @@ async def stream_chat_response(
                 cost_usd=stream_cost,
                 provider_id=resolved_provider_id,
                 provider_used=provider_used,
+                used_files=workspace_files_used,
+                unavailable_count=workspace_files_unavailable_count,
             ),
             provider=resolved_provider_id or None,
         )
@@ -428,6 +434,8 @@ async def stream_chat_response(
             cost=stream_cost,
             resolved_provider_id=resolved_provider_id,
             provider_used=provider_used,
+            used_files=workspace_files_used,
+            unavailable_count=workspace_files_unavailable_count,
         )
     )
 

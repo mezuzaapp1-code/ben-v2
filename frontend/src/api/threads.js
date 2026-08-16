@@ -1,5 +1,6 @@
 import { humanizeBenHttpError, parseBenErrorResponse, readJsonResponse } from './benErrors.js'
 import { BEN_API_BASE } from '../config.js'
+import { sanitizeUsedFiles, unavailableChatNote } from '../lib/fileStatus.js'
 
 function enrichFetchError(res, data) {
   const err = new Error(humanizeBenHttpError(res.status, data))
@@ -88,6 +89,8 @@ export function mapApiMessage(m) {
     sqlite_message_id: m.sqlite_message_id ?? null,
     message_type: m.message_type ?? 'normal',
     insert_after_id: m.insert_after_id ?? null,
+    used_files: sanitizeUsedFiles(m.used_files),
+    workspace_files_unavailable_note: unavailableChatNote(m.unavailable_count),
   }
   return base
 }

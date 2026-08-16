@@ -12,6 +12,7 @@ import {
   fileStatusLabel,
   isNonTerminalFileStatus,
   isTerminalFileStatus,
+  sanitizeUsedFiles,
   unavailableChatNote,
   usedFilesFromDoneEvent,
 } from '../src/lib/fileStatus.js'
@@ -210,5 +211,24 @@ assert(unavailableChatNote(1).includes('not available'), 'unavailable note for q
 assert(app.includes('Used files:'), 'standard chat renders Used files')
 assert(app.includes('usedFilesFromDoneEvent(event)'), 'standard chat done uses backend used list')
 assert(!app.includes('workspace_files_used') || app.includes('usedFilesFromDoneEvent'), 'no raw inference')
+
+const threadsApi = readFileSync(join(root, 'src/api/threads.js'), 'utf8')
+assert(threadsApi.includes('sanitizeUsedFiles(m.used_files)'), 'mapApiMessage restores used_files')
+assert(threadsApi.includes('unavailableChatNote(m.unavailable_count)'), 'mapApiMessage restores unavailable note')
+
+{
+  const restored = {
+    used_files: sanitizeUsedFiles([
+      { id: '2b595b7e-88e5-4c45-9841-c639450520bb', name: 'phase4b_scheduler_canary_20260816.txt' },
+      { name: 'inferred-only.txt' },
+    ]),
+    workspace_files_unavailable_note: unavailableChatNote(1),
+  }
+  assert(restored.used_files.length === 1, 'hydrate keeps only id+name used files')
+  assert(restored.used_files[0].name === 'phase4b_scheduler_canary_20260816.txt', 'hydrate ready name')
+  assert(restored.workspace_files_unavailable_note.includes('not available'), 'hydrate unavailable note')
+  assert(sanitizeUsedFiles(undefined).length === 0, 'old envelopes without used_files stay empty')
+  assert(unavailableChatNote(undefined) === '', 'old envelopes have no fabricated note')
+}
 
 console.log('OK: Gate 1 file status honesty checks passed')
