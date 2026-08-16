@@ -8,6 +8,11 @@ import {
   retryWorkspaceFile,
   uploadWorkspaceFile,
 } from '../api/workspaceFiles.js'
+import {
+  createBoundedStatusPoller,
+  fileStatusLabel,
+  isNonTerminalFileStatus,
+} from '../lib/fileStatus.js'
 import './FileLibraryOverlay.css'
 
 const ACCEPT =
@@ -27,14 +32,6 @@ function formatWhen(iso) {
   } catch {
     return iso
   }
-}
-
-function statusLabel(status) {
-  const s = String(status || '').toLowerCase()
-  if (s === 'ready') return 'Ready'
-  if (s === 'failed') return 'Failed'
-  if (s === 'processing' || s === 'queued' || s === 'uploaded') return 'Processing'
-  return status || '—'
 }
 
 function fileExt(name) {
@@ -96,6 +93,8 @@ export function FileLibraryOverlay({
   const [previewUrl, setPreviewUrl] = useState(null)
   const [busyId, setBusyId] = useState(null)
   const fileInputRef = useRef(null)
+  const itemsRef = useRef(items)
+  itemsRef.current = items
 
   const statusFilter = useMemo(() => {
     if (view === 'processing') return 'processing'
@@ -103,10 +102,12 @@ export function FileLibraryOverlay({
     return undefined
   }, [view])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ silent = false } = {}) => {
     if (!open || !workspaceId || !buildHeaders) return
-    setLoading(true)
-    setError(null)
+    if (!silent) {
+      setLoading(true)
+      setError(null)
+    }
     try {
       const headers = await buildHeaders()
       const data = await listWorkspaceFiles(workspaceId, headers, {
@@ -116,10 +117,12 @@ export function FileLibraryOverlay({
       })
       setItems(Array.isArray(data.items) ? data.items : [])
     } catch (e) {
-      setError(e?.message || 'Could not load files')
-      setItems([])
+      if (!silent) {
+        setError(e?.message || 'Could not load files')
+        setItems([])
+      }
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [open, workspaceId, buildHeaders, statusFilter, q, view])
 
@@ -127,6 +130,18 @@ export function FileLibraryOverlay({
     if (!open) return
     void load()
   }, [open, load])
+
+  const hasNonTerminal = items.some((item) => isNonTerminalFileStatus(item.status))
+
+  useEffect(() => {
+    if (!open || !workspaceId || !hasNonTerminal) return undefined
+    const poller = createBoundedStatusPoller({
+      shouldPoll: () => itemsRef.current.some((item) => isNonTerminalFileStatus(item.status)),
+      refresh: () => load({ silent: true }),
+    })
+    poller.start()
+    return () => poller.stop()
+  }, [open, workspaceId, hasNonTerminal, load])
 
   useEffect(() => {
     return () => {
@@ -408,7 +423,7 @@ export function FileLibraryOverlay({
                       <span
                         className={`files-status files-status--${String(item.status || '').toLowerCase()}`}
                       >
-                        {statusLabel(item.status)}
+                        {fileStatusLabel(item.status)}
                       </span>
                       <div className="files-row__actions">
                         <button

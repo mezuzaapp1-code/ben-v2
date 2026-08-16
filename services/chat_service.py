@@ -239,6 +239,8 @@ async def stream_chat_response(
     workspace_fts_latency_ms = None
     workspace_fallback_reason = None
     workspace_extraction_coverage = "legacy"
+    workspace_files_used: list[dict[str, str]] = []
+    workspace_files_unavailable_count = 0
 
     try:
         validate_chat_model_override(provider_id, model_override)
@@ -271,6 +273,7 @@ async def stream_chat_response(
                     max_chars=WORKSPACE_FILES_CONTEXT_MAX_CHARS,
                     user_query=message,
                 )
+                workspace_files_unavailable_count = int(wsf.unavailable_count or 0)
                 if wsf.block:
                     effective_message = f"{wsf.block}\n\n{effective_message}"
                     workspace_files_injected = True
@@ -287,6 +290,11 @@ async def stream_chat_response(
                     workspace_fts_latency_ms = wsf.fts_latency_ms
                     workspace_fallback_reason = wsf.fallback_reason
                     workspace_extraction_coverage = wsf.extraction_coverage
+                    workspace_files_used = [
+                        {"id": str(item.get("id", "")).strip(), "name": str(item.get("name", "")).strip()}
+                        for item in (wsf.used_files or ())
+                        if str(item.get("id", "")).strip() and str(item.get("name", "")).strip()
+                    ]
                     log_info(
                         "workspace files injected into chat context",
                         subsystem="chat",
@@ -436,6 +444,8 @@ async def stream_chat_response(
             "workspace_files_injected": workspace_files_injected,
             "workspace_files_count": workspace_files_count,
             "workspace_files_chars": workspace_files_chars,
+            "workspace_files_used": workspace_files_used,
+            "workspace_files_unavailable_count": workspace_files_unavailable_count,
             "retrieval_mode": workspace_retrieval_mode,
             "files_eligible": workspace_files_eligible,
             "files_searched": workspace_files_searched,
