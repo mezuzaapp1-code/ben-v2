@@ -15,6 +15,7 @@ import {
   sanitizeUsedFiles,
   unavailableChatNote,
   usedFilesFromDoneEvent,
+  isStandardChatAssistant,
 } from '../src/lib/fileStatus.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -167,7 +168,7 @@ assert(sidebar.includes('hasNonTerminal'), 'sidebar polls only while non-termina
   assert(maxInFlight <= 1, 'poller never overlaps refresh requests')
 }
 
-// 8. queued files are not reported as Used
+// 8. queued files are not reported as Used unless backend listed them
 assert(
   usedFilesFromDoneEvent({
     workspace_files_injected: true,
@@ -178,10 +179,9 @@ assert(
 )
 assert(
   usedFilesFromDoneEvent({
-    workspace_files_injected: false,
-    workspace_files_used: [{ id: 'q', name: 'queued.txt' }],
-  }).length === 0,
-  'queued/non-injected files are not reported as Used'
+    workspace_files_used: [{ id: '2b595b7e-88e5-4c45-9841-c639450520bb', name: 'phase4b_scheduler_canary_20260816.txt' }],
+  }).every((f) => f.name !== 'queued.txt' && f.id !== '0bbd0dd0-cfd9-4ef4-a3b9-c1e96bef83a4'),
+  'queued file is not introduced when absent from used list'
 )
 
 // 9. READY injected file is reported as Used
@@ -196,6 +196,28 @@ assert(
   assert(used[0].name === 'phase4b_scheduler_canary_20260816.txt', 'injected filename')
 }
 
+// Live defect: used list is source of truth even when injected flag is missing/false
+{
+  const used = usedFilesFromDoneEvent({
+    workspace_files_used: [
+      { id: '2b595b7e-88e5-4c45-9841-c639450520bb', name: 'phase4b_scheduler_canary_20260816.txt' },
+    ],
+  })
+  assert(used.length === 1, 'missing injected flag still uses workspace_files_used')
+  assert(used[0].name === 'phase4b_scheduler_canary_20260816.txt', 'live used name without injected flag')
+}
+assert(
+  usedFilesFromDoneEvent({
+    workspace_files_injected: false,
+    workspace_files_used: [
+      { id: '2b595b7e-88e5-4c45-9841-c639450520bb', name: 'phase4b_scheduler_canary_20260816.txt' },
+    ],
+  }).length === 1,
+  'injected=false does not drop a backend used list'
+)
+assert(usedFilesFromDoneEvent({}).length === 0, 'empty event has no used files')
+assert(usedFilesFromDoneEvent(null).length === 0, 'null event has no used files')
+
 // 10. zero injected files produces no fabricated Used list
 assert(usedFilesFromDoneEvent({ workspace_files_injected: true }).length === 0, 'missing used array')
 assert(
@@ -206,10 +228,22 @@ assert(
   }).length === 0,
   'name without id is not used'
 )
+assert(
+  usedFilesFromDoneEvent({
+    workspace_files_used: [
+      { id: '2b595b7e-88e5-4c45-9841-c639450520bb', name: 'phase4b_scheduler_canary_20260816.txt' },
+      { name: 'queued.txt' },
+      { id: 'foreign', name: '' },
+      'not-an-object',
+    ],
+  }).map((f) => f.name).join(',') === 'phase4b_scheduler_canary_20260816.txt',
+  'invalid entries and queued/foreign names without id are dropped'
+)
 assert(unavailableChatNote(0) === '', 'no unavailable note when count is 0')
 assert(unavailableChatNote(1).includes('not available'), 'unavailable note for queued/processing')
 assert(app.includes('Used files:'), 'standard chat renders Used files')
 assert(app.includes('usedFilesFromDoneEvent(event)'), 'standard chat done uses backend used list')
+assert(app.includes('isStandardChatAssistant(m)'), 'standard chat render allows live and persisted chat')
 assert(!app.includes('workspace_files_used') || app.includes('usedFilesFromDoneEvent'), 'no raw inference')
 
 const threadsApi = readFileSync(join(root, 'src/api/threads.js'), 'utf8')
@@ -218,6 +252,8 @@ assert(threadsApi.includes('unavailableChatNote(m.unavailable_count)'), 'mapApiM
 
 {
   const restored = {
+    role: 'assistant',
+    kind: 'chat',
     used_files: sanitizeUsedFiles([
       { id: '2b595b7e-88e5-4c45-9841-c639450520bb', name: 'phase4b_scheduler_canary_20260816.txt' },
       { name: 'inferred-only.txt' },
@@ -227,8 +263,18 @@ assert(threadsApi.includes('unavailableChatNote(m.unavailable_count)'), 'mapApiM
   assert(restored.used_files.length === 1, 'hydrate keeps only id+name used files')
   assert(restored.used_files[0].name === 'phase4b_scheduler_canary_20260816.txt', 'hydrate ready name')
   assert(restored.workspace_files_unavailable_note.includes('not available'), 'hydrate unavailable note')
+  assert(isStandardChatAssistant(restored) === true, 'persisted kind=chat still renders Used files')
+  assert(
+    isStandardChatAssistant({ role: 'assistant', used_files: restored.used_files }) === true,
+    'live assistant without kind still renders Used files'
+  )
+  assert(
+    isStandardChatAssistant({ role: 'assistant', kind: 'adhoc_expert', used_files: restored.used_files }) === false,
+    'expert bubbles do not use standard Used files'
+  )
   assert(sanitizeUsedFiles(undefined).length === 0, 'old envelopes without used_files stay empty')
   assert(unavailableChatNote(undefined) === '', 'old envelopes have no fabricated note')
+  assert(unavailableChatNote(1).includes('not available'), 'unavailable note still works after hydrate')
 }
 
 console.log('OK: Gate 1 file status honesty checks passed')

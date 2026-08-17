@@ -94,6 +94,7 @@ import { getMessageTextDirection } from './lib/markdownDirection.js'
 import { singleDeleteConfirmMessage } from './lib/uiStrings.js'
 import {
   fileStatusLabel,
+  isStandardChatAssistant,
   unavailableChatNote,
   usedFilesFromDoneEvent,
 } from './lib/fileStatus.js'
@@ -2566,7 +2567,7 @@ function App() {
                   ) : (
                     <div className="bubble-text">{m.content}</div>
                   )}
-                  {m.role === 'assistant' && !m.kind && m.used_files?.length ? (
+                  {isStandardChatAssistant(m) && m.used_files?.length ? (
                     <div className="used-files">
                       <div className="used-files__label">Used files:</div>
                       <ul className="used-files__list">
@@ -2576,7 +2577,7 @@ function App() {
                       </ul>
                     </div>
                   ) : null}
-                  {m.role === 'assistant' && !m.kind && m.workspace_files_unavailable_note ? (
+                  {isStandardChatAssistant(m) && m.workspace_files_unavailable_note ? (
                     <p className="used-files__unavailable">{m.workspace_files_unavailable_note}</p>
                   ) : null}
                   {m.role === 'assistant' &&
