@@ -81,3 +81,23 @@ def chunk_structured_document(doc: StructuredDocument, *, max_chars: int = CHUNK
             )
             doc_idx += 1
     return chunks
+
+
+def chunk_extracted_text(text: str, *, max_chars: int = CHUNK_MAX_CHARS) -> list[Chunk]:
+    """Chunk already-extracted READY text with the same window as page chunking.
+
+    Flat ``extracted_text`` has no source page map. Each window is a 1-based
+    synthetic page so later evidence has a later page number. Does not parse
+    bytes or change extraction.
+    """
+    pieces = _split_page(text, max_chars)
+    return [
+        Chunk(
+            page_number=index + 1,
+            page_chunk_index=0,
+            document_chunk_index=index,
+            text=piece,
+            char_count=len(piece),
+        )
+        for index, piece in enumerate(pieces)
+    ]
