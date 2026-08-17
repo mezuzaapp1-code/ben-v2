@@ -868,6 +868,13 @@ class DocumentProcessingJob(Base):
         ),
         Index("ix_doc_processing_jobs_org_workspace", "org_id", "workspace_id"),
         Index("ix_doc_processing_jobs_file", "file_id"),
+        Index(
+            "ix_doc_processing_jobs_eligible_claim",
+            "available_at",
+            "created_at",
+            "id",
+            postgresql_where=text("status = 'queued' AND runner_eligible IS TRUE"),
+        ),
         {"schema": SCHEMA},
     )
     id: Mapped[uuid.UUID] = mapped_column(
@@ -888,6 +895,9 @@ class DocumentProcessingJob(Base):
     worker_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     last_error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    runner_eligible: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
