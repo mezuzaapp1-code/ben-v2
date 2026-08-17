@@ -19,6 +19,7 @@ from services.workspace_files.chunk_retriever import (
     MAX_CHARS_PER_FILE,
     MAX_EVIDENCE_CHARS,
     ReadyFile,
+    RetrievalDiagnostics,
     apply_chunk_budget,
     build_or_tsquery,
     chunk_retrieval_enabled,
@@ -507,25 +508,7 @@ def _labeled_prefix_context(
     )
     used_files = _used_files_from_budgeted(budgeted)
     if not budgeted:
-        return WorkspaceFilesContext(
-            block="",
-            count=0,
-            chars=0,
-            truncated=truncated,
-            retrieval_mode=diag.retrieval_mode,
-            files_eligible=diag.files_eligible,
-            files_searched=diag.files_searched,
-            files_searched_ids=diag.files_searched_ids,
-            files_legacy=0,
-            chunks_considered=diag.chunks_considered,
-            chunks_selected=0,
-            evidence_chars=0,
-            evidence_pages=(),
-            fts_latency_ms=diag.fts_latency_ms,
-            fallback_reason=diag.fallback_reason,
-            extraction_coverage=diag.extraction_coverage,
-            used_files=used_files,
-        )
+        return _empty_gate4a_context(diag, truncated=truncated)
     parts = [render_legacy_group(item.name, item.text) for item in budgeted]
     total = sum(item.chars for item in budgeted)
     coverage = "legacy"
@@ -555,6 +538,31 @@ def _labeled_prefix_context(
     )
 
 
+def _empty_gate4a_context(
+    diag: RetrievalDiagnostics, *, truncated: bool = False
+) -> WorkspaceFilesContext:
+    """No model-context injection. Used Files must be empty."""
+    return WorkspaceFilesContext(
+        block="",
+        count=0,
+        chars=0,
+        truncated=truncated,
+        retrieval_mode="empty",
+        files_eligible=diag.files_eligible,
+        files_searched=diag.files_searched,
+        files_searched_ids=diag.files_searched_ids,
+        files_legacy=0,
+        chunks_considered=diag.chunks_considered,
+        chunks_selected=0,
+        evidence_chars=0,
+        evidence_pages=(),
+        fts_latency_ms=diag.fts_latency_ms,
+        fallback_reason=diag.fallback_reason,
+        extraction_coverage="none",
+        used_files=(),
+    )
+
+
 async def load_ready_files_context(
     org_id: uuid.UUID,
     workspace_id: uuid.UUID,
@@ -574,9 +582,13 @@ async def load_ready_files_context(
        lexical overlap, then recency).
     4. Apply per-file and global character budgets only to the ranked list.
 
-    Gate 4A (flag ON) searches authorized indexed chunks across the eligible
-    READY set (or the explicitly named subset). Gate 3D ranking is used only
-    for labeled prefix fallback, never as the FTS recall cutoff.
+    Gate 4A (flag ON **and** workspace allowlisted) searches authorized indexed
+    chunks across the eligible READY set (or the explicitly named subset).
+
+    No-evidence policy: inject selected chunks on a lexical hit; inject nothing
+    when there is no hit (or index/FTS cannot run). If the user explicitly names
+    READY file(s), a bounded prefix of **those files only** may be used.
+    Unrelated READY prefixes are never dumped.
 
     Isolation is unchanged: SQL ``WHERE`` plus per-row re-check; RLS org scope
     is set on the session. Never writes. Ranking cannot admit a non-eligible row.
@@ -678,14 +690,16 @@ async def _load_gate4a_context(
             coverage="legacy",
             mismatch_ids=mismatch,
         )
-        return _labeled_prefix_context(
-            eligible,
-            user_query,
-            max_chars,
-            per_file_max,
-            allow_ids=named_ids,
-            diag=diag,
-        )
+        if named_ids:
+            return _labeled_prefix_context(
+                eligible,
+                user_query,
+                max_chars,
+                per_file_max,
+                allow_ids=named_ids,
+                diag=diag,
+            )
+        return _empty_gate4a_context(diag)
 
     if not tokens or not tsquery:
         return _prefix("no_tokens")
@@ -722,7 +736,6 @@ async def _load_gate4a_context(
     by_id = {str(f.id): f for f in search_set}
     grouped = group_chunks_by_file(selected)
     chunk_files = [by_id[str(fid)] for fid, _ch in grouped if str(fid) in by_id]
-    chunk_ids = {str(fid) for fid, _ch in grouped}
 
     parts: list[str] = []
     evidence_chars = 0
@@ -733,36 +746,11 @@ async def _load_gate4a_context(
         parts.append(render_chunk_group(meta, chunks))
         evidence_chars += sum(len(c.text) for c in chunks)
 
-    legacy_budgeted = []
-    if named_ids:
-        leftover_ids = named_ids - chunk_ids
-        if leftover_ids:
-            remaining = min(max_chars, MAX_EVIDENCE_CHARS) - evidence_chars
-            if remaining > 0:
-                ranked = rank_eligible_files(eligible, user_query)
-                ranked = [item for item in ranked if str(item.file.id) in leftover_ids]
-                file_cap = min(
-                    per_file_max if per_file_max is not None else PER_FILE_MAX_CHARS,
-                    MAX_CHARS_PER_FILE,
-                    remaining,
-                )
-                legacy_budgeted, _trunc_legacy = apply_context_budget(
-                    ranked,
-                    max_chars=remaining,
-                    per_file_max=file_cap,
-                    sanitize_name=_sanitize_file_name,
-                )
-                for item in legacy_budgeted:
-                    parts.append(render_legacy_group(item.name, item.text))
-                    evidence_chars += item.chars
-
     if not parts:
         return _prefix("no_lexical_match", searched=qualified, latency=latency)
 
-    has_legacy = bool(legacy_budgeted)
-    mode = "mixed" if has_legacy else "chunks"
-    coverage = pack_coverage(chunk_files, has_chunks=True, has_legacy=has_legacy)
-    block = render_evidence_block(retrieval_mode=mode, coverage=coverage, file_parts=parts)
+    coverage = pack_coverage(chunk_files, has_chunks=True, has_legacy=False)
+    block = render_evidence_block(retrieval_mode="chunks", coverage=coverage, file_parts=parts)
     truncated = len(hits) > len(selected) or evidence_chars >= MAX_EVIDENCE_CHARS
     used_entries: list[tuple[Any, str]] = []
     for fid, _chunks in grouped:
@@ -770,18 +758,16 @@ async def _load_gate4a_context(
         if meta is None:
             continue
         used_entries.append((meta.id, meta.display_name or meta.original_filename))
-    for item in legacy_budgeted:
-        used_entries.append((item.file_id, item.name))
     return WorkspaceFilesContext(
         block=block,
-        count=len(grouped) + len(legacy_budgeted),
+        count=len(grouped),
         chars=evidence_chars,
         truncated=truncated,
-        retrieval_mode=mode,
+        retrieval_mode="chunks",
         files_eligible=len(ready),
         files_searched=len(qualified),
         files_searched_ids=tuple(str(i) for i in qualified),
-        files_legacy=len(legacy_budgeted),
+        files_legacy=0,
         chunks_considered=len(hits),
         chunks_selected=len(selected),
         evidence_chars=evidence_chars,
