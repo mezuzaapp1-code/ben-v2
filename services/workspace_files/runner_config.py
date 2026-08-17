@@ -1,7 +1,8 @@
-"""Fail-closed configuration for the allowlisted document-processing runner.
+"""Fail-closed configuration for the document-processing runner.
 
-Default OFF. Missing or invalid values never open generic FIFO claim.
-Invalid UUID tokens are dropped (not treated as a wildcard).
+Default OFF. When enabled, the runner claims persisted runner_eligible jobs
+only. CLAIM_GLOBAL never opens generic FIFO. Env allowlists are not required
+for new uploads and are not used as the claim path.
 """
 from __future__ import annotations
 
@@ -70,17 +71,16 @@ def runner_workspace_ids() -> list[uuid.UUID]:
 def resolve_runner_claim_policy() -> str:
     """Return the claim policy the runner will use this cycle.
 
-    disabled     — BEN_DOC_RUNNER_ENABLED is off
-    fail_closed  — enabled, no valid allowlist, CLAIM_GLOBAL off
-    allowlist    — enabled and at least one valid file or workspace UUID
-    global       — enabled, allowlists empty, CLAIM_GLOBAL explicitly on
+    disabled  — BEN_DOC_RUNNER_ENABLED is off
+    eligible  — enabled; claims persisted runner_eligible jobs only
     """
     if not runner_enabled():
         return "disabled"
-    files = runner_file_ids()
-    workspaces = runner_workspace_ids()
-    if files or workspaces:
-        return "allowlist"
     if claim_global_enabled():
-        return "global"
-    return "fail_closed"
+        log_warning(
+            "BEN_DOC_RUNNER_CLAIM_GLOBAL is ignored; runner uses persisted eligibility",
+            subsystem=_SUBSYSTEM,
+            operation="runner_config",
+            outcome="claim_global_ignored",
+        )
+    return "eligible"

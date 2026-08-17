@@ -19,6 +19,7 @@ from typing import Any
 
 from services.ops.failure_classification import classify_failure
 from services.ops.structured_log import log_info, log_warning
+from services.workspace_files.ingest_eligibility import file_is_ingest_protected
 from services.workspace_files.extraction_pipeline import run_structured_extraction
 from services.workspace_files.job_queue import (
     DEFAULT_LEASE_SECONDS,
@@ -27,12 +28,12 @@ from services.workspace_files.job_queue import (
     JOB_TYPE_STRUCTURED_EXTRACTION,
     claim_job_for_file,
     claim_jobs,
-    claim_jobs_for_allowlist,
+    claim_jobs_for_eligible,
     complete_job,
     compute_retry_delay_seconds,
     document_processing_job_stats,
     reap_expired_jobs,
-    reap_expired_jobs_for_allowlist,
+    reap_expired_jobs_for_eligible,
     reap_expired_jobs_for_file,
     requeue_job,
 )
@@ -101,6 +102,8 @@ async def _run_claimed_jobs(
         org = uuid.UUID(job["org_id"])
         ws = uuid.UUID(job["workspace_id"])
         fid = uuid.UUID(job["file_id"])
+        if file_is_ingest_protected(fid):
+            raise RuntimeError("drain refused a historically quarantined file_id")
         attempts = int(job.get("attempts") or 0)
         jtype = str(job.get("job_type") or "")
 
@@ -242,6 +245,14 @@ async def drain_document_processing_job_for_file(
         "outcome": "no_eligible_job",
     }
 
+    if file_is_ingest_protected(file_id):
+        log_warning(
+            "scoped drain refused historically quarantined file",
+            subsystem=_SUBSYSTEM, operation="drain_for_file",
+            outcome="no_eligible_job", file_id=fid, worker_id=wid,
+        )
+        return summary
+
     if reap:
         try:
             summary["reaped"] = len(await reap_expired_jobs_for_file(file_id))
@@ -276,11 +287,10 @@ async def drain_document_processing_jobs_for_runner(
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     reap: bool = True,
 ) -> dict[str, Any]:
-    """Bounded runner drain. Never silently uses generic FIFO.
+    """Bounded runner drain. Claims persisted-eligible jobs only.
 
-    disabled / fail_closed: claim nothing.
-    allowlist: claim only matching file_id or workspace_id.
-    global: explicit BEN_DOC_RUNNER_CLAIM_GLOBAL only, empty allowlists.
+    Never uses generic FIFO. Never uses CLAIM_GLOBAL. Env allowlists are not
+    the claim path. Historically quarantined file IDs cannot be claimed.
     """
     wid = worker_id or default_worker_id()
     policy = resolve_runner_claim_policy()
@@ -299,7 +309,7 @@ async def drain_document_processing_jobs_for_runner(
         "outcome": policy,
     }
 
-    if policy in ("disabled", "fail_closed"):
+    if policy != "eligible":
         log_info(
             "runner drain skipped",
             subsystem=_SUBSYSTEM,
@@ -310,58 +320,21 @@ async def drain_document_processing_jobs_for_runner(
         )
         return summary
 
-    if policy == "allowlist":
-        if reap:
-            try:
-                summary["reaped"] = len(await reap_expired_jobs_for_allowlist(
-                    file_ids=files, workspace_ids=workspaces,
-                ))
-            except Exception as e:  # noqa: BLE001
-                log_warning(
-                    "runner allowlist reaper failed",
-                    subsystem=_SUBSYSTEM, provider="database",
-                    category=classify_failure(e), exc=e,
-                    operation="runner_reap", outcome="error",
-                )
-        claimed = await claim_jobs_for_allowlist(
-            wid, file_ids=files, workspace_ids=workspaces,
-            lease_seconds=lease_seconds, limit=limit,
-        )
-    elif policy == "global":
-        # explicit BEN_DOC_RUNNER_CLAIM_GLOBAL only — never a silent FIFO fallback.
-        if reap:
-            try:
-                summary["reaped"] = len(await reap_expired_jobs())
-            except Exception as e:  # noqa: BLE001
-                log_warning(
-                    "runner global reaper failed",
-                    subsystem=_SUBSYSTEM, provider="database",
-                    category=classify_failure(e), exc=e,
-                    operation="runner_reap", outcome="error",
-                )
-        claimed = await claim_jobs(wid, lease_seconds=lease_seconds, limit=limit)
-    else:
-        log_info(
-            "runner drain skipped",
-            subsystem=_SUBSYSTEM,
-            operation="runner_drain",
-            outcome="fail_closed",
-            worker_id=wid,
-            claim_policy=policy,
-        )
-        return summary
-
-    allowed_files = {str(x) for x in files}
-    allowed_ws = {str(x) for x in workspaces}
-    if policy == "allowlist":
-        for job in claimed:
-            fid = str(job.get("file_id"))
-            ws = str(job.get("workspace_id"))
-            if allowed_files and fid in allowed_files:
-                continue
-            if allowed_ws and ws in allowed_ws:
-                continue
-            raise RuntimeError("runner refused a claim outside the allowlist")
+    if reap:
+        try:
+            summary["reaped"] = len(await reap_expired_jobs_for_eligible())
+        except Exception as e:  # noqa: BLE001
+            log_warning(
+                "runner eligible reaper failed",
+                subsystem=_SUBSYSTEM, provider="database",
+                category=classify_failure(e), exc=e,
+                operation="runner_reap", outcome="error",
+            )
+    claimed = await claim_jobs_for_eligible(
+        wid, lease_seconds=lease_seconds, limit=limit,
+    )
+    if any(file_is_ingest_protected(job.get("file_id")) for job in claimed):
+        raise RuntimeError("runner refused a historically quarantined file_id")
 
     summary["claimed"] = len(claimed)
     await _run_claimed_jobs(

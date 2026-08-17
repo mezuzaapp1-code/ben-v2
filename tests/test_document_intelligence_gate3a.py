@@ -72,7 +72,7 @@ async def _mk_file(conn, org_id, ws) -> uuid.UUID:
 
 async def _enqueue_sql(conn, org, ws, fid, *, ev=1, cv=1, jt="structured_extraction",
                        status="queued", available_at_sql="now()", attempts=0, max_attempts=5,
-                       claimed=False, lease_sql=None, worker=None) -> uuid.UUID:
+                       claimed=False, lease_sql=None, worker=None, runner_eligible=True) -> uuid.UUID:
     """Insert a job row directly (test fixture; bypasses the wrapper)."""
     jid = uuid.uuid4()
     claimed_at = "now()" if claimed else "NULL"
@@ -88,6 +88,20 @@ async def _enqueue_sql(conn, org, ws, fid, *, ev=1, cv=1, jt="structured_extract
         """,
         jid, org, ws, fid, jt, status, ev, cv, attempts, max_attempts,
     )
+    has_eligible = await conn.fetchval(
+        """
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns
+             WHERE table_schema='ben' AND table_name='document_processing_jobs'
+               AND column_name='runner_eligible'
+        )
+        """
+    )
+    if has_eligible:
+        await conn.execute(
+            "UPDATE ben.document_processing_jobs SET runner_eligible=$2 WHERE id=$1",
+            jid, runner_eligible,
+        )
     return jid
 
 
@@ -126,11 +140,25 @@ async def test_enqueue_valid_job(fresh_engine):
     try:
         res = await enqueue_document_processing_job(org, ws, fid)
         assert res["created"] is True and res["status"] == "queued"
+        has_eligible = await conn.fetchval(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                 WHERE table_schema='ben' AND table_name='document_processing_jobs'
+                   AND column_name='runner_eligible'
+            )
+            """
+        )
+        cols = "org_id, workspace_id, file_id, status, attempts"
+        if has_eligible:
+            cols += ", runner_eligible"
         row = await conn.fetchrow(
-            "SELECT org_id, workspace_id, file_id, status, attempts FROM ben.document_processing_jobs WHERE id=$1",
+            f"SELECT {cols} FROM ben.document_processing_jobs WHERE id=$1",
             uuid.UUID(res["id"]))
         assert row["org_id"] == org and row["workspace_id"] == ws and row["file_id"] == fid
         assert row["status"] == "queued" and row["attempts"] == 0
+        if has_eligible:
+            assert row["runner_eligible"] is True
     finally:
         await _cleanup(conn, ws); await conn.close()
 

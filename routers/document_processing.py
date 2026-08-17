@@ -54,7 +54,7 @@ async def drain_processing_jobs_for_runner(
     request: Request,
     limit: int = Query(DEFAULT_DRAIN_LIMIT, ge=1, le=50),
 ):
-    """Allowlisted runner drain. Cron-secret only. Never a silent FIFO fallback."""
+    """Eligible-job runner drain. Cron-secret only. Never a silent FIFO fallback."""
     assert_doc_processing_cron(request)
     summary = await drain_document_processing_jobs_for_runner(
         worker_id=default_worker_id(), limit=limit,

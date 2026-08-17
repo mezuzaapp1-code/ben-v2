@@ -22,6 +22,10 @@ from database.connection import get_db_session
 from services.ops.structured_log import log_info, log_warning
 from services.workspace_files.chunking import CHUNKING_VERSION
 from services.workspace_files.document_parser import EXTRACTION_VERSION
+from services.workspace_files.ingest_eligibility import (
+    file_is_ingest_protected,
+    new_job_is_runner_eligible,
+)
 
 JOB_TYPE_STRUCTURED_EXTRACTION = "structured_extraction"
 # Gate 3B: async execution of the existing legacy extraction (process_file), which
@@ -107,6 +111,7 @@ async def _enqueue_in_session(
         "o": str(org_id), "w": str(workspace_id), "f": str(file_id),
         "jt": job_type, "ev": extraction_version, "cv": chunking_version,
         "ma": max_attempts,
+        "eligible": new_job_is_runner_eligible(file_id),
     }
     inserted = (
         await session.execute(
@@ -114,12 +119,13 @@ async def _enqueue_in_session(
                 """
                 INSERT INTO ben.document_processing_jobs
                     (org_id, workspace_id, file_id, job_type, status,
-                     extraction_version, chunking_version, max_attempts, available_at)
-                VALUES (:o, :w, :f, :jt, 'queued', :ev, :cv, :ma, now())
+                     extraction_version, chunking_version, max_attempts, available_at,
+                     runner_eligible)
+                VALUES (:o, :w, :f, :jt, 'queued', :ev, :cv, :ma, now(), :eligible)
                 ON CONFLICT (file_id, job_type, extraction_version, chunking_version)
                     WHERE status IN ('queued','running')
                 DO NOTHING
-                RETURNING id, status, attempts, available_at, created_at
+                RETURNING id, status, attempts, available_at, created_at, runner_eligible
                 """
             ),
             params,
@@ -133,7 +139,7 @@ async def _enqueue_in_session(
         await session.execute(
             text(
                 """
-                SELECT id, status, attempts, available_at, created_at
+                SELECT id, status, attempts, available_at, created_at, runner_eligible
                   FROM ben.document_processing_jobs
                  WHERE file_id = :f AND job_type = :jt
                    AND extraction_version = :ev AND chunking_version = :cv
@@ -213,6 +219,8 @@ async def claim_jobs(
         await session.commit()
     claimed = [_job_dict(r) for r in rows]
     for j in claimed:
+        if file_is_ingest_protected(j.get("file_id")):
+            raise RuntimeError("claim refused a historically quarantined file_id")
         log_info(
             "processing job claimed", subsystem=_SUBSYSTEM, operation="claim", outcome="ok",
             job_id=j.get("job_id"), org_id=j.get("org_id"), workspace_id=j.get("workspace_id"),
@@ -229,7 +237,10 @@ async def claim_job_for_file(
 
     Never falls back to the generic queue. Empty result is a no-op (no eligible
     queued job for that file). Same lease/attempt semantics as claim_jobs.
+    Historically quarantined file IDs are never claimed.
     """
+    if file_is_ingest_protected(file_id):
+        return []
     async with get_db_session() as session:
         rows = (
             await session.execute(
@@ -242,6 +253,8 @@ async def claim_job_for_file(
     for j in claimed:
         if str(j.get("file_id")) != str(file_id):
             raise RuntimeError("scoped claim returned a job for a different file_id")
+        if file_is_ingest_protected(j.get("file_id")):
+            raise RuntimeError("claim refused a historically quarantined file_id")
         log_info(
             "processing job claimed", subsystem=_SUBSYSTEM, operation="claim_for_file",
             outcome="ok", job_id=j.get("job_id"), org_id=j.get("org_id"),
@@ -288,7 +301,9 @@ async def claim_jobs_for_allowlist(
     """Claim due queued jobs matching file_id or workspace_id allowlists.
 
     Empty allowlists return no rows (SQL fail-closed). Never falls back to FIFO.
+    Historically quarantined file IDs are dropped from the file allowlist.
     """
+    file_ids = [f for f in file_ids if not file_is_ingest_protected(f)]
     if not file_ids and not workspace_ids:
         return []
     async with get_db_session() as session:
@@ -324,6 +339,8 @@ async def claim_jobs_for_allowlist(
             pass
         else:
             raise RuntimeError("allowlist claim returned a job outside the allowlist")
+        if file_is_ingest_protected(fid):
+            raise RuntimeError("claim refused a historically quarantined file_id")
         log_info(
             "processing job claimed", subsystem=_SUBSYSTEM, operation="claim_allowlist",
             outcome="ok", job_id=j.get("job_id"), org_id=j.get("org_id"),
@@ -343,6 +360,7 @@ async def reap_expired_jobs_for_allowlist(
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     """Reap expired leases only for allowlisted files/workspaces."""
+    file_ids = [f for f in file_ids if not file_is_ingest_protected(f)]
     if not file_ids and not workspace_ids:
         return []
     async with get_db_session() as session:
@@ -370,6 +388,67 @@ async def reap_expired_jobs_for_allowlist(
     for j in reaped:
         log_warning(
             "processing job lease reaped", subsystem=_SUBSYSTEM, operation="reap_allowlist",
+            outcome="ok", job_id=j.get("job_id"), status=j.get("outcome"),
+        )
+    return reaped
+
+
+async def claim_jobs_for_eligible(
+    worker_id: str,
+    *,
+    lease_seconds: int = DEFAULT_LEASE_SECONDS,
+    limit: int = 1,
+) -> list[dict[str, Any]]:
+    """Claim due queued jobs marked runner_eligible.
+
+    Never falls back to generic FIFO. Protected historical file IDs cannot be
+    claimed. Empty result is a no-op.
+    """
+    async with get_db_session() as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT * FROM ben.claim_document_processing_jobs_for_eligible(:w, :l, :n)"
+                ),
+                {"w": worker_id, "l": lease_seconds, "n": limit},
+            )
+        ).mappings().all()
+        await session.commit()
+    claimed = [_job_dict(r) for r in rows]
+    for j in claimed:
+        if file_is_ingest_protected(j.get("file_id")):
+            raise RuntimeError("eligible claim refused a historically quarantined file_id")
+        log_info(
+            "processing job claimed", subsystem=_SUBSYSTEM, operation="claim_eligible",
+            outcome="ok", job_id=j.get("job_id"), org_id=j.get("org_id"),
+            workspace_id=j.get("workspace_id"), file_id=j.get("file_id"),
+            job_type=j.get("job_type"), attempt=j.get("attempts"),
+            status="running", worker_id=worker_id,
+        )
+    return claimed
+
+
+async def reap_expired_jobs_for_eligible(
+    *,
+    base_seconds: int = RETRY_BASE_SECONDS,
+    cap_seconds: int = RETRY_CAP_SECONDS,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """Reap expired leases only for runner_eligible jobs. Denylist is untouched."""
+    async with get_db_session() as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT * FROM ben.reap_expired_document_processing_jobs_for_eligible(:b, :c, :n)"
+                ),
+                {"b": base_seconds, "c": cap_seconds, "n": limit},
+            )
+        ).mappings().all()
+        await session.commit()
+    reaped = [_job_dict(r) for r in rows]
+    for j in reaped:
+        log_warning(
+            "processing job lease reaped", subsystem=_SUBSYSTEM, operation="reap_eligible",
             outcome="ok", job_id=j.get("job_id"), status=j.get("outcome"),
         )
     return reaped
@@ -407,6 +486,8 @@ async def reap_expired_jobs_for_file(
     cap_seconds: int = RETRY_CAP_SECONDS,
 ) -> list[dict[str, Any]]:
     """Recover an expired lease for one file_id only. Does not touch other files."""
+    if file_is_ingest_protected(file_id):
+        return []
     async with get_db_session() as session:
         rows = (
             await session.execute(
