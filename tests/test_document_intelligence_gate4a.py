@@ -142,6 +142,13 @@ def test_flag_on_allowlist(monkeypatch):
     assert chunk_retrieval_enabled(WS_B) is False
 
 
+def test_flag_on_without_workspace_ids_is_off(monkeypatch):
+    monkeypatch.setenv("BEN_WORKSPACE_CHUNK_RETRIEVAL", "on")
+    monkeypatch.delenv("BEN_WORKSPACE_CHUNK_RETRIEVAL_WORKSPACE_IDS", raising=False)
+    assert chunk_retrieval_enabled(WS_A) is False
+    assert chunk_retrieval_enabled(WS_B) is False
+
+
 def test_chunk_budget_enforces_hard_caps():
     hits = []
     for i in range(200):
@@ -511,10 +518,10 @@ def _enable(monkeypatch, ws=None):
 
 @pytest.mark.asyncio
 async def test_early_middle_late_and_natural_clause(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         fid = await _mk_file(
             conn, org, ws, name="master_agreement.pdf",
@@ -577,10 +584,10 @@ async def test_early_middle_late_and_natural_clause(fresh_engine, monkeypatch):
 @pytest.mark.asyncio
 async def test_explicit_filename_late_page_not_gate3d_cutoff(fresh_engine, monkeypatch):
     """Newer decoys would starve Gate 3D; named + FTS still finds the late page."""
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         decoys = []
         for i in range(8):
@@ -620,10 +627,10 @@ async def test_explicit_filename_late_page_not_gate3d_cutoff(fresh_engine, monke
 
 @pytest.mark.asyncio
 async def test_unnamed_query_searches_all_indexed_not_budgeted_set(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         for i in range(8):
             await _mk_file(
@@ -653,10 +660,10 @@ async def test_unnamed_query_searches_all_indexed_not_budgeted_set(fresh_engine,
 
 @pytest.mark.asyncio
 async def test_hebrew_lexical_query(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         fid = await _mk_file(conn, org, ws, name="he_contract.pdf", indexed_chunk_count=1)
         await _mk_chunk(
@@ -676,10 +683,10 @@ async def test_hebrew_lexical_query(fresh_engine, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_zero_hit_labeled_fallback_no_random_chunks(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         fid = await _mk_file(
             conn, org, ws, name="contract.pdf",
@@ -695,13 +702,13 @@ async def test_zero_hit_labeled_fallback_no_random_chunks(fresh_engine, monkeypa
             org, ws, max_chars=12_000,
             user_query=f"Does the file mention {ABSENT} anywhere at all?",
         )
-        assert out.retrieval_mode == "prefix_fallback"
+        assert out.retrieval_mode == "empty"
         assert out.fallback_reason == "no_lexical_match"
         assert out.chunks_selected == 0
+        assert out.block == ""
+        assert out.used_files == ()
         assert "ordinary commercial terms" not in out.block
-        assert "PREFIX-VISIBLE-ONLY" in out.block
-        assert "legacy_prefix" in out.block
-        assert "not a full-document read" in out.block
+        assert "PREFIX-VISIBLE-ONLY" not in out.block
     finally:
         conn = await _open()
         await _cleanup(conn, ws)
@@ -710,10 +717,10 @@ async def test_zero_hit_labeled_fallback_no_random_chunks(fresh_engine, monkeypa
 
 @pytest.mark.asyncio
 async def test_legacy_ready_file_uses_gate3d_prefix(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         await _mk_file(
             conn, org, ws, name="legacy.txt",
@@ -725,11 +732,12 @@ async def test_legacy_ready_file_uses_gate3d_prefix(fresh_engine, monkeypatch):
         out = await load_ready_files_context(
             org, ws, max_chars=12_000, user_query="What does this contract say about termination rights?"
         )
-        assert out.retrieval_mode == "prefix_fallback"
+        assert out.retrieval_mode == "empty"
         assert out.fallback_reason == "not_indexed"
-        assert "LEGACY-PREFIX-BODY" in out.block
+        assert out.block == ""
+        assert out.used_files == ()
+        assert "LEGACY-PREFIX-BODY" not in out.block
         assert "[chunk " not in out.block
-        assert "legacy_prefix" in out.block
     finally:
         conn = await _open()
         await _cleanup(conn, ws)
@@ -738,10 +746,10 @@ async def test_legacy_ready_file_uses_gate3d_prefix(fresh_engine, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_indexed_without_chunk_rows_is_mismatch_fallback(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         await _mk_file(
             conn, org, ws, name="broken.pdf",
@@ -753,9 +761,11 @@ async def test_indexed_without_chunk_rows_is_mismatch_fallback(fresh_engine, mon
         out = await load_ready_files_context(
             org, ws, max_chars=12_000, user_query=NATURAL_TERMINATION
         )
-        assert out.retrieval_mode == "prefix_fallback"
+        assert out.retrieval_mode == "empty"
         assert out.fallback_reason == "index_chunk_mismatch"
-        assert "MISMATCH-PREFIX-BODY" in out.block
+        assert out.block == ""
+        assert out.used_files == ()
+        assert "MISMATCH-PREFIX-BODY" not in out.block
         assert out.chunks_selected == 0
     finally:
         conn = await _open()
@@ -765,10 +775,10 @@ async def test_indexed_without_chunk_rows_is_mismatch_fallback(fresh_engine, mon
 
 @pytest.mark.asyncio
 async def test_partial_needs_ocr_coverage_honesty(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         fid = await _mk_file(
             conn, org, ws, name="scanmix.pdf",
@@ -796,11 +806,11 @@ async def test_partial_needs_ocr_coverage_honesty(fresh_engine, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_same_filename_across_workspaces_no_leak(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws_a = await _mk_workspace(conn, org, "ws-a")
     ws_b = await _mk_workspace(conn, org, "ws-b")
+    _enable(monkeypatch, ws_a)
     try:
         fa = await _mk_file(conn, org, ws_a, name="contract.pdf", indexed_chunk_count=1)
         fb = await _mk_file(conn, org, ws_b, name="contract.pdf", indexed_chunk_count=1)
@@ -821,12 +831,12 @@ async def test_same_filename_across_workspaces_no_leak(fresh_engine, monkeypatch
 
 @pytest.mark.asyncio
 async def test_cross_org_isolation(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org_a = uuid.uuid4()
     org_b = uuid.uuid4()
     ws_a = await _mk_workspace(conn, org_a, "oa")
     ws_b = await _mk_workspace(conn, org_b, "ob")
+    _enable(monkeypatch, ws_a)
     try:
         fa = await _mk_file(conn, org_a, ws_a, name="contract.pdf", indexed_chunk_count=1)
         fb = await _mk_file(conn, org_b, ws_b, name="contract.pdf", indexed_chunk_count=1)
@@ -847,10 +857,10 @@ async def test_cross_org_isolation(fresh_engine, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_two_hundred_matches_honor_caps(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         files = []
         for n in range(5):
@@ -894,13 +904,13 @@ async def test_two_hundred_matches_honor_caps(fresh_engine, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_fts_timeout_falls_back_labeled(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         await _mk_file(
-            conn, org, ws, name="contract.pdf",
+            conn, org, ws, name="zz_scan.pdf",
             text="TIMEOUT-PREFIX-BODY",
             indexed_chunk_count=1,
         )
@@ -921,9 +931,11 @@ async def test_fts_timeout_falls_back_labeled(fresh_engine, monkeypatch):
             "services.workspace_files.service.search_chunks_bounded", fake_search
         )
         out = await load_ready_files_context(org, ws, max_chars=12_000, user_query=NATURAL_TERMINATION)
-        assert out.retrieval_mode == "prefix_fallback"
+        assert out.retrieval_mode == "empty"
         assert out.fallback_reason == "fts_timeout"
-        assert "TIMEOUT-PREFIX-BODY" in out.block
+        assert out.block == ""
+        assert out.used_files == ()
+        assert "TIMEOUT-PREFIX-BODY" not in out.block
     finally:
         conn = await _open()
         await _cleanup(conn, ws)
@@ -932,13 +944,13 @@ async def test_fts_timeout_falls_back_labeled(fresh_engine, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_fts_error_falls_back_labeled(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         fid = await _mk_file(
-            conn, org, ws, name="contract.pdf",
+            conn, org, ws, name="zz_scan.pdf",
             text="ERROR-PREFIX-BODY",
             indexed_chunk_count=1,
         )
@@ -955,9 +967,11 @@ async def test_fts_error_falls_back_labeled(fresh_engine, monkeypatch):
             "services.workspace_files.service.search_chunks_bounded", fake_search
         )
         out = await load_ready_files_context(org, ws, max_chars=12_000, user_query=NATURAL_TERMINATION)
-        assert out.retrieval_mode == "prefix_fallback"
+        assert out.retrieval_mode == "empty"
         assert out.fallback_reason == "fts_error"
-        assert "ERROR-PREFIX-BODY" in out.block
+        assert out.block == ""
+        assert out.used_files == ()
+        assert "ERROR-PREFIX-BODY" not in out.block
     finally:
         conn = await _open()
         await _cleanup(conn, ws)

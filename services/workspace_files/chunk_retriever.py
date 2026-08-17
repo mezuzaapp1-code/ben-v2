@@ -75,13 +75,18 @@ _FLAG_ON = frozenset({"1", "true", "yes", "on"})
 
 
 def chunk_retrieval_enabled(workspace_id: Any) -> bool:
-    """Fail-safe OFF. Optional workspace allowlist when the flag is on."""
+    """Fail-safe OFF. Flag ON still requires an explicit workspace allowlist.
+
+    An empty ``BEN_WORKSPACE_CHUNK_RETRIEVAL_WORKSPACE_IDS`` does **not** enable
+    every workspace. That was a global-on footgun; Gate 2 keeps 4A off unless a
+    workspace UUID is listed.
+    """
     raw = (os.getenv("BEN_WORKSPACE_CHUNK_RETRIEVAL") or "").strip().lower()
     if raw not in _FLAG_ON:
         return False
     allow = (os.getenv("BEN_WORKSPACE_CHUNK_RETRIEVAL_WORKSPACE_IDS") or "").strip()
     if not allow:
-        return True
+        return False
     allowed = {part.strip().lower() for part in allow.split(",") if part.strip()}
     return str(workspace_id).lower() in allowed
 
