@@ -278,48 +278,48 @@ async def stream_chat_response(
                     user_query=message,
                 )
                 workspace_files_unavailable_count = int(wsf.unavailable_count or 0)
+                workspace_retrieval_mode = wsf.retrieval_mode
+                workspace_files_eligible = wsf.files_eligible
+                workspace_files_searched = wsf.files_searched
+                workspace_files_legacy = wsf.files_legacy
+                workspace_chunks_considered = wsf.chunks_considered
+                workspace_chunks_selected = wsf.chunks_selected
+                workspace_evidence_chars = wsf.evidence_chars
+                workspace_evidence_pages = wsf.evidence_pages
+                workspace_fts_latency_ms = wsf.fts_latency_ms
+                workspace_fallback_reason = wsf.fallback_reason
+                workspace_extraction_coverage = wsf.extraction_coverage
+                workspace_files_used = [
+                    {"id": str(item.get("id", "")).strip(), "name": str(item.get("name", "")).strip()}
+                    for item in (wsf.used_files or ())
+                    if str(item.get("id", "")).strip() and str(item.get("name", "")).strip()
+                ]
                 if wsf.block:
                     effective_message = f"{wsf.block}\n\n{effective_message}"
                     workspace_files_injected = True
                     workspace_files_count = wsf.count
                     workspace_files_chars = wsf.chars
-                    workspace_retrieval_mode = wsf.retrieval_mode
-                    workspace_files_eligible = wsf.files_eligible
-                    workspace_files_searched = wsf.files_searched
-                    workspace_files_legacy = wsf.files_legacy
-                    workspace_chunks_considered = wsf.chunks_considered
-                    workspace_chunks_selected = wsf.chunks_selected
-                    workspace_evidence_chars = wsf.evidence_chars
-                    workspace_evidence_pages = wsf.evidence_pages
-                    workspace_fts_latency_ms = wsf.fts_latency_ms
-                    workspace_fallback_reason = wsf.fallback_reason
-                    workspace_extraction_coverage = wsf.extraction_coverage
-                    workspace_files_used = [
-                        {"id": str(item.get("id", "")).strip(), "name": str(item.get("name", "")).strip()}
-                        for item in (wsf.used_files or ())
-                        if str(item.get("id", "")).strip() and str(item.get("name", "")).strip()
-                    ]
-                    log_info(
-                        "workspace files injected into chat context",
-                        subsystem="chat",
-                        operation="workspace_files_context",
-                        outcome="ok",
-                        workspace_files_injected=True,
-                        workspace_files_count=wsf.count,
-                        workspace_files_chars=wsf.chars,
-                        workspace_files_truncated=wsf.truncated,
-                        retrieval_mode=wsf.retrieval_mode,
-                        files_eligible=wsf.files_eligible,
-                        files_searched=wsf.files_searched,
-                        files_legacy=wsf.files_legacy,
-                        chunks_considered=wsf.chunks_considered,
-                        chunks_selected=wsf.chunks_selected,
-                        evidence_chars=wsf.evidence_chars,
-                        evidence_pages=list(wsf.evidence_pages),
-                        fts_latency_ms=wsf.fts_latency_ms,
-                        fallback_reason=wsf.fallback_reason,
-                        extraction_coverage=wsf.extraction_coverage,
-                    )
+                log_info(
+                    "workspace files injected into chat context",
+                    subsystem="chat",
+                    operation="workspace_files_context",
+                    outcome="ok",
+                    workspace_files_injected=bool(wsf.block),
+                    workspace_files_count=wsf.count,
+                    workspace_files_chars=wsf.chars,
+                    workspace_files_truncated=wsf.truncated,
+                    retrieval_mode=wsf.retrieval_mode,
+                    files_eligible=wsf.files_eligible,
+                    files_searched=wsf.files_searched,
+                    files_legacy=wsf.files_legacy,
+                    chunks_considered=wsf.chunks_considered,
+                    chunks_selected=wsf.chunks_selected,
+                    evidence_chars=wsf.evidence_chars,
+                    evidence_pages=list(wsf.evidence_pages),
+                    fts_latency_ms=wsf.fts_latency_ms,
+                    fallback_reason=wsf.fallback_reason,
+                    extraction_coverage=wsf.extraction_coverage,
+                )
             except Exception as e:
                 log_warning(
                     "workspace files context load failed",

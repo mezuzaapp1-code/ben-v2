@@ -1,6 +1,7 @@
 """Gate 4A — local Postgres chunk FTS after Gate 3D eligibility.
 
-Flag-gated. Does not change Gate 3D rank math. Isolation is org + workspace +
+Flag-gated and fail-closed: ON still requires an explicit workspace UUID
+allowlist. Does not change Gate 3D rank math. Isolation is org + workspace +
 authorized file IDs. No embeddings, no provider calls, no reprocessing.
 """
 from __future__ import annotations
@@ -75,15 +76,33 @@ _FLAG_ON = frozenset({"1", "true", "yes", "on"})
 
 
 def chunk_retrieval_enabled(workspace_id: Any) -> bool:
-    """Fail-safe OFF. Optional workspace allowlist when the flag is on."""
+    """Fail-safe OFF. Flag ON still requires an explicit workspace UUID allowlist.
+
+    Empty, missing, or invalid ``BEN_WORKSPACE_CHUNK_RETRIEVAL_WORKSPACE_IDS``
+    does not enable any workspace. There is no implicit global-on.
+    """
     raw = (os.getenv("BEN_WORKSPACE_CHUNK_RETRIEVAL") or "").strip().lower()
     if raw not in _FLAG_ON:
         return False
     allow = (os.getenv("BEN_WORKSPACE_CHUNK_RETRIEVAL_WORKSPACE_IDS") or "").strip()
     if not allow:
-        return True
-    allowed = {part.strip().lower() for part in allow.split(",") if part.strip()}
-    return str(workspace_id).lower() in allowed
+        return False
+    allowed: set[str] = set()
+    for part in allow.split(","):
+        token = part.strip()
+        if not token:
+            continue
+        try:
+            allowed.add(str(uuid.UUID(token)).lower())
+        except ValueError:
+            continue
+    if not allowed:
+        return False
+    try:
+        current = str(uuid.UUID(str(workspace_id))).lower()
+    except (ValueError, TypeError, AttributeError):
+        return False
+    return current in allowed
 
 
 def normalize_query_tokens(user_query: str | None) -> list[str]:

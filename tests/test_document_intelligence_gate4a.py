@@ -135,6 +135,25 @@ def test_flag_defaults_off(monkeypatch):
     assert chunk_retrieval_enabled(WS_A) is False
 
 
+def test_flag_on_without_allowlist_is_off(monkeypatch):
+    monkeypatch.setenv("BEN_WORKSPACE_CHUNK_RETRIEVAL", "on")
+    monkeypatch.delenv("BEN_WORKSPACE_CHUNK_RETRIEVAL_WORKSPACE_IDS", raising=False)
+    assert chunk_retrieval_enabled(WS_A) is False
+    assert chunk_retrieval_enabled(WS_B) is False
+
+
+def test_flag_on_empty_allowlist_is_off(monkeypatch):
+    monkeypatch.setenv("BEN_WORKSPACE_CHUNK_RETRIEVAL", "on")
+    monkeypatch.setenv("BEN_WORKSPACE_CHUNK_RETRIEVAL_WORKSPACE_IDS", "  ,  ")
+    assert chunk_retrieval_enabled(WS_A) is False
+
+
+def test_flag_on_invalid_allowlist_is_off(monkeypatch):
+    monkeypatch.setenv("BEN_WORKSPACE_CHUNK_RETRIEVAL", "on")
+    monkeypatch.setenv("BEN_WORKSPACE_CHUNK_RETRIEVAL_WORKSPACE_IDS", "*,not-a-uuid")
+    assert chunk_retrieval_enabled(WS_A) is False
+
+
 def test_flag_on_allowlist(monkeypatch):
     monkeypatch.setenv("BEN_WORKSPACE_CHUNK_RETRIEVAL", "on")
     monkeypatch.setenv("BEN_WORKSPACE_CHUNK_RETRIEVAL_WORKSPACE_IDS", str(WS_A))
@@ -287,6 +306,23 @@ async def test_flag_off_preserves_gate3d_injection_format(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_flag_on_without_allowlist_preserves_gate3d(monkeypatch):
+    monkeypatch.setenv("BEN_WORKSPACE_CHUNK_RETRIEVAL", "on")
+    monkeypatch.delenv("BEN_WORKSPACE_CHUNK_RETRIEVAL_WORKSPACE_IDS", raising=False)
+    rows = [
+        _row(text="first", name="a.txt", created_at=1, rid=uuid.UUID(int=1)),
+        _row(text="second", name="b.txt", created_at=2, rid=uuid.UUID(int=2)),
+    ]
+    _patch_session(monkeypatch, rows)
+    out = await load_ready_files_context(ORG_A, WS_A, max_chars=10_000)
+    assert out.retrieval_mode == "off"
+    assert out.fallback_reason == "flag_off"
+    assert out.block.startswith("<workspace_files>\n")
+    assert 'retrieval_mode="' not in out.block
+    assert '[file name="b.txt"]\nsecond\n[/file]' in out.block
+
+
+@pytest.mark.asyncio
 async def test_flag_off_does_not_use_budgeted_set_change(monkeypatch):
     """OFF path still ranks then budgets; canary survives by filename."""
     monkeypatch.delenv("BEN_WORKSPACE_CHUNK_RETRIEVAL", raising=False)
@@ -376,16 +412,14 @@ async def test_fts_error_fallback_does_not_break_chat(monkeypatch):
 
     async def fake_ctx(_org, _ws, *, max_chars, user_query=None, **_k):
         return WorkspaceFilesContext(
-            block='<workspace_files retrieval_mode="prefix_fallback" coverage="legacy">\n'
-            '[file name="a.txt" retrieval="legacy_prefix"]\nprefix\n[/file]\n'
-            "<coverage>This evidence is a clipped prefix of extracted text, "
-            "not a full-document read.</coverage>\n</workspace_files>",
-            count=1,
-            chars=6,
+            block="",
+            count=0,
+            chars=0,
             truncated=False,
-            retrieval_mode="prefix_fallback",
+            retrieval_mode="empty",
             fallback_reason="fts_error",
-            extraction_coverage="legacy",
+            extraction_coverage="none",
+            used_files=(),
         )
 
     monkeypatch.setattr("services.chat_service.load_ready_files_context", fake_ctx)
@@ -402,9 +436,11 @@ async def test_fts_error_fallback_does_not_break_chat(monkeypatch):
         events.append(json.loads(line))
     assert any(e["type"] == "done" for e in events)
     done = next(e for e in events if e["type"] == "done")
-    assert done["workspace_files_injected"] is True
+    assert done["workspace_files_injected"] is False
     assert done["fallback_reason"] == "fts_error"
-    assert "prefix" in captured["message"]
+    assert done["retrieval_mode"] == "empty"
+    assert done.get("workspace_files_used") in (None, [], ())
+    assert "<workspace_files>" not in captured["message"]
 
 
 # --------------------------------------------------------------------------- #
@@ -446,17 +482,18 @@ async def _mk_file(
     extraction_status="complete",
     extraction_truncated=False,
     created_at=None,
+    status="ready",
 ) -> uuid.UUID:
     fid = uuid.uuid4()
     extra = ""
     args = [
         fid, org_id, ws, name, text, index_status, indexed_chunk_count,
-        extraction_status, extraction_truncated, f"k/{fid}",
+        extraction_status, extraction_truncated, f"k/{fid}", status,
     ]
     created_sql = ""
     if created_at is not None:
         created_sql = ", created_at"
-        extra = ", $11"
+        extra = ", $12"
         args.append(created_at)
     await conn.execute(
         f"""
@@ -465,7 +502,7 @@ async def _mk_file(
              media_type, byte_size, checksum, storage_key, status, extracted_text,
              extraction_status, index_status, indexed_chunk_count, extraction_truncated
              {created_sql})
-        VALUES ($1,$2,$3,$3,$4,$4,'application/pdf',0,'x',$10,'ready',$5,
+        VALUES ($1,$2,$3,$3,$4,$4,'application/pdf',0,'x',$10,$11,$5,
                 $8,$6,$7,$9{extra})
         """,
         *args,
@@ -501,20 +538,29 @@ async def fresh_engine():
     await dispose_engine()
 
 
-def _enable(monkeypatch, ws=None):
+def _enable(monkeypatch, ws):
     monkeypatch.setenv("BEN_WORKSPACE_CHUNK_RETRIEVAL", "on")
-    if ws is None:
-        monkeypatch.delenv("BEN_WORKSPACE_CHUNK_RETRIEVAL_WORKSPACE_IDS", raising=False)
-    else:
-        monkeypatch.setenv("BEN_WORKSPACE_CHUNK_RETRIEVAL_WORKSPACE_IDS", str(ws))
+    monkeypatch.setenv("BEN_WORKSPACE_CHUNK_RETRIEVAL_WORKSPACE_IDS", str(ws))
+
+
+def _assert_no_evidence(out, reason: str) -> None:
+    assert out.block == ""
+    assert out.count == 0
+    assert out.chars == 0
+    assert out.used_files == ()
+    assert out.chunks_selected == 0
+    assert out.retrieval_mode == "empty"
+    assert out.fallback_reason == reason
+    assert "[chunk " not in out.block
+    assert "legacy_prefix" not in out.block
 
 
 @pytest.mark.asyncio
 async def test_early_middle_late_and_natural_clause(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         fid = await _mk_file(
             conn, org, ws, name="master_agreement.pdf",
@@ -577,10 +623,10 @@ async def test_early_middle_late_and_natural_clause(fresh_engine, monkeypatch):
 @pytest.mark.asyncio
 async def test_explicit_filename_late_page_not_gate3d_cutoff(fresh_engine, monkeypatch):
     """Newer decoys would starve Gate 3D; named + FTS still finds the late page."""
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         decoys = []
         for i in range(8):
@@ -620,10 +666,10 @@ async def test_explicit_filename_late_page_not_gate3d_cutoff(fresh_engine, monke
 
 @pytest.mark.asyncio
 async def test_unnamed_query_searches_all_indexed_not_budgeted_set(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         for i in range(8):
             await _mk_file(
@@ -653,10 +699,10 @@ async def test_unnamed_query_searches_all_indexed_not_budgeted_set(fresh_engine,
 
 @pytest.mark.asyncio
 async def test_hebrew_lexical_query(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         fid = await _mk_file(conn, org, ws, name="he_contract.pdf", indexed_chunk_count=1)
         await _mk_chunk(
@@ -676,15 +722,21 @@ async def test_hebrew_lexical_query(fresh_engine, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_zero_hit_labeled_fallback_no_random_chunks(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         fid = await _mk_file(
             conn, org, ws, name="contract.pdf",
             text="PREFIX-VISIBLE-ONLY body of the agreement",
             indexed_chunk_count=1,
+        )
+        await _mk_file(
+            conn, org, ws, name="decoy.txt",
+            text="DECOY-PREFIX-BODY from an unrelated file",
+            index_status="not_indexed",
+            indexed_chunk_count=0,
         )
         await _mk_chunk(
             conn, org, ws, fid, document_chunk_index=0, page_number=10,
@@ -695,13 +747,10 @@ async def test_zero_hit_labeled_fallback_no_random_chunks(fresh_engine, monkeypa
             org, ws, max_chars=12_000,
             user_query=f"Does the file mention {ABSENT} anywhere at all?",
         )
-        assert out.retrieval_mode == "prefix_fallback"
-        assert out.fallback_reason == "no_lexical_match"
-        assert out.chunks_selected == 0
+        _assert_no_evidence(out, "no_lexical_match")
+        assert "PREFIX-VISIBLE-ONLY" not in out.block
+        assert "DECOY-PREFIX-BODY" not in out.block
         assert "ordinary commercial terms" not in out.block
-        assert "PREFIX-VISIBLE-ONLY" in out.block
-        assert "legacy_prefix" in out.block
-        assert "not a full-document read" in out.block
     finally:
         conn = await _open()
         await _cleanup(conn, ws)
@@ -710,10 +759,10 @@ async def test_zero_hit_labeled_fallback_no_random_chunks(fresh_engine, monkeypa
 
 @pytest.mark.asyncio
 async def test_legacy_ready_file_uses_gate3d_prefix(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         await _mk_file(
             conn, org, ws, name="legacy.txt",
@@ -725,11 +774,8 @@ async def test_legacy_ready_file_uses_gate3d_prefix(fresh_engine, monkeypatch):
         out = await load_ready_files_context(
             org, ws, max_chars=12_000, user_query="What does this contract say about termination rights?"
         )
-        assert out.retrieval_mode == "prefix_fallback"
-        assert out.fallback_reason == "not_indexed"
-        assert "LEGACY-PREFIX-BODY" in out.block
-        assert "[chunk " not in out.block
-        assert "legacy_prefix" in out.block
+        _assert_no_evidence(out, "not_indexed")
+        assert "LEGACY-PREFIX-BODY" not in out.block
     finally:
         conn = await _open()
         await _cleanup(conn, ws)
@@ -738,10 +784,10 @@ async def test_legacy_ready_file_uses_gate3d_prefix(fresh_engine, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_indexed_without_chunk_rows_is_mismatch_fallback(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         await _mk_file(
             conn, org, ws, name="broken.pdf",
@@ -753,10 +799,8 @@ async def test_indexed_without_chunk_rows_is_mismatch_fallback(fresh_engine, mon
         out = await load_ready_files_context(
             org, ws, max_chars=12_000, user_query=NATURAL_TERMINATION
         )
-        assert out.retrieval_mode == "prefix_fallback"
-        assert out.fallback_reason == "index_chunk_mismatch"
-        assert "MISMATCH-PREFIX-BODY" in out.block
-        assert out.chunks_selected == 0
+        _assert_no_evidence(out, "index_chunk_mismatch")
+        assert "MISMATCH-PREFIX-BODY" not in out.block
     finally:
         conn = await _open()
         await _cleanup(conn, ws)
@@ -765,10 +809,10 @@ async def test_indexed_without_chunk_rows_is_mismatch_fallback(fresh_engine, mon
 
 @pytest.mark.asyncio
 async def test_partial_needs_ocr_coverage_honesty(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         fid = await _mk_file(
             conn, org, ws, name="scanmix.pdf",
@@ -796,11 +840,11 @@ async def test_partial_needs_ocr_coverage_honesty(fresh_engine, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_same_filename_across_workspaces_no_leak(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws_a = await _mk_workspace(conn, org, "ws-a")
     ws_b = await _mk_workspace(conn, org, "ws-b")
+    _enable(monkeypatch, ws_a)
     try:
         fa = await _mk_file(conn, org, ws_a, name="contract.pdf", indexed_chunk_count=1)
         fb = await _mk_file(conn, org, ws_b, name="contract.pdf", indexed_chunk_count=1)
@@ -821,12 +865,12 @@ async def test_same_filename_across_workspaces_no_leak(fresh_engine, monkeypatch
 
 @pytest.mark.asyncio
 async def test_cross_org_isolation(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org_a = uuid.uuid4()
     org_b = uuid.uuid4()
     ws_a = await _mk_workspace(conn, org_a, "oa")
     ws_b = await _mk_workspace(conn, org_b, "ob")
+    _enable(monkeypatch, ws_a)
     try:
         fa = await _mk_file(conn, org_a, ws_a, name="contract.pdf", indexed_chunk_count=1)
         fb = await _mk_file(conn, org_b, ws_b, name="contract.pdf", indexed_chunk_count=1)
@@ -847,10 +891,10 @@ async def test_cross_org_isolation(fresh_engine, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_two_hundred_matches_honor_caps(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         files = []
         for n in range(5):
@@ -894,13 +938,13 @@ async def test_two_hundred_matches_honor_caps(fresh_engine, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_fts_timeout_falls_back_labeled(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         await _mk_file(
-            conn, org, ws, name="contract.pdf",
+            conn, org, ws, name="alpha_brief.pdf",
             text="TIMEOUT-PREFIX-BODY",
             indexed_chunk_count=1,
         )
@@ -921,9 +965,8 @@ async def test_fts_timeout_falls_back_labeled(fresh_engine, monkeypatch):
             "services.workspace_files.service.search_chunks_bounded", fake_search
         )
         out = await load_ready_files_context(org, ws, max_chars=12_000, user_query=NATURAL_TERMINATION)
-        assert out.retrieval_mode == "prefix_fallback"
-        assert out.fallback_reason == "fts_timeout"
-        assert "TIMEOUT-PREFIX-BODY" in out.block
+        _assert_no_evidence(out, "fts_timeout")
+        assert "TIMEOUT-PREFIX-BODY" not in out.block
     finally:
         conn = await _open()
         await _cleanup(conn, ws)
@@ -932,13 +975,13 @@ async def test_fts_timeout_falls_back_labeled(fresh_engine, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_fts_error_falls_back_labeled(fresh_engine, monkeypatch):
-    _enable(monkeypatch)
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
     try:
         fid = await _mk_file(
-            conn, org, ws, name="contract.pdf",
+            conn, org, ws, name="alpha_brief.pdf",
             text="ERROR-PREFIX-BODY",
             indexed_chunk_count=1,
         )
@@ -955,9 +998,156 @@ async def test_fts_error_falls_back_labeled(fresh_engine, monkeypatch):
             "services.workspace_files.service.search_chunks_bounded", fake_search
         )
         out = await load_ready_files_context(org, ws, max_chars=12_000, user_query=NATURAL_TERMINATION)
+        _assert_no_evidence(out, "fts_error")
+        assert "ERROR-PREFIX-BODY" not in out.block
+    finally:
+        conn = await _open()
+        await _cleanup(conn, ws)
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_allowlisted_workspace_uses_chunks_other_stays_gate3d(fresh_engine, monkeypatch):
+    conn = await _open()
+    org = uuid.uuid4()
+    ws_a = await _mk_workspace(conn, org, "ws-a")
+    ws_b = await _mk_workspace(conn, org, "ws-b")
+    _enable(monkeypatch, ws_a)
+    try:
+        fa = await _mk_file(
+            conn, org, ws_a, name="master_agreement.pdf",
+            text="PREFIX-A without the late annex",
+            indexed_chunk_count=1,
+        )
+        fb = await _mk_file(
+            conn, org, ws_b, name="master_agreement.pdf",
+            text="PREFIX-B without the late annex",
+            indexed_chunk_count=1,
+        )
+        await _mk_chunk(
+            conn, org, ws_a, fa, document_chunk_index=0, page_number=198,
+            text=f"{LATE} Signatures and annexes of the closing set.",
+        )
+        await _mk_chunk(
+            conn, org, ws_b, fb, document_chunk_index=0, page_number=198,
+            text=f"{LATE} Signatures and annexes of the closing set.",
+        )
+        await conn.close()
+        out_a = await load_ready_files_context(org, ws_a, max_chars=12_000, user_query=NATURAL_LATE)
+        assert out_a.retrieval_mode == "chunks"
+        assert LATE in out_a.block
+        assert 198 in out_a.evidence_pages
+        assert "PREFIX-A" not in out_a.block
+        out_b = await load_ready_files_context(org, ws_b, max_chars=12_000, user_query=NATURAL_LATE)
+        assert out_b.retrieval_mode == "off"
+        assert out_b.fallback_reason == "flag_off"
+        assert "PREFIX-B" in out_b.block
+        assert "[chunk " not in out_b.block
+    finally:
+        conn = await _open()
+        await _cleanup(conn, ws_a, ws_b)
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_named_ready_file_no_chunk_hit_uses_named_prefix_only(fresh_engine, monkeypatch):
+    conn = await _open()
+    org = uuid.uuid4()
+    ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
+    try:
+        fid = await _mk_file(
+            conn, org, ws, name="contract.pdf",
+            text="NAMED-PREFIX-ONLY body of the agreement",
+            indexed_chunk_count=1,
+        )
+        decoy = await _mk_file(
+            conn, org, ws, name="notes.txt",
+            text="DECOY-PREFIX-BODY catering notes",
+            index_status="not_indexed",
+            indexed_chunk_count=0,
+        )
+        await _mk_chunk(
+            conn, org, ws, fid, document_chunk_index=0, page_number=10,
+            text="ordinary commercial terms about delivery and invoices",
+        )
+        await conn.close()
+        out = await load_ready_files_context(
+            org, ws, max_chars=12_000,
+            user_query=f"Read contract.pdf — Does the file mention {ABSENT} anywhere at all?",
+        )
         assert out.retrieval_mode == "prefix_fallback"
-        assert out.fallback_reason == "fts_error"
-        assert "ERROR-PREFIX-BODY" in out.block
+        assert out.fallback_reason == "no_lexical_match"
+        assert "NAMED-PREFIX-ONLY" in out.block
+        assert "DECOY-PREFIX-BODY" not in out.block
+        assert "ordinary commercial terms" not in out.block
+        assert out.used_files == ({"id": str(fid), "name": "contract.pdf"},)
+        assert str(decoy) not in {item["id"] for item in out.used_files}
+        assert "legacy_prefix" in out.block
+    finally:
+        conn = await _open()
+        await _cleanup(conn, ws)
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_non_ready_files_never_injected_or_used(fresh_engine, monkeypatch):
+    conn = await _open()
+    org = uuid.uuid4()
+    ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
+    try:
+        queued = await _mk_file(
+            conn, org, ws, name="queued.txt", text="QUEUED-SECRET",
+            status="queued", index_status="not_indexed", indexed_chunk_count=0,
+        )
+        processing = await _mk_file(
+            conn, org, ws, name="processing.txt", text="PROCESSING-SECRET",
+            status="processing", index_status="not_indexed", indexed_chunk_count=0,
+        )
+        failed = await _mk_file(
+            conn, org, ws, name="failed.txt", text="FAILED-SECRET",
+            status="failed", index_status="failed", indexed_chunk_count=0,
+            extraction_status="failed",
+        )
+        await conn.close()
+        for query in (
+            "What does this contract say about termination rights?",
+            "Read queued.txt processing.txt failed.txt",
+        ):
+            out = await load_ready_files_context(org, ws, max_chars=12_000, user_query=query)
+            assert "QUEUED-SECRET" not in out.block
+            assert "PROCESSING-SECRET" not in out.block
+            assert "FAILED-SECRET" not in out.block
+            used_ids = {item["id"] for item in out.used_files}
+            assert str(queued) not in used_ids
+            assert str(processing) not in used_ids
+            assert str(failed) not in used_ids
+            assert out.used_files == ()
+    finally:
+        conn = await _open()
+        await _cleanup(conn, ws)
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_no_tokens_injects_nothing(fresh_engine, monkeypatch):
+    conn = await _open()
+    org = uuid.uuid4()
+    ws = await _mk_workspace(conn, org)
+    _enable(monkeypatch, ws)
+    try:
+        await _mk_file(
+            conn, org, ws, name="contract.pdf",
+            text="PREFIX-NO-TOKENS",
+            indexed_chunk_count=1,
+        )
+        await conn.close()
+        out = await load_ready_files_context(
+            org, ws, max_chars=12_000, user_query="What does this file show?",
+        )
+        _assert_no_evidence(out, "no_tokens")
+        assert "PREFIX-NO-TOKENS" not in out.block
     finally:
         conn = await _open()
         await _cleanup(conn, ws)
