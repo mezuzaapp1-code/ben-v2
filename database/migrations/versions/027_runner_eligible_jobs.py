@@ -1,8 +1,11 @@
 """Persisted runner eligibility for automatic new-file ingest.
 
-Adds runner_eligible (default FALSE so existing queued rows stay quarantined),
-eligible claim/reap functions, a denylist trigger for two historical file IDs,
-and patches every claim/reap path so those IDs cannot be claimed.
+Adds runner_eligible (default FALSE so existing queued rows stay quarantined)
+and eligible claim/reap for the automatic runner. Generic FIFO also requires
+eligibility so an unscoped cron cannot eat historical jobs.
+
+Operator-selected file-scoped and allowlist claim/reap do NOT require
+eligibility; they keep only the temporary denylist for two historical file IDs.
 Does not enable CLAIM_GLOBAL. Does not change Gate 4A flags.
 """
 
@@ -256,7 +259,6 @@ def upgrade() -> None:
                  SELECT c.id FROM {SCHEMA}.{T} c
                   WHERE c.file_id = p_file_id
                     AND c.status = 'queued' AND c.available_at <= now()
-                    AND {_ELIGIBLE}
                     AND {_DENY}
                   ORDER BY c.available_at, c.created_at, c.id
                   FOR UPDATE SKIP LOCKED
@@ -285,7 +287,6 @@ def upgrade() -> None:
                   FROM {SCHEMA}.{T} e
                  WHERE e.file_id = p_file_id
                    AND e.status = 'running' AND e.lease_expires_at < now()
-                   AND {_ELIGIBLE_E}
                    AND {_DENY_E}
                  ORDER BY e.lease_expires_at
                  FOR UPDATE SKIP LOCKED
@@ -333,7 +334,6 @@ def upgrade() -> None:
              WHERE j.id IN (
                  SELECT c.id FROM {SCHEMA}.{T} c
                   WHERE c.status = 'queued' AND c.available_at <= now()
-                    AND {_ELIGIBLE}
                     AND {_DENY}
                     AND (
                         (p_file_ids IS NOT NULL AND cardinality(p_file_ids) > 0
@@ -370,7 +370,6 @@ def upgrade() -> None:
                 SELECT e.id, e.attempts, e.max_attempts
                   FROM {SCHEMA}.{T} e
                  WHERE e.status = 'running' AND e.lease_expires_at < now()
-                   AND {_ELIGIBLE_E}
                    AND {_DENY_E}
                    AND (
                         (p_file_ids IS NOT NULL AND cardinality(p_file_ids) > 0

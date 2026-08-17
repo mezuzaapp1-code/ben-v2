@@ -239,6 +239,18 @@ def test_eligible_migration_quarantines_historical_on_every_claim_path():
     assert "c.runner_eligible IS TRUE" in src
     assert "DEFAULT false" in src
     assert "BEN_WORKSPACE_CHUNK_RETRIEVAL" not in src
+    file_claim = src.split("claim_document_processing_job_for_file(", 1)[1]
+    file_claim = file_claim.split("CREATE OR REPLACE FUNCTION", 1)[0]
+    allow_claim = src.split("claim_document_processing_jobs_for_allowlist(", 1)[1]
+    allow_claim = allow_claim.split("CREATE OR REPLACE FUNCTION", 1)[0]
+    assert "runner_eligible" not in file_claim
+    assert "runner_eligible" not in allow_claim
+    generic_claim = src.split("CREATE OR REPLACE FUNCTION {SCHEMA}.claim_document_processing_jobs(", 1)[1]
+    generic_claim = generic_claim.split("CREATE OR REPLACE FUNCTION", 1)[0]
+    assert "{_ELIGIBLE}" in generic_claim
+    eligible_claim = src.split("CREATE OR REPLACE FUNCTION {SCHEMA}.{_CLAIM_ELIGIBLE}(", 1)[1]
+    eligible_claim = eligible_claim.split("CREATE OR REPLACE FUNCTION", 1)[0]
+    assert "{_ELIGIBLE}" in eligible_claim
 
 
 def test_health_ready_do_not_consult_queue_depth():
@@ -509,7 +521,13 @@ async def test_overlapping_allowlist_claim_skip_locked(fresh_engine):
             "'deny-hist', 300, 10, $1::uuid[], $2::uuid[])",
             [hid], [],
         )
-        assert denied == []
+        # Ineligible non-protected jobs remain operator-selectable via allowlist.
+        assert len(denied) == 1 and denied[0]["file_id"] == hid
+        await conn_b.execute(
+            "UPDATE ben.document_processing_jobs SET status='queued', attempts=0, "
+            "claimed_at=NULL, lease_expires_at=NULL, worker_id=NULL WHERE file_id=$1",
+            hid,
+        )
         await tx.commit()
         await conn.execute(
             "UPDATE ben.document_processing_jobs SET status='queued', attempts=0, "

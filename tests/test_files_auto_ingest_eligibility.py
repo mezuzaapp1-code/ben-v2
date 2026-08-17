@@ -38,6 +38,7 @@ from services.workspace_files.job_queue import (
     claim_jobs,
     claim_jobs_for_allowlist,
     reap_expired_jobs,
+    reap_expired_jobs_for_allowlist,
     reap_expired_jobs_for_eligible,
     reap_expired_jobs_for_file,
 )
@@ -282,6 +283,137 @@ async def test_sql_insert_without_eligible_defaults_quarantined(fresh_engine, mo
         generic = await drain_document_processing_jobs(worker_id="generic-old", limit=10)
         assert generic["claimed"] == 0
         assert (await _job(conn, fid))["attempts"] == 0
+    finally:
+        await _cleanup_ws(conn, ws)
+        await conn.close()
+        if org is not None and ws is not None:
+            _cleanup_storage(org, ws)
+
+
+# =========================================================================== #
+# Operator-selected recovery of ineligible non-protected jobs
+# =========================================================================== #
+@pytest.mark.asyncio
+async def test_scoped_drain_claims_selected_ineligible_non_protected(fresh_engine, monkeypatch):
+    conn = await _open()
+    org = ws = None
+    try:
+        org = uuid.uuid4()
+        ws = await _mk_workspace(conn, org)
+        uploaded = await _upload(org, ws, "recover.txt", "text/plain", b"operator recover body")
+        fid = uuid.UUID(uploaded["id"])
+        await conn.execute(
+            "UPDATE ben.document_processing_jobs SET runner_eligible=false WHERE file_id=$1",
+            fid,
+        )
+        assert (await _job(conn, fid))["runner_eligible"] is False
+        monkeypatch.setenv("BEN_DOC_RUNNER_ENABLED", "on")
+        auto = await drain_document_processing_jobs_for_runner(worker_id="auto-skip", limit=10)
+        generic = await drain_document_processing_jobs(worker_id="generic-skip", limit=10)
+        skipped = await _job(conn, fid)
+        assert skipped["status"] == "queued" and skipped["attempts"] == 0
+        assert skipped["runner_eligible"] is False
+        scoped = await drain_document_processing_job_for_file(fid, worker_id="op-scoped")
+        assert scoped["claimed"] == 1
+        assert scoped["succeeded"] == 1
+        assert (await _file(conn, fid))["status"] == "ready"
+        assert (await _file(conn, fid))["extracted_text"] == "operator recover body"
+        job = await _job(conn, fid)
+        assert job["status"] == "succeeded"
+        assert job["runner_eligible"] is False
+    finally:
+        await _cleanup_ws(conn, ws)
+        await conn.close()
+        if org is not None and ws is not None:
+            _cleanup_storage(org, ws)
+
+
+@pytest.mark.asyncio
+async def test_scoped_reap_recovers_selected_ineligible_running_job(fresh_engine, monkeypatch):
+    conn = await _open()
+    org = ws = None
+    try:
+        org = uuid.uuid4()
+        ws = await _mk_workspace(conn, org)
+        uploaded = await _upload(org, ws, "reap-me.txt", "text/plain", b"reap body")
+        fid = uuid.UUID(uploaded["id"])
+        j = await _job(conn, fid)
+        await conn.execute(
+            """
+            UPDATE ben.document_processing_jobs
+               SET runner_eligible=false, status='running', attempts=1,
+                   claimed_at=now(), lease_expires_at=now() - interval '2 minutes',
+                   worker_id='crashed'
+             WHERE id=$1
+            """,
+            j["id"],
+        )
+        monkeypatch.setenv("BEN_DOC_RUNNER_ENABLED", "on")
+        await drain_document_processing_jobs_for_runner(worker_id="auto-reap-skip", limit=10)
+        still = await _job(conn, fid)
+        assert still["status"] == "running" and still["attempts"] == 1
+        generic_reap = await reap_expired_jobs()
+        assert j["id"] not in {uuid.UUID(r.get("job_id")) for r in generic_reap}
+        assert (await _job(conn, fid))["status"] == "running"
+        reaped = await reap_expired_jobs_for_file(fid)
+        assert len(reaped) == 1
+        job = await _job(conn, fid)
+        assert job["status"] == "queued"
+        assert job["runner_eligible"] is False
+        assert job["worker_id"] is None
+    finally:
+        await _cleanup_ws(conn, ws)
+        await conn.close()
+        if org is not None and ws is not None:
+            _cleanup_storage(org, ws)
+
+
+@pytest.mark.asyncio
+async def test_allowlist_claim_and_reap_selected_ineligible_non_protected(fresh_engine):
+    conn = await _open()
+    org = ws = None
+    try:
+        org = uuid.uuid4()
+        ws = await _mk_workspace(conn, org)
+        a = await _upload(org, ws, "al-a.txt", "text/plain", b"allow a")
+        b = await _upload(org, ws, "al-b.txt", "text/plain", b"allow b")
+        aid, bid = uuid.UUID(a["id"]), uuid.UUID(b["id"])
+        await conn.execute(
+            "UPDATE ben.document_processing_jobs SET runner_eligible=false WHERE file_id = ANY($1::uuid[])",
+            [aid, bid],
+        )
+        claimed = await claim_jobs_for_allowlist(
+            "op-al", file_ids=[aid], workspace_ids=[], limit=10,
+        )
+        assert len(claimed) == 1
+        assert uuid.UUID(claimed[0]["file_id"]) == aid
+        aj = await _job(conn, aid)
+        assert aj["status"] == "running"
+        assert aj["runner_eligible"] is False
+        assert (await _job(conn, bid))["status"] == "queued"
+
+        bj = await _job(conn, bid)
+        await conn.execute(
+            """
+            UPDATE ben.document_processing_jobs
+               SET status='running', attempts=1, claimed_at=now(),
+                   lease_expires_at=now() - interval '2 minutes', worker_id='dead'
+             WHERE id=$1
+            """,
+            bj["id"],
+        )
+        eligible_reap = await reap_expired_jobs_for_eligible()
+        assert bj["id"] not in {uuid.UUID(r.get("job_id")) for r in eligible_reap}
+        reaped = await reap_expired_jobs_for_allowlist(file_ids=[bid], workspace_ids=[])
+        assert len(reaped) == 1
+        b_after = await _job(conn, bid)
+        assert b_after["status"] == "queued"
+        assert b_after["runner_eligible"] is False
+        await conn.execute(
+            "UPDATE ben.document_processing_jobs SET status='queued', attempts=0, "
+            "claimed_at=NULL, lease_expires_at=NULL, worker_id=NULL WHERE file_id=$1",
+            aid,
+        )
     finally:
         await _cleanup_ws(conn, ws)
         await conn.close()
