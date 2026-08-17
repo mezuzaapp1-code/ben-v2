@@ -36,6 +36,8 @@ export function isNonTerminalFileStatus(status) {
 /**
  * Only filenames the backend reported as actually injected.
  * Never infer from workspace inventory, UI selection, or model text.
+ * `workspace_files_used` is the source of truth; do not require
+ * `workspace_files_injected === true` (that live-only gate dropped Used files).
  */
 export function sanitizeUsedFiles(used) {
   if (!Array.isArray(used) || used.length === 0) return []
@@ -53,8 +55,14 @@ export function sanitizeUsedFiles(used) {
 }
 
 export function usedFilesFromDoneEvent(event) {
-  if (!event || event.workspace_files_injected !== true) return []
+  if (!event) return []
   return sanitizeUsedFiles(event.workspace_files_used)
+}
+
+export function isStandardChatAssistant(message) {
+  if (!message || message.role !== 'assistant') return false
+  const kind = message.kind
+  return !kind || kind === 'chat'
 }
 
 export function unavailableChatNote(count) {
