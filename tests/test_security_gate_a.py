@@ -136,6 +136,16 @@ def test_unsigned_project_files_alias_401():
     assert client.get(f"/api/projects/{WS_A}/files/{FILE_A}/content").status_code == 401
 
 
+def test_unsigned_active_attention_401():
+    client = TestClient(main.app)
+    res = client.get(
+        f"/api/projects/{WS_A}/threads/{THREAD_A}/active-attention",
+        params={"query": "lifecycle"},
+    )
+    assert res.status_code == 401
+    assert res.json().get("detail") == "Unauthorized"
+
+
 def test_unsigned_thread_list_401():
     client = TestClient(main.app)
     assert client.get("/api/threads").status_code == 401

@@ -2,6 +2,7 @@
  * Single workspace-file inventory + poller shared by Sidebar, File Library,
  * and composer attachments. One in-flight list request at a time.
  */
+import { acquirePersistentHeaders, isAuthTokenUnavailable } from '../api/benHeaders.js'
 import {
   FILE_STATUS_POLL_MS,
   createBoundedStatusPoller,
@@ -41,6 +42,7 @@ export function createWorkspaceFileInventory({
   let poller = null
   let loadPromise = null
   let generation = 0
+  let authRetry = false
 
   function emit() {
     snapshot = {
@@ -71,6 +73,7 @@ export function createWorkspaceFileInventory({
 
   function shouldPoll() {
     if (!workspaceId || !buildHeaders) return false
+    if (authRetry) return true
     if (uploads.some((u) => u.phase === 'uploading')) return true
     return files.some((file) => isNonTerminalFile(file))
   }
@@ -114,7 +117,10 @@ export function createWorkspaceFileInventory({
     }
     loadPromise = (async () => {
       if (typeof listFiles !== 'function') return { items: [] }
-      const headers = await buildHeaders()
+      const headers = await acquirePersistentHeaders(buildHeaders, {
+        attempts: silent ? 2 : 4,
+        delayMs: silent ? 0 : 50,
+      })
       return listFiles(workspaceId, headers, { limit: 100 })
     })()
     try {
@@ -122,9 +128,15 @@ export function createWorkspaceFileInventory({
       if (gen !== generation) return data
       files = Array.isArray(data?.items) ? data.items : []
       error = null
+      authRetry = false
       return data
     } catch (e) {
       if (gen !== generation) return { items: files }
+      if (isAuthTokenUnavailable(e)) {
+        authRetry = Boolean(workspaceId && buildHeaders)
+        return { items: files, skipped: 'auth' }
+      }
+      authRetry = false
       if (!silent) {
         error = e?.message || 'Could not load workspace files'
         files = []
@@ -142,17 +154,19 @@ export function createWorkspaceFileInventory({
 
   function configure({ workspaceId: nextId = null, buildHeaders: nextHeaders = null } = {}) {
     const id = nextId || null
-    const changed = id !== workspaceId || nextHeaders !== buildHeaders
-    workspaceId = id
+    const scopeChanged = id !== workspaceId
+    const signedInChanged = Boolean(buildHeaders) !== Boolean(nextHeaders)
     buildHeaders = nextHeaders
-    if (!changed && id) {
-      ensurePoller()
+    workspaceId = id
+    if (!scopeChanged && !signedInChanged) {
+      if (id && nextHeaders) ensurePoller()
       return
     }
     generation += 1
     stopPoller()
     files = []
     uploads = []
+    authRetry = false
     loading = false
     error = null
     emit()
@@ -211,7 +225,7 @@ export function createWorkspaceFileInventory({
     }
     const id = localId || beginUpload(file)
     try {
-      const headers = await buildHeaders()
+      const headers = await acquirePersistentHeaders(buildHeaders)
       delete headers['Content-Type']
       delete headers['content-type']
       if (typeof uploadFile !== 'function') {

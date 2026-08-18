@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { acquirePersistentHeaders, isAuthTokenUnavailable } from '../api/benHeaders.js'
 import { fetchActiveAttention, fetchProjectKnowledgeFiles } from '../api/knowledge.js'
 import { FileLifecycleStatus } from './FileLifecycleStatus.jsx'
 import { useWorkspaceFileInventory, workspaceFileInventory } from '../hooks/useWorkspaceFileInventory.jsx'
@@ -66,8 +67,15 @@ export function KnowledgeSidebar({
   const activeUpload = (inventory.uploads || []).find((item) => item.phase === 'uploading')
   const progress = processingPercent(null, activeUpload)
 
+  const authReady = Boolean(buildHeaders)
+  const focusQuery = attentionFocusRequest?.query || null
+  const focusThreadId = attentionFocusRequest?.threadId || null
+  const focusKey = attentionFocusRequest?.key || null
+  const buildHeadersRef = useRef(buildHeaders)
+  buildHeadersRef.current = buildHeaders
+
   useEffect(() => {
-    if (workspaceId || !projectSlug || !buildHeaders) {
+    if (workspaceId || !projectSlug || !authReady) {
       if (!workspaceId) setLegacyFiles([])
       return
     }
@@ -76,7 +84,8 @@ export function KnowledgeSidebar({
     setError(null)
     void (async () => {
       try {
-        const headers = await buildHeaders()
+        const headers = await acquirePersistentHeaders(() => buildHeadersRef.current())
+        if (cancelled) return
         const data = await fetchProjectKnowledgeFiles(projectSlug, headers)
         if (cancelled) return
         setLegacyFiles(
@@ -89,10 +98,10 @@ export function KnowledgeSidebar({
           }))
         )
       } catch (e) {
-        if (!cancelled) {
-          setError(e?.message || 'Could not load project knowledge files')
-          setLegacyFiles([])
-        }
+        if (cancelled) return
+        if (isAuthTokenUnavailable(e)) return
+        setError(e?.message || 'Could not load project knowledge files')
+        setLegacyFiles([])
       } finally {
         if (!cancelled) setLegacyLoading(false)
       }
@@ -100,11 +109,10 @@ export function KnowledgeSidebar({
     return () => {
       cancelled = true
     }
-  }, [projectSlug, workspaceId, buildHeaders])
+  }, [projectSlug, workspaceId, authReady])
 
   useEffect(() => {
-    const req = attentionFocusRequest
-    if (!req?.query || !req?.threadId || !projectSlug || !buildHeaders) {
+    if (!focusQuery || !focusThreadId || !projectSlug || !authReady) {
       return
     }
 
@@ -114,21 +122,26 @@ export function KnowledgeSidebar({
 
     void (async () => {
       try {
-        const headers = await buildHeaders()
+        const headers = await acquirePersistentHeaders(() => buildHeadersRef.current())
+        if (cancelled) return
         const data = await fetchActiveAttention(
           projectSlug,
-          req.threadId,
-          req.query,
+          focusThreadId,
+          focusQuery,
           headers
         )
         if (!cancelled) {
           setFocusData(data)
         }
       } catch (e) {
-        if (!cancelled) {
-          setFocusError(e?.message || 'Could not load active context focus')
+        if (cancelled) return
+        if (isAuthTokenUnavailable(e)) {
+          setFocusError(e?.message || 'Sign in required.')
           setFocusData(null)
+          return
         }
+        setFocusError(e?.message || 'Could not load active context focus')
+        setFocusData(null)
       } finally {
         if (!cancelled) {
           setFocusLoading(false)
@@ -139,7 +152,7 @@ export function KnowledgeSidebar({
     return () => {
       cancelled = true
     }
-  }, [attentionFocusRequest, projectSlug, buildHeaders])
+  }, [focusKey, focusQuery, focusThreadId, projectSlug, authReady])
 
   const handlePickFile = () => {
     if (disabled || uploading) return
