@@ -56,6 +56,7 @@ ProjectLibraryNavTrigger.defaultProps = {
 export function ProjectLibraryOverlay({
   open,
   onClose,
+  tenantId = null,
   activeProjectId = null,
   activeProjectName = '',
   buildHeaders,
@@ -64,19 +65,20 @@ export function ProjectLibraryOverlay({
   onNewProject,
   onOpenProject,
 }) {
-  const [pageState, setPageState] = useState({ items: [], nextCursor: null })
+  const [pageState, setPageState] = useState({ tenantId, items: [], nextCursor: null })
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState(null)
   const requestSeq = useRef(0)
   const loadPageRef = useRef(null)
-  const items = pageState.items
-  const nextCursor = pageState.nextCursor
+  const items = pageState.tenantId === tenantId ? pageState.items : []
+  const nextCursor = pageState.tenantId === tenantId ? pageState.nextCursor : null
+  const tenantMismatch = pageState.tenantId !== tenantId
 
   const loadPage = useCallback(
     async ({ cursor = null, append = false } = {}) => {
       if (!buildHeaders) {
-        setPageState({ items: [], nextCursor: null })
+        setPageState({ tenantId, items: [], nextCursor: null })
         setError(null)
         setLoading(false)
         setLoadingMore(false)
@@ -95,18 +97,22 @@ export function ProjectLibraryOverlay({
           cursor,
         })
         if (seq !== requestSeq.current) return
-        setPageState((prev) =>
-          applyProjectPage(
-            { items: append ? prev.items : [], nextCursor: null },
+        setPageState((prev) => {
+          const applied = applyProjectPage(
+            {
+              items: append && prev.tenantId === tenantId ? prev.items : [],
+              nextCursor: null,
+            },
             data,
             { maxItems: PROJECT_LIBRARY_MAX_ITEMS }
           )
-        )
+          return { tenantId, items: applied.items, nextCursor: applied.nextCursor }
+        })
         setError(null)
       } catch (e) {
         if (seq !== requestSeq.current) return
         setError(e?.message || 'Could not load projects.')
-        if (!append) setPageState({ items: [], nextCursor: null })
+        if (!append) setPageState({ tenantId, items: [], nextCursor: null })
       } finally {
         if (seq === requestSeq.current) {
           setLoading(false)
@@ -114,23 +120,24 @@ export function ProjectLibraryOverlay({
         }
       }
     },
-    [buildHeaders]
+    [buildHeaders, tenantId]
   )
   loadPageRef.current = loadPage
 
   useEffect(() => {
     if (!open || !PROJECT_LIBRARY_REOPEN_RESETS) return
     requestSeq.current += 1
-    setPageState({ items: [], nextCursor: null })
+    setPageState({ tenantId, items: [], nextCursor: null })
     setError(null)
     setLoading(true)
     void loadPageRef.current?.({ append: false })
-  }, [open])
+  }, [open, tenantId])
 
+  const listLoading = loading || tenantMismatch
   const emptyCopy = projectLibraryEmptyMessage({
     signedIn: Boolean(buildHeaders),
-    loading,
-    error,
+    loading: listLoading,
+    error: tenantMismatch ? null : error,
     itemCount: items.length,
   })
 
@@ -165,7 +172,7 @@ export function ProjectLibraryOverlay({
           </button>
         </div>
 
-        {error ? (
+        {error && !tenantMismatch ? (
           <p className="projects-error">
             {error}{' '}
             <button type="button" onClick={() => void loadPage({ append: false })}>
@@ -175,9 +182,9 @@ export function ProjectLibraryOverlay({
         ) : null}
 
         <div className="projects-body">
-          {loading ? <p className="projects-status">Loading projects…</p> : null}
-          {!loading && emptyCopy ? <div className="projects-empty">{emptyCopy}</div> : null}
-          {!loading && items.length > 0 ? (
+          {listLoading ? <p className="projects-status">Loading projects…</p> : null}
+          {!listLoading && emptyCopy ? <div className="projects-empty">{emptyCopy}</div> : null}
+          {!listLoading && items.length > 0 ? (
             <ul className="projects-list">
               {items.map((project) => {
                 const isActive = String(project.id) === String(activeProjectId || '')
@@ -233,6 +240,7 @@ export function ProjectLibraryOverlay({
 ProjectLibraryOverlay.propTypes = {
   open: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
+  tenantId: PropTypes.string,
   activeProjectId: PropTypes.string,
   activeProjectName: PropTypes.string,
   buildHeaders: PropTypes.func,
@@ -243,6 +251,7 @@ ProjectLibraryOverlay.propTypes = {
 }
 
 ProjectLibraryOverlay.defaultProps = {
+  tenantId: null,
   activeProjectId: null,
   activeProjectName: '',
   buildHeaders: null,

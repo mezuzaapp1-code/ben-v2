@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { isClerkPersistentSessionReady } from '../src/auth/clerkPersistentAccess.js'
 import { createWorkspaceFileInventory } from '../src/lib/workspaceFileInventory.js'
 import {
   PROJECT_LIBRARY_DEFAULT_LIMIT,
@@ -16,12 +17,21 @@ import {
   projectLibraryEmptyMessage,
 } from '../src/lib/projectLibrary.js'
 import {
+  activeProjectForTenant,
+  applyTenantScopeChange,
+  bindActiveProject,
   clearActiveProject,
   fileLibraryWorkspaceBinding,
   projectLibraryActiveCopy,
   reconcileActiveProject,
   selectActiveProject,
+  workspaceBindingForSession,
 } from '../src/lib/activeProject.js'
+import {
+  isOrganizationTenantId,
+  isPersonalTenantId,
+  resolveActiveTenantId,
+} from '../src/lib/tenantIdentity.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -48,9 +58,12 @@ assert(app.includes('<ProjectLibraryOverlay'), 'App wires overlay')
 assert(app.includes('<ProjectLibraryNavTrigger'), 'App wires nav')
 assert(app.includes('openProjectsLibrary'), 'open handler')
 assert(app.includes('handleOpenProject'), 'open project handler')
-assert(app.includes('setActiveProjectId(selected.id)'), 'Open updates activeProjectId')
-assert(app.includes('setActiveProjectName(selected.name)'), 'Open updates independent active name')
+assert(app.includes('bindActiveProject(sessionTenantId, project)'), 'Open stamps current tenant on active project')
+assert(app.includes('setActiveProject(selected)'), 'Open updates canonical active project')
 assert(app.includes('reconcileActiveProject'), 'page 1 refetch reconciles without dropping active')
+assert(app.includes('applyTenantScopeChange'), 'tenant change clears canonical identity')
+assert(app.includes('resolveActiveTenantId'), 'App resolves Clerk tenant identity')
+assert(app.includes('[persistentReady, persistentHeaders, sessionTenantId]'), 'org-switch retriggers bounded bootstrap')
 assert(!app.includes('projectOptions.find((p) => p.id === activeProjectId)'), 'name is not derived from page cache')
 
 {
@@ -141,18 +154,18 @@ assert(overlay.includes('projects-row__badge'), 'Active badge')
   assert(resurrected.id === 'B-1' && resurrected.name === 'Org B First', '5: new session auto-selects page 1')
 }
 
-assert(app.includes('clearActiveProject()'), 'sign-out clears via clearActiveProject')
-assert(app.includes('setActiveProjectId(cleared.id)'), 'sign-out clears activeProjectId')
-assert(app.includes('setActiveProjectName(cleared.name)'), 'sign-out clears activeProjectName')
+assert(app.includes('clearActiveProject(null)'), 'sign-out clears via clearActiveProject')
+assert(app.includes('setActiveProject(cleared)'), 'sign-out writes cleared canonical identity')
+assert(app.includes('tenantId={sessionTenantId}'), 'overlay reloads when tenant changes')
 
 assert(app.includes('workspaceName={activeProjectName}'), '8: File Library receives independent name')
 assert(app.includes('workspaceId={activeProjectId}'), '8: File Library receives active UUID')
 
 assert(app.includes('onOpenProject={handleOpenProject}'), '11: Open Project wired')
-assert(app.includes('setActiveProjectId(selected.id)'), '11: switches workspace id')
+assert(app.includes('bindActiveProject(sessionTenantId, project)'), '11: switches workspace id inside tenant')
 assert(
   app.includes('workspaceId: persistentReady ? activeProjectId || null : null'),
-  '11: inventory follows activeProjectId'
+  '11: inventory follows live tenant-bound activeProjectId'
 )
 
 {
@@ -215,6 +228,192 @@ assert(
   )
   assert(!requested.slice(1).includes('A-51'), '3: no A51 workspace request after sign-out')
 }
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+{
+  const orgA = resolveActiveTenantId({
+    clerkEnabled: true,
+    isSignedIn: true,
+    orgId: 'org_A',
+    userId: 'user_1',
+  })
+  const orgB = resolveActiveTenantId({
+    clerkEnabled: true,
+    isSignedIn: true,
+    orgId: 'org_B',
+    userId: 'user_1',
+  })
+  const personal = resolveActiveTenantId({
+    clerkEnabled: true,
+    isSignedIn: true,
+    orgId: null,
+    userId: 'user_1',
+  })
+  assert(orgA === 'org:org_A' && isOrganizationTenantId(orgA), 'tenant source: Clerk orgId → org tenant')
+  assert(orgB === 'org:org_B', 'company A and company B are distinct tenants')
+  assert(personal === 'personal:user_1' && isPersonalTenantId(personal), 'no orgId → personal tenant')
+  assert(
+    resolveActiveTenantId({ clerkEnabled: true, isSignedIn: false, orgId: 'org_A', userId: 'user_1' }) == null,
+    'signed out has no tenant'
+  )
+  assert(
+    isClerkPersistentSessionReady({ clerkEnabled: true, isLoaded: true, isSignedIn: true }),
+    '3: persistentReady stays true across org switch (orgId is not part of session-ready)'
+  )
+
+  const aPage1 = Array.from({ length: 50 }, (_, i) => ({
+    id: `A-${i + 1}`,
+    name: `Org A Project ${i + 1}`,
+  }))
+  const persistentReady = true
+  let jwt = 'Bearer org-a'
+  let tenantId = orgA
+  let active = bindActiveProject(tenantId, { id: 'A-51', name: 'Project A51' })
+  active = reconcileActiveProject(active, aPage1, tenantId)
+  assert(active.id === 'A-51' && active.name === 'Project A51', '1: Org A active project A51')
+  assert(active.tenantId === orgA, 'A51 is bound to org A')
+
+  const sameTenantRefetch = reconcileActiveProject(active, aPage1, tenantId)
+  assert(sameTenantRefetch.id === 'A-51', 'off-page A51 survives page-1 refetch within SAME tenant')
+  assert(sameTenantRefetch.name === 'Project A51', 'same-tenant refetch keeps A51 name')
+
+  const requested = []
+  const inventory = createWorkspaceFileInventory({
+    listFiles: async (workspaceId, headers) => {
+      requested.push({ workspaceId, jwt: headers?.Authorization || null })
+      return {
+        items: [{ id: `file-${workspaceId}`, display_name: workspaceId, status: 'ready' }],
+      }
+    },
+    uploadFile: async () => ({}),
+  })
+
+  let binding = workspaceBindingForSession({ persistentReady, tenantId, active })
+  inventory.configure({
+    workspaceId: binding.workspaceId,
+    buildHeaders: async () => ({ Authorization: jwt }),
+  })
+  await sleep(20)
+  assert(
+    requested.some((r) => r.workspaceId === 'A-51' && r.jwt === 'Bearer org-a'),
+    'A51 listed under org A JWT'
+  )
+
+  jwt = 'Bearer org-b'
+  tenantId = orgB
+  const switched = applyTenantScopeChange(active, tenantId)
+  assert(switched.changed, '2: org A → org B is a tenant change')
+  active = { tenantId: switched.tenantId, id: switched.id, name: switched.name }
+  assert(
+    isClerkPersistentSessionReady({ clerkEnabled: true, isLoaded: true, isSignedIn: true }),
+    '3: still signed in after org switch'
+  )
+  binding = workspaceBindingForSession({ persistentReady, tenantId, active })
+  assert(active.id == null && active.name === '', '4: activeProject becomes null before B workspace load')
+  assert(binding.workspaceId == null, '4: workspace binding is null before B load')
+  assert(projectLibraryActiveCopy(active) === 'No project selected', '8: UI never shows A51 as active under B')
+  assert(projectLibraryActiveCopy(active).includes('A51') === false, '8: A51 label gone')
+  inventory.configure({
+    workspaceId: binding.workspaceId,
+    buildHeaders: async () => ({ Authorization: jwt }),
+  })
+  await sleep(20)
+  assert(
+    !requested.some((r) => r.workspaceId === 'A-51' && r.jwt === 'Bearer org-b'),
+    '5: no request for A51 is sent with B JWT'
+  )
+  assert(inventory.getSnapshot().workspaceId == null, '2: inventory disabled for old project')
+  assert(inventory.getSnapshot().files.length === 0, '2: old workspace files cleared')
+
+  const bPage = [{ id: 'B-1', name: 'Org B First' }, { id: 'B-2', name: 'Org B Second' }]
+  active = reconcileActiveProject(active, bPage, tenantId)
+  assert(active.id === 'B-1' && active.name === 'Org B First', '6/7: B project list selects B project only')
+  assert(active.tenantId === orgB, '7: B project is bound to org B')
+  assert(active.id !== 'A-51', '7: A51 is not active under B')
+  binding = workspaceBindingForSession({ persistentReady, tenantId, active })
+  inventory.configure({
+    workspaceId: binding.workspaceId,
+    buildHeaders: async () => ({ Authorization: jwt }),
+  })
+  await sleep(20)
+  assert(
+    requested.some((r) => r.workspaceId === 'B-1' && r.jwt === 'Bearer org-b'),
+    '6: B workspace loads under B JWT'
+  )
+  assert(projectLibraryActiveCopy(active) === 'Active project: Org B First', '8: UI shows B, not A51')
+}
+
+{
+  const company = resolveActiveTenantId({
+    clerkEnabled: true,
+    isSignedIn: true,
+    orgId: 'org_A',
+    userId: 'user_1',
+  })
+  const personal = resolveActiveTenantId({
+    clerkEnabled: true,
+    isSignedIn: true,
+    orgId: null,
+    userId: 'user_1',
+  })
+  let active = bindActiveProject(company, { id: 'A-1', name: 'Company Project' })
+  let next = applyTenantScopeChange(active, personal)
+  active = { tenantId: next.tenantId, id: next.id, name: next.name }
+  assert(active.id == null, 'Company → Personal clears active project')
+  assert(projectLibraryActiveCopy(active) === 'No project selected', 'Company → Personal drops company label')
+  const personalPage = [{ id: 'P-1', name: 'Personal First' }]
+  active = reconcileActiveProject(active, personalPage, personal)
+  assert(active.id === 'P-1' && active.tenantId === personal, 'Personal bootstrap selects personal project')
+
+  next = applyTenantScopeChange(active, company)
+  active = { tenantId: next.tenantId, id: next.id, name: next.name }
+  assert(active.id == null, 'Personal → Company clears personal project')
+  assert(active.name === '', 'Personal → Company does not keep personal name')
+  const companyPage = [{ id: 'A-9', name: 'Company Nine' }]
+  active = reconcileActiveProject(active, companyPage, company)
+  assert(active.id === 'A-9' && active.tenantId === company, 'Company bootstrap selects company project')
+  assert(active.id !== 'P-1', 'personal project is not active under company')
+}
+
+{
+  const tenantId = resolveActiveTenantId({
+    clerkEnabled: true,
+    isSignedIn: true,
+    orgId: 'org_A',
+    userId: 'user_1',
+  })
+  let active = bindActiveProject(tenantId, { id: 'A-51', name: 'Project A51' })
+  const liveSignedOut = workspaceBindingForSession({
+    persistentReady: false,
+    tenantId,
+    active,
+  })
+  assert(liveSignedOut.workspaceId == null, 'sign-out still clears workspace binding while tenant key exists')
+  active = clearActiveProject(null)
+  assert(active.id == null && active.tenantId == null, 'sign-out still clears canonical active project')
+  assert(projectLibraryActiveCopy(active) === 'No project selected', 'sign-out copy has no old label')
+}
+
+{
+  const mismatched = activeProjectForTenant(
+    bindActiveProject('org:org_A', { id: 'A-51', name: 'Project A51' }),
+    'org:org_B'
+  )
+  assert(mismatched.id == null && mismatched.name === '', 'mismatched tenant rejects stored project')
+  assert(
+    fileLibraryWorkspaceBinding(
+      bindActiveProject('org:org_A', { id: 'A-51', name: 'Project A51' }),
+      'org:org_B'
+    ).workspaceId == null,
+    'File Library does not keep A51 under B'
+  )
+}
+
+assert(overlay.includes('tenantId'), 'overlay receives tenant identity')
+assert(overlay.includes('[open, tenantId]'), 'overlay reloads page 1 on tenant change')
 
 assert(app.includes('<NewProjectModal'), '13: New Project modal remains')
 assert(overlay.includes('onNewProject'), '13: library reuses New Project')

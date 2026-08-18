@@ -212,23 +212,54 @@ def test_file_lifecycle_inventory_clear_on_workspace_change_still_present():
     assert "scopeChanged" in src
     assert "files = []" in src
     app = Path("frontend/src/App.jsx").read_text()
-    assert "setActiveProjectId(selected.id)" in app
+    assert "bindActiveProject" in app
     assert "reconcileActiveProject" in app
-    assert "selectActiveProject" in app
+    assert "applyTenantScopeChange" in app
+    assert "resolveActiveTenantId" in app
+    assert "sessionTenantId" in app
     assert "clearActiveProject" in app
-    assert "setActiveProjectId(cleared.id)" in app
     assert "workspaceFileInventory.configure" in app
     assert "workspaceId: persistentReady ? activeProjectId || null : null" in app
 
 
-def test_active_project_not_derived_from_page1_cache():
+def test_active_project_is_tenant_bound_and_not_derived_from_page1_cache():
     app = Path("frontend/src/App.jsx").read_text()
     helper = Path("frontend/src/lib/activeProject.js").read_text()
+    tenant = Path("frontend/src/lib/tenantIdentity.js").read_text()
     assert "reconcileActiveProject" in helper
-    assert "selectActiveProject" in helper
+    assert "bindActiveProject" in helper
+    assert "applyTenantScopeChange" in helper
+    assert "activeProjectForTenant" in helper
+    assert "orgId" in tenant and "userId" in tenant
     assert "projectOptions.find((p) => p.id === activeProjectId)" not in app
+    assert "[persistentReady, persistentHeaders, sessionTenantId]" in app
     overlay = Path("frontend/src/components/ProjectLibraryOverlay.jsx").read_text()
     assert "projectLibraryActiveCopy" in overlay
+    assert "[open, tenantId]" in overlay
+
+
+def test_signed_in_org_isolation_unchanged():
+    """Gate A / org isolation still filters list by JWT org, not frontend membership."""
+    seen: list[str] = []
+
+    async def list_projects(org_id, **_k):
+        seen.append(str(org_id))
+        return {
+            "items": [{"id": "aaa", "name": "A", "status": "active", "updated_at": None, "file_count": 0}],
+            "next_cursor": None,
+            "projects": [],
+        }
+
+    client = TestClient(main.app)
+    with patch("routers.projects.list_projects", side_effect=list_projects):
+        with patch_clerk_user("org_a_user", org_id=ORG_A, org_role="org:member"):
+            a = client.get("/api/projects?limit=50", headers=AUTH_HEADER)
+        with patch_clerk_user("org_b_user", org_id=ORG_B, org_role="org:member"):
+            b = client.get("/api/projects?limit=50", headers=AUTH_HEADER)
+    assert a.status_code == 200
+    assert b.status_code == 200
+    assert seen == [ORG_A, ORG_B]
+    assert a.json()["items"][0]["id"] != "from-b"
 
 
 def test_no_n_plus_one_in_project_library_overlay():
