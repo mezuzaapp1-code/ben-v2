@@ -1,6 +1,6 @@
 import { OrganizationSwitcher, SignInButton, SignOutButton, useAuth } from '@clerk/clerk-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { buildBenHeaders } from './api/benHeaders.js'
+import { acquirePersistentHeaders, buildBenHeaders, isAuthTokenUnavailable } from './api/benHeaders.js'
 import { CLERK_ORG_REQUIRED, parseBenErrorResponse } from './api/benErrors.js'
 import { postAdhocExpertStream } from './api/adhoc.js'
 import { humanizeChatFetchError, postChatStream } from './api/chat.js'
@@ -611,6 +611,12 @@ function App() {
       })),
     [getToken, activeProjectName, betaSession]
   )
+  const buildAppHeadersRef = useRef(buildAppHeaders)
+  buildAppHeadersRef.current = buildAppHeaders
+  const persistentHeaders = useCallback(
+    (extraHeaders = {}) => buildAppHeadersRef.current(extraHeaders),
+    []
+  )
 
   const COMPOSER_SCROLL_GUTTER_PX = 24
 
@@ -651,7 +657,7 @@ function App() {
     [threads, activeId]
   )
 
-  const platformFeatures = usePlatformActiveFeatures(persistentReady ? buildAppHeaders : null)
+  const platformFeatures = usePlatformActiveFeatures(persistentReady ? persistentHeaders : null)
 
   const [catalogKeysOverride, setCatalogKeysOverride] = useState(null)
 
@@ -754,35 +760,36 @@ function App() {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      if (!persistentReady || !getToken) {
+      if (!persistentReady) {
         if (!cancelled) setProjectOptions([])
         return
       }
       try {
-        const headers = await buildAppHeaders()
+        const headers = await acquirePersistentHeaders(persistentHeaders)
         const data = await fetchProjects(headers)
         if (cancelled) return
         const list = data.projects || []
         setProjectOptions(list)
         if (!activeProjectId && list[0]?.id) setActiveProjectId(list[0].id)
-      } catch {
+      } catch (err) {
+        if (isAuthTokenUnavailable(err)) return
         if (!cancelled) setProjectOptions([])
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [persistentReady, getToken, buildAppHeaders, activeProjectId])
+  }, [persistentReady, persistentHeaders, activeProjectId])
 
   useEffect(() => {
     workspaceFileInventory.configure({
       workspaceId: persistentReady ? activeProjectId || null : null,
-      buildHeaders: persistentReady ? buildAppHeaders : null,
+      buildHeaders: persistentReady ? persistentHeaders : null,
     })
     return () => {
       workspaceFileInventory.configure({ workspaceId: null, buildHeaders: null })
     }
-  }, [persistentReady, activeProjectId, buildAppHeaders])
+  }, [persistentReady, activeProjectId, persistentHeaders])
 
   useEffect(() => {
     const footer = composerFooterRef.current
@@ -2345,7 +2352,7 @@ function App() {
       <DiscoveryCenterOverlay
         open={catalogOpen}
         onClose={() => setCatalogOpen(false)}
-        buildHeaders={persistentReady ? buildAppHeaders : null}
+        buildHeaders={persistentReady ? persistentHeaders : null}
         disabled={loading || !persistentReady}
         featureState={platformFeatures}
         onFeaturesChange={handleWorkspaceFeaturesChange}
@@ -2364,7 +2371,7 @@ function App() {
         onClose={closeFilesLibrary}
         workspaceId={activeProjectId}
         workspaceName={activeProjectName}
-        buildHeaders={persistentReady ? buildAppHeaders : null}
+        buildHeaders={persistentReady ? persistentHeaders : null}
         disabled={fileUploading || !persistentReady}
       />
       <AppTopBar
@@ -2429,13 +2436,13 @@ function App() {
             />
             <KnowledgeBasesPanel
               embedded
-              buildHeaders={persistentReady ? buildAppHeaders : null}
+              buildHeaders={persistentReady ? persistentHeaders : null}
               disabled={loading || !persistentReady}
             />
             <KnowledgeSidebar
               projectSlug={active?.projectSlug || null}
               workspaceId={activeProjectId}
-              buildHeaders={persistentReady ? buildAppHeaders : null}
+              buildHeaders={persistentReady ? persistentHeaders : null}
               disabled={loading || fileUploading || !persistentReady}
               attentionFocusRequest={attentionFocusRequest}
               onOpenFileLibrary={openFilesLibrary}
@@ -2454,7 +2461,7 @@ function App() {
             />
             <ProjectRepositoriesDashboard
               projectSlug={active?.projectSlug || null}
-              buildHeaders={persistentReady ? buildAppHeaders : null}
+              buildHeaders={persistentReady ? persistentHeaders : null}
               disabled={loading || !persistentReady}
             />
           </section>

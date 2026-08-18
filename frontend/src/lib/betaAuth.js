@@ -5,11 +5,11 @@ export const BETA_ALIAS_STORAGE_KEY = 'basalt-beta-alias'
 export const BETA_ORG_ID_STORAGE_KEY = 'basalt-beta-org-id'
 
 export function isBetaGateEnabled() {
-  return Boolean(import.meta.env.VITE_BETA_PASSCODE?.trim())
+  return Boolean(import.meta.env?.VITE_BETA_PASSCODE?.trim())
 }
 
 export function configuredBetaPasscode() {
-  return import.meta.env.VITE_BETA_PASSCODE?.trim() || ''
+  return import.meta.env?.VITE_BETA_PASSCODE?.trim() || ''
 }
 
 export function getBetaAlias() {

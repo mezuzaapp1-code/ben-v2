@@ -434,7 +434,7 @@ assert(threadsApi.includes('unavailableChatNote(m.unavailable_count)'), 'mapApiM
   })
   inventory.configure({
     workspaceId: 'ws-1',
-    buildHeaders: async () => ({}),
+    buildHeaders: async () => ({ Authorization: 'Bearer test-token' }),
   })
   await sleep(12)
   assert(listCalls >= 1, 'inventory loads immediately on configure')
