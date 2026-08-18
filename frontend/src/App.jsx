@@ -71,6 +71,7 @@ import { NewProjectModal } from './components/NewProjectModal.jsx'
 import { CapabilityCatalogTrigger, DiscoveryCenterOverlay } from './components/DiscoveryCenter.jsx'
 import { NewsNavTrigger, NewsOverlay } from './components/NewsOverlay.jsx'
 import { PROJECT_LIBRARY_DEFAULT_LIMIT } from './lib/projectLibrary.js'
+import { reconcileActiveProject, selectActiveProject } from './lib/activeProject.js'
 import {
   FileLibraryNavTrigger,
   FileLibraryOverlay,
@@ -523,6 +524,7 @@ function App() {
     coerceRegisteredModel('gemini', DEFAULT_PROVIDER_MODELS.gemini)
   )
   const [activeProjectId, setActiveProjectId] = useState(null)
+  const [activeProjectName, setActiveProjectName] = useState('')
   const [projectOptions, setProjectOptions] = useState([])
   const [projectToast, setProjectToast] = useState(null)
   const [toolTelemetry, setToolTelemetry] = useState(null)
@@ -553,10 +555,8 @@ function App() {
   const creditCaptureRef = useRef(null)
   const attachFileRef = useRef(null)
 
-  const activeProjectName = useMemo(
-    () => projectOptions.find((p) => p.id === activeProjectId)?.name ?? '',
-    [projectOptions, activeProjectId]
-  )
+  const activeProjectRef = useRef({ id: null, name: '' })
+  activeProjectRef.current = { id: activeProjectId, name: activeProjectName }
 
   const closeNavDrawer = useCallback(() => setNavDrawerOpen(false), [])
   const closeNavDrawerIfOverlay = useCallback(() => {
@@ -769,20 +769,10 @@ function App() {
   const closeProjectsLibrary = useCallback(() => setProjectsOpen(false), [])
 
   const handleOpenProject = useCallback((project) => {
-    const id = String(project?.id || '').trim()
-    if (!id) return
-    setActiveProjectId(id)
-    setProjectOptions((prev) => {
-      if (prev.some((row) => row.id === id)) return prev
-      return [
-        {
-          id,
-          name: project.name || 'Project',
-          status: project.status || 'active',
-        },
-        ...prev,
-      ]
-    })
+    const selected = selectActiveProject(project)
+    if (!selected.id) return
+    setActiveProjectId(selected.id)
+    setActiveProjectName(selected.name)
     setProjectsOpen(false)
   }, [])
 
@@ -802,9 +792,15 @@ function App() {
         const headers = await acquirePersistentHeaders(persistentHeaders)
         const data = await fetchProjects(headers, { limit: PROJECT_LIBRARY_DEFAULT_LIMIT })
         if (cancelled) return
-        const list = data.items || data.projects || []
+        const list = Array.isArray(data.items)
+          ? data.items
+          : Array.isArray(data.projects)
+            ? data.projects
+            : []
         setProjectOptions(list)
-        if (!activeProjectId && list[0]?.id) setActiveProjectId(list[0].id)
+        const next = reconcileActiveProject(activeProjectRef.current, list)
+        if (next.id !== activeProjectRef.current.id) setActiveProjectId(next.id)
+        if (next.name !== activeProjectRef.current.name) setActiveProjectName(next.name)
       } catch (err) {
         if (isAuthTokenUnavailable(err)) return
         if (!cancelled) setProjectOptions([])
@@ -2299,11 +2295,16 @@ function App() {
         setStoredActiveThreadId(entry.id)
 
         if (projectId) {
-          setActiveProjectId(projectId)
+          const selected = selectActiveProject({
+            id: projectId,
+            name: projectTitle || projectSlug || 'New project',
+          })
+          setActiveProjectId(selected.id)
+          setActiveProjectName(selected.name)
           setProjectOptions((prev) => {
             if (prev.some((project) => project.id === projectId)) return prev
             return [
-              { id: projectId, name: projectTitle || projectSlug || 'New project' },
+              { id: projectId, name: selected.name },
               ...prev,
             ]
           })

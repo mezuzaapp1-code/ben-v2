@@ -15,6 +15,12 @@ import {
   mergeProjectPage,
   projectLibraryEmptyMessage,
 } from '../src/lib/projectLibrary.js'
+import {
+  fileLibraryWorkspaceBinding,
+  projectLibraryActiveCopy,
+  reconcileActiveProject,
+  selectActiveProject,
+} from '../src/lib/activeProject.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -41,7 +47,10 @@ assert(app.includes('<ProjectLibraryOverlay'), 'App wires overlay')
 assert(app.includes('<ProjectLibraryNavTrigger'), 'App wires nav')
 assert(app.includes('openProjectsLibrary'), 'open handler')
 assert(app.includes('handleOpenProject'), 'open project handler')
-assert(app.includes('setActiveProjectId(id)'), 'Open updates activeProjectId')
+assert(app.includes('setActiveProjectId(selected.id)'), 'Open updates activeProjectId')
+assert(app.includes('setActiveProjectName(selected.name)'), 'Open updates independent active name')
+assert(app.includes('reconcileActiveProject'), 'page 1 refetch reconciles without dropping active')
+assert(!app.includes('projectOptions.find((p) => p.id === activeProjectId)'), 'name is not derived from page cache')
 
 {
   const page = {
@@ -75,11 +84,45 @@ assert(app.includes('setActiveProjectId(id)'), 'Open updates activeProjectId')
 assert(overlay.includes('Load more'), 'Load more control')
 assert(overlay.includes("append: true"), 'load more appends')
 assert(overlay.includes('projects-row--active'), '10: active project visually marked')
-assert(overlay.includes('Active project:'), 'active project subtitle')
+assert(overlay.includes('projectLibraryActiveCopy'), 'active copy uses identity helper')
 assert(overlay.includes('projects-row__badge'), 'Active badge')
 
+{
+  const page1 = Array.from({ length: 50 }, (_, i) => ({
+    id: `p-${i + 1}`,
+    name: `Project ${i + 1}`,
+  }))
+  const project51 = { id: 'p-51', name: 'Project 51' }
+
+  const auto = reconcileActiveProject({ id: null, name: '' }, page1)
+  assert(auto.id === 'p-1' && auto.name === 'Project 1', 'A: page 1 open/auto-select keeps id/name')
+
+  const opened = selectActiveProject(project51)
+  assert(opened.id === 'p-51', '3: open project 51 sets id')
+  assert(opened.name === 'Project 51', 'B: open project 51 sets name')
+
+  const afterRefetch = reconcileActiveProject(opened, page1)
+  assert(afterRefetch.id === 'p-51', '4/6: page 1 refetch keeps activeProjectId = 51')
+  assert(afterRefetch.name === 'Project 51', '5/7: page 1 refetch keeps activeProjectName')
+  assert(
+    projectLibraryActiveCopy(afterRefetch) === 'Active project: Project 51',
+    'C: subtitle remains truthful'
+  )
+  assert(
+    !projectLibraryActiveCopy(afterRefetch).includes('No project selected'),
+    'C: UI does not show No project selected'
+  )
+
+  const files = fileLibraryWorkspaceBinding(afterRefetch)
+  assert(files.workspaceId === 'p-51', '8: File Library workspace UUID is 51')
+  assert(files.workspaceName === 'Project 51', '8: File Library workspace name is 51')
+}
+
+assert(app.includes('workspaceName={activeProjectName}'), '8: File Library receives independent name')
+assert(app.includes('workspaceId={activeProjectId}'), '8: File Library receives active UUID')
+
 assert(app.includes('onOpenProject={handleOpenProject}'), '11: Open Project wired')
-assert(app.includes('setActiveProjectId(id)'), '11: switches workspace id')
+assert(app.includes('setActiveProjectId(selected.id)'), '11: switches workspace id')
 assert(
   app.includes('workspaceId: persistentReady ? activeProjectId || null : null'),
   '11: inventory follows activeProjectId'

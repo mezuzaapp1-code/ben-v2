@@ -212,9 +212,21 @@ def test_file_lifecycle_inventory_clear_on_workspace_change_still_present():
     assert "scopeChanged" in src
     assert "files = []" in src
     app = Path("frontend/src/App.jsx").read_text()
-    assert "setActiveProjectId(id)" in app
+    assert "setActiveProjectId(selected.id)" in app
+    assert "reconcileActiveProject" in app
+    assert "selectActiveProject" in app
     assert "workspaceFileInventory.configure" in app
     assert "workspaceId: persistentReady ? activeProjectId || null : null" in app
+
+
+def test_active_project_not_derived_from_page1_cache():
+    app = Path("frontend/src/App.jsx").read_text()
+    helper = Path("frontend/src/lib/activeProject.js").read_text()
+    assert "reconcileActiveProject" in helper
+    assert "selectActiveProject" in helper
+    assert "projectOptions.find((p) => p.id === activeProjectId)" not in app
+    overlay = Path("frontend/src/components/ProjectLibraryOverlay.jsx").read_text()
+    assert "projectLibraryActiveCopy" in overlay
 
 
 def test_no_n_plus_one_in_project_library_overlay():

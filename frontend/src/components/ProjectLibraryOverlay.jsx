@@ -2,6 +2,7 @@ import PropTypes from 'prop-types'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { acquirePersistentHeaders } from '../api/benHeaders.js'
 import { fetchProjects } from '../api/projects.js'
+import { projectLibraryActiveCopy } from '../lib/activeProject.js'
 import {
   PROJECT_LIBRARY_DEFAULT_LIMIT,
   PROJECT_LIBRARY_MAX_ITEMS,
@@ -145,9 +146,7 @@ export function ProjectLibraryOverlay({
           <div>
             <h2 className="projects-overlay__title">Projects</h2>
             <p className="projects-overlay__subtitle">
-              {activeProjectName
-                ? `Active project: ${activeProjectName}`
-                : 'No project selected'}
+              {projectLibraryActiveCopy({ id: activeProjectId, name: activeProjectName })}
             </p>
           </div>
           <button type="button" className="projects-overlay__close" onClick={onClose} aria-label="Close">
