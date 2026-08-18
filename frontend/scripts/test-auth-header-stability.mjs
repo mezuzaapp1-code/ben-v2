@@ -283,9 +283,28 @@ assert(app.includes('buildAppHeadersRef'), 'App stores latest token builder in a
 assert(app.includes('[persistentReady, activeProjectId, persistentHeaders]'), 'inventory configure ignores getToken identity')
 assert(!app.includes('[persistentReady, activeProjectId, buildAppHeaders]'), 'old header-identity configure deps removed')
 assert(app.includes('acquirePersistentHeaders(persistentHeaders)'), 'projects wait for a real token')
+assert(
+  app.includes('const headers = await acquirePersistentHeaders(persistentHeaders)'),
+  'standard chat send waits for a real token'
+)
+{
+  const configureBlock = app.slice(
+    app.indexOf('workspaceFileInventory.configure({'),
+    app.indexOf('workspaceFileInventory.configure({') + 520
+  )
+  const firstEffect = configureBlock.split('useEffect')[0]
+  assert(
+    !firstEffect.includes('return () =>') || !firstEffect.includes('workspaceId: null'),
+    'J: configure effect does not wipe inventory on dep cleanup'
+  )
+}
+assert(
+  /useEffect\(\(\) => \{\s*return \(\) => \{\s*workspaceFileInventory\.configure\(\{ workspaceId: null/.test(app),
+  'unmount still clears inventory'
+)
 assert(app.includes('isAuthTokenUnavailable'), 'projects do not treat transient token-null as empty workspace')
 
-assert(sidebar.includes('acquirePersistentHeaders'), 'focus waits for persistent headers')
+assert(sidebar.includes('createActiveFocusController'), 'focus uses retry/success lifecycle')
 assert(sidebar.includes('focusKey, focusQuery, focusThreadId, projectSlug, authReady'), 'D: focus key is not header identity')
 assert(!sidebar.includes('[attentionFocusRequest, projectSlug, buildHeaders]'), 'D: old focus deps removed')
 assert(sidebar.includes('buildHeadersRef'), 'focus reads latest headers at request time')

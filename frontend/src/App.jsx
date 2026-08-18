@@ -786,10 +786,13 @@ function App() {
       workspaceId: persistentReady ? activeProjectId || null : null,
       buildHeaders: persistentReady ? persistentHeaders : null,
     })
+  }, [persistentReady, activeProjectId, persistentHeaders])
+
+  useEffect(() => {
     return () => {
       workspaceFileInventory.configure({ workspaceId: null, buildHeaders: null })
     }
-  }, [persistentReady, activeProjectId, persistentHeaders])
+  }, [])
 
   useEffect(() => {
     const footer = composerFooterRef.current
@@ -1102,16 +1105,16 @@ function App() {
     if (!tid || !threads.some((x) => x.id === tid)) tid = newThread()
 
     if (!text) return
-    const userMsg = { role: 'user', content: text }
-    setInput('')
-    setThreads((prev) =>
-      prev.map((t) =>
-        t.id === tid ? { ...t, title: text.slice(0, 48) || t.title, messages: [...t.messages, userMsg] } : t
-      )
-    )
     setLoading(true)
     try {
-      const headers = await buildAppHeaders()
+      const headers = await acquirePersistentHeaders(persistentHeaders)
+      const userMsg = { role: 'user', content: text }
+      setInput('')
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.id === tid ? { ...t, title: text.slice(0, 48) || t.title, messages: [...t.messages, userMsg] } : t
+        )
+      )
       const apiThreadId = serverThreadIdForApi(tid)
       const threadProjectSlug = threads.find((x) => x.id === tid)?.projectSlug
       if (threadProjectSlug && text) {
@@ -1266,7 +1269,9 @@ function App() {
         setOrgBanner({ message: parsed.message, hint: parsed.hint })
         return
       }
-      const msg = parsed?.message || humanizeChatFetchError(e)
+      const msg = isAuthTokenUnavailable(e)
+        ? e.message || 'Sign in required.'
+        : parsed?.message || humanizeChatFetchError(e)
       setThreads((prev) =>
         prev.map((t) =>
           t.id === tid
@@ -1293,7 +1298,7 @@ function App() {
     activeSpeakingProviderId,
     activeModelOverride,
     newThread,
-    buildAppHeaders,
+    persistentHeaders,
     activeProjectId,
   ])
 

@@ -12,7 +12,8 @@
     "test:files": "node scripts/test-files-ui.mjs",
     "test:files-status": "node scripts/test-files-status-honesty.mjs",
     "test:auth": "node scripts/test-clerk-persistent-access.mjs",
-    "test:auth-headers": "node scripts/test-auth-header-stability.mjs"
+    "test:auth-headers": "node scripts/test-auth-header-stability.mjs",
+    "test:files-lifecycle-ux": "node scripts/test-files-lifecycle-ux-truth.mjs"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.61.3",

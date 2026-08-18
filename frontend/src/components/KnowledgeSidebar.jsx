@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { acquirePersistentHeaders, isAuthTokenUnavailable } from '../api/benHeaders.js'
 import { fetchActiveAttention, fetchProjectKnowledgeFiles } from '../api/knowledge.js'
 import { FileLifecycleStatus } from './FileLifecycleStatus.jsx'
 import { useWorkspaceFileInventory, workspaceFileInventory } from '../hooks/useWorkspaceFileInventory.jsx'
+import { createActiveFocusController } from '../lib/activeFocusSession.js'
 import { deriveFileStage, formatByteSize, processingPercent } from '../lib/fileStatus.js'
 import './KnowledgeSidebar.css'
 
@@ -58,9 +59,6 @@ export function KnowledgeSidebar({
   const [legacyLoading, setLegacyLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState(null)
-  const [focusData, setFocusData] = useState(null)
-  const [focusLoading, setFocusLoading] = useState(false)
-  const [focusError, setFocusError] = useState(null)
   const usingInventory = Boolean(workspaceId)
   const files = usingInventory ? inventory.rows : legacyFiles
   const loading = usingInventory ? inventory.loading : legacyLoading
@@ -73,6 +71,23 @@ export function KnowledgeSidebar({
   const focusKey = attentionFocusRequest?.key || null
   const buildHeadersRef = useRef(buildHeaders)
   buildHeadersRef.current = buildHeaders
+  const focusControllerRef = useRef(null)
+  if (focusControllerRef.current == null) {
+    focusControllerRef.current = createActiveFocusController({
+      acquireHeaders: () => acquirePersistentHeaders(() => buildHeadersRef.current()),
+      fetchFocus: fetchActiveAttention,
+      retryDelayMs: 200,
+    })
+  }
+  const focusController = focusControllerRef.current
+  const focusSnap = useSyncExternalStore(
+    focusController.subscribe,
+    focusController.getSnapshot,
+    focusController.getSnapshot
+  )
+  const focusData = focusSnap.data
+  const focusError = focusSnap.error
+  const focusLoading = focusSnap.loading
 
   useEffect(() => {
     if (workspaceId || !projectSlug || !authReady) {
@@ -112,47 +127,21 @@ export function KnowledgeSidebar({
   }, [projectSlug, workspaceId, authReady])
 
   useEffect(() => {
+    return () => {
+      focusController.stop()
+    }
+  }, [focusController])
+
+  useEffect(() => {
     if (!focusQuery || !focusThreadId || !projectSlug || !authReady) {
       return
     }
-
-    let cancelled = false
-    setFocusLoading(true)
-    setFocusError(null)
-
-    void (async () => {
-      try {
-        const headers = await acquirePersistentHeaders(() => buildHeadersRef.current())
-        if (cancelled) return
-        const data = await fetchActiveAttention(
-          projectSlug,
-          focusThreadId,
-          focusQuery,
-          headers
-        )
-        if (!cancelled) {
-          setFocusData(data)
-        }
-      } catch (e) {
-        if (cancelled) return
-        if (isAuthTokenUnavailable(e)) {
-          setFocusError(e?.message || 'Sign in required.')
-          setFocusData(null)
-          return
-        }
-        setFocusError(e?.message || 'Could not load active context focus')
-        setFocusData(null)
-      } finally {
-        if (!cancelled) {
-          setFocusLoading(false)
-        }
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [focusKey, focusQuery, focusThreadId, projectSlug, authReady])
+    focusController.start({
+      projectSlug,
+      threadId: focusThreadId,
+      query: focusQuery,
+    })
+  }, [focusController, focusKey, focusQuery, focusThreadId, projectSlug, authReady])
 
   const handlePickFile = () => {
     if (disabled || uploading) return

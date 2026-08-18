@@ -13,6 +13,11 @@ import {
   formatByteSize,
   processingPercent,
 } from '../lib/fileStatus.js'
+import {
+  FILE_LIBRARY_REOPEN_RESETS_TO_ALL,
+  fileLibraryEmptyMessage,
+  filterLibraryItems,
+} from '../lib/fileLibraryView.js'
 import './FileLibraryOverlay.css'
 
 const ACCEPT =
@@ -102,27 +107,24 @@ export function FileLibraryOverlay({
     }
   }, [previewUrl])
 
-  const visibleItems = useMemo(() => {
-    let list = items
-    const needle = q.trim().toLowerCase()
-    if (needle) {
-      list = list.filter((item) => {
-        const name = `${item.display_name || ''} ${item.original_filename || ''}`.toLowerCase()
-        return name.includes(needle)
-      })
-    }
-    if (view === 'processing') {
-      list = list.filter((item) => {
-        const stage = deriveFileStage(item, { upload: item.upload })
-        return stage === 'uploading' || stage === 'queued' || stage === 'extracting' || stage === 'indexing'
-      })
-    } else if (view === 'failed') {
-      list = list.filter((item) => deriveFileStage(item, { upload: item.upload }) === 'failed')
-    } else if (view === 'recent') {
-      list = list.slice(0, 20)
-    }
-    return list
-  }, [items, q, view])
+  useEffect(() => {
+    if (!open || !FILE_LIBRARY_REOPEN_RESETS_TO_ALL) return
+    setView('all')
+    setQ('')
+    setSearchInput('')
+  }, [open])
+
+  const visibleItems = useMemo(
+    () => filterLibraryItems(items, view, q),
+    [items, q, view]
+  )
+  const emptyCopy = fileLibraryEmptyMessage({
+    workspaceId,
+    view,
+    query: q,
+    inventoryCount: items.length,
+    visibleCount: visibleItems.length,
+  })
 
   const runUpload = useCallback(
     async (fileList) => {
@@ -256,7 +258,7 @@ export function FileLibraryOverlay({
         </header>
 
         {!workspaceId ? (
-          <div className="files-empty">Select an active workspace/project to open the File Library.</div>
+          <div className="files-empty">{fileLibraryEmptyMessage({ workspaceId: null })}</div>
         ) : (
           <>
             <div className="files-toolbar">
@@ -366,11 +368,7 @@ export function FileLibraryOverlay({
             <div className="files-body">
               <div className="files-list" aria-live="polite">
                 {loading && !visibleItems.length ? <div className="files-empty">Loading…</div> : null}
-                {!loading && !visibleItems.length ? (
-                  <div className="files-empty">
-                    No files yet. Upload a document to start this workspace library.
-                  </div>
-                ) : null}
+                {!loading && emptyCopy ? <div className="files-empty">{emptyCopy}</div> : null}
                 {visibleItems.map((item) => {
                   const stage = deriveFileStage(item, { upload: item.upload })
                   const localOnly = Boolean(item.upload?.localId && !item.upload?.fileId && String(item.id || '').startsWith('upload-'))
