@@ -12,6 +12,7 @@ import {
   deriveFileStage,
   fileStatusLabel,
   fileStageLabel,
+  isNonTerminalFile,
   isNonTerminalFileStatus,
   isTerminalFileStatus,
   mergeFileInventory,
@@ -45,9 +46,11 @@ assert(fileStatusLabel('uploaded') === FILE_STATUS_LABELS.queued, 'uploaded maps
 assert(isNonTerminalFileStatus('queued') === true, 'queued is non-terminal')
 
 // 2. processing/extracting displays as Extracting
-assert(fileStatusLabel('processing') === 'Extracting', 'processing label')
-assert(fileStatusLabel({ status: 'queued', extraction_status: 'extracting' }) === 'Extracting' || fileStageLabel(deriveFileStage({ status: 'queued', extraction_status: 'extracting' })) === 'Extracting', 'extracting stage')
-assert(fileStageLabel(deriveFileStage({ status: 'queued', extraction_status: 'extracting' })) === 'Extracting', 'extracting label')
+assert(fileStatusLabel('processing') === 'Queued', 'processing without a running job is queued')
+assert(
+  fileStageLabel(deriveFileStage({ status: 'queued', extraction_status: 'extracting', job_status: 'running' })) === 'Extracting',
+  'extracting label'
+)
 assert(isNonTerminalFileStatus('processing') === true, 'processing is non-terminal')
 
 // 3. ready displays as Ready
@@ -307,14 +310,16 @@ assert(threadsApi.includes('unavailableChatNote(m.unavailable_count)'), 'mapApiM
 }
 
 {
-  const queued = { id: '1', status: 'queued', extraction_status: 'pending', index_status: 'not_indexed' }
-  const extracting = { id: '1', status: 'queued', extraction_status: 'extracting', index_status: 'not_indexed' }
-  const indexing = { id: '1', status: 'queued', extraction_status: 'complete', index_status: 'indexing' }
-  const ready = { id: '1', status: 'ready', extraction_status: 'complete', index_status: 'indexed' }
-  const failed = { id: '1', status: 'failed', extraction_status: 'failed', failure_message: 'No usable text' }
+  const queued = { id: '1', status: 'queued', extraction_status: 'pending', index_status: 'not_indexed', job_status: 'queued' }
+  const extracting = { id: '1', status: 'queued', extraction_status: 'extracting', index_status: 'not_indexed', job_status: 'running' }
+  const indexing = { id: '1', status: 'queued', extraction_status: 'extracting', index_status: 'indexing', job_status: 'running' }
+  const indexingComplete = { id: '1', status: 'queued', extraction_status: 'complete', index_status: 'indexing', job_status: 'running' }
+  const ready = { id: '1', status: 'ready', extraction_status: 'complete', index_status: 'indexed', job_status: 'succeeded' }
+  const failed = { id: '1', status: 'failed', extraction_status: 'failed', job_status: null }
   assert(deriveFileStage(queued) === 'queued', 'queued after upload')
-  assert(deriveFileStage(extracting) === 'extracting', 'queued to extracting')
-  assert(deriveFileStage(indexing) === 'indexing', 'extracting to indexing')
+  assert(deriveFileStage(extracting) === 'extracting', 'running job is extracting')
+  assert(deriveFileStage(indexing) === 'indexing', 'running+indexing is not hidden by extracting flag')
+  assert(deriveFileStage(indexingComplete) === 'indexing', 'complete+indexing is indexing')
   assert(deriveFileStage(ready) === 'ready', 'indexing to ready')
   assert(deriveFileStage(failed) === 'failed', 'failed visible')
   assert(fileStageLabel('failed') === 'Failed', 'failed label')
@@ -326,15 +331,63 @@ assert(threadsApi.includes('unavailableChatNote(m.unavailable_count)'), 'mapApiM
   assert(
     deriveFileStage({
       status: 'queued',
+      extraction_status: 'extracting',
+      index_status: 'not_indexed',
+      job_status: 'queued',
+    }) === 'queued',
+    'crash during extracting requeue is queued'
+  )
+  assert(
+    deriveFileStage({
+      status: 'queued',
+      extraction_status: 'extracting',
+      index_status: 'indexing',
+      job_status: 'queued',
+    }) === 'queued',
+    'crash during indexing requeue is queued'
+  )
+  assert(
+    deriveFileStage({
+      status: 'failed',
+      extraction_status: 'failed',
+      index_status: 'failed',
+      job_status: 'queued',
+    }) === 'queued',
+    'queued retry overrides stale failed flags'
+  )
+  assert(
+    deriveFileStage({
+      status: 'failed',
+      extraction_status: 'extracting',
+      job_status: 'running',
+    }) === 'extracting',
+    'running retry restores extracting'
+  )
+  assert(
+    deriveFileStage({
+      status: 'queued',
+      extraction_status: 'extracting',
+      job_status: 'failed',
+    }) === 'failed',
+    'max-attempts failed job is failed'
+  )
+  assert(
+    deriveFileStage({
+      status: 'ready',
+      extraction_status: 'extracting',
+      index_status: 'indexing',
+      job_status: 'running',
+    }) === 'ready',
+    'Ready wins over stale job/file intermediate flags'
+  )
+  assert(
+    deriveFileStage({
+      status: 'queued',
       extraction_status: 'complete',
       index_status: 'indexed',
       processing_stage: 'ready',
     }) !== 'ready',
     'no false READY from processing_stage'
-  )
-  assert(
-    deriveFileStage({ status: 'queued', extraction_status: 'complete', index_status: 'indexed' }) !== 'ready',
-    'no false READY from complete+indexed while status queued'
   )
 }
 
@@ -351,10 +404,11 @@ assert(threadsApi.includes('unavailableChatNote(m.unavailable_count)'), 'mapApiM
 
 {
   const states = [
-    { items: [{ id: 'f1', status: 'queued', extraction_status: 'pending', index_status: 'not_indexed', processing_stage: 'queued' }] },
-    { items: [{ id: 'f1', status: 'queued', extraction_status: 'extracting', index_status: 'not_indexed', processing_stage: 'extracting' }] },
-    { items: [{ id: 'f1', status: 'queued', extraction_status: 'complete', index_status: 'indexing', processing_stage: 'indexing' }] },
-    { items: [{ id: 'f1', status: 'ready', extraction_status: 'complete', index_status: 'indexed', processing_stage: 'ready' }] },
+    { items: [{ id: 'f1', status: 'queued', extraction_status: 'pending', index_status: 'not_indexed', job_status: 'queued', processing_stage: 'queued' }] },
+    { items: [{ id: 'f1', status: 'failed', extraction_status: 'failed', index_status: 'failed', job_status: 'queued', processing_stage: 'queued' }] },
+    { items: [{ id: 'f1', status: 'queued', extraction_status: 'extracting', index_status: 'not_indexed', job_status: 'running', processing_stage: 'extracting' }] },
+    { items: [{ id: 'f1', status: 'queued', extraction_status: 'extracting', index_status: 'indexing', job_status: 'running', processing_stage: 'indexing' }] },
+    { items: [{ id: 'f1', status: 'ready', extraction_status: 'complete', index_status: 'indexed', job_status: 'succeeded', processing_stage: 'ready' }] },
   ]
   let idx = 0
   let listCalls = 0
@@ -384,19 +438,49 @@ assert(threadsApi.includes('unavailableChatNote(m.unavailable_count)'), 'mapApiM
   })
   await sleep(12)
   assert(listCalls >= 1, 'inventory loads immediately on configure')
-  await sleep(80)
+  await sleep(120)
   assert(seen.includes('queued'), 'inventory saw queued')
   assert(seen.includes('extracting'), 'inventory saw extracting')
+  assert(seen.includes('indexing'), 'indexing is actually shown')
   assert(seen.includes('ready'), 'inventory reached ready')
   assert(seen.indexOf('queued') < seen.indexOf('extracting'), 'queued before extracting')
-  assert(seen.indexOf('extracting') < seen.indexOf('ready'), 'extracting before ready')
-  assert(!seen.includes('ready') || seen.filter((s) => s === 'ready').length >= 1, 'ready observed')
+  assert(seen.indexOf('extracting') < seen.indexOf('indexing'), 'extracting before indexing')
+  assert(seen.indexOf('indexing') < seen.indexOf('ready'), 'indexing before ready')
   await sleep(40)
   const callsAtReady = listCalls
   await sleep(40)
   assert(listCalls === callsAtReady, `polling stops at terminal ready (calls=${listCalls} after=${callsAtReady})`)
   assert(maxInFlight <= 1, 'inventory never overlaps list requests')
   inventory.stopPoller()
+}
+
+assert(
+  isNonTerminalFile({ status: 'failed', extraction_status: 'failed', job_status: 'queued' }) === true,
+  'poller does not treat stale failed file as terminal while job is queued'
+)
+assert(
+  isNonTerminalFile({ status: 'queued', extraction_status: 'extracting', job_status: 'failed' }) === false,
+  'max-attempts failed job is terminal'
+)
+assert(
+  isNonTerminalFile({ status: 'ready', job_status: 'running' }) === false,
+  'ready is terminal even if job flags lag'
+)
+
+{
+  const files = [{ status: 'queued', job_status: 'failed' }]
+  let calls = 0
+  const poller = createBoundedStatusPoller({
+    shouldPoll: () => files.some((f) => isNonTerminalFile(f)),
+    refresh: async () => {
+      calls += 1
+    },
+    intervalMs: 8,
+  })
+  poller.start()
+  await sleep(20)
+  assert(calls === 0, 'no polling when job is terminally failed')
+  poller.stop()
 }
 
 console.log('OK: Gate 1 file status honesty checks passed')

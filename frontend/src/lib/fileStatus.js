@@ -31,8 +31,6 @@ export const FILE_STATUS_LABELS = {
   failed: FILE_STAGE_LABELS.failed,
 }
 
-const KNOWN_STAGES = new Set(Object.values(FILE_STAGES))
-
 export function normalizeFileStatus(status) {
   return String(status || '')
     .trim()
@@ -67,24 +65,25 @@ export function deriveFileStage(file, { upload } = {}) {
   const status = normalizeFileStatus(file?.status)
   const extraction = normalizeFileStatus(file?.extraction_status) || 'pending'
   const index = normalizeFileStatus(file?.index_status) || 'not_indexed'
-  const backendStage = normalizeFileStatus(file?.processing_stage)
+  const job = normalizeFileStatus(file?.job_status)
 
+  // Fail-closed: never show READY unless the backend file status is ready.
+  if (status === 'ready') return FILE_STAGES.ready
+
+  if (job === 'running') {
+    const extractionDone = extraction === 'complete' || extraction === 'partial'
+    if (index === 'indexing' || (extractionDone && index !== 'indexed')) {
+      return FILE_STAGES.indexing
+    }
+    return FILE_STAGES.extracting
+  }
+  if (job === 'queued') return FILE_STAGES.queued
+  if (job === 'failed') return FILE_STAGES.failed
+
+  // succeeded / cancelled / none: ignore stale extracting/indexing file flags.
   if (status === 'failed' || extraction === 'failed' || index === 'failed') {
     return FILE_STAGES.failed
   }
-  // Fail-closed: never show READY unless the backend status is ready.
-  if (status === 'ready') return FILE_STAGES.ready
-  if (backendStage === FILE_STAGES.ready && status !== 'ready') {
-    // Inconsistent payload — ignore claimed READY.
-  } else if (backendStage && KNOWN_STAGES.has(backendStage) && backendStage !== FILE_STAGES.uploading) {
-    if (backendStage !== FILE_STAGES.ready) return backendStage
-  }
-  if (extraction === 'extracting') return FILE_STAGES.extracting
-  if (index === 'indexing') return FILE_STAGES.indexing
-  if ((extraction === 'complete' || extraction === 'partial') && index !== 'indexed') {
-    return FILE_STAGES.indexing
-  }
-  if (status === 'processing') return FILE_STAGES.extracting
   return FILE_STAGES.queued
 }
 

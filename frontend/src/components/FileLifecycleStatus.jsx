@@ -46,6 +46,7 @@ export function FileLifecycleBubble({ message }) {
     display_name: message?.file_name || message?.content,
     status: message?.file_status,
     processing_stage: message?.processing_stage,
+    job_status: message?.job_status,
     extraction_status: message?.extraction_status,
     index_status: message?.index_status,
     failure_message: message?.failure_message,

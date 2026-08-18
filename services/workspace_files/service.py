@@ -12,10 +12,10 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import desc, or_, select, text
 
 from database.connection import get_db_session
-from database.models import Project, WorkspaceFile
+from database.models import DocumentProcessingJob, Project, WorkspaceFile
 from services.ops.request_context import attach_request_id
 from services.workspace_files import storage
-from services.workspace_files.lifecycle import derive_processing_stage
+from services.workspace_files.lifecycle import derive_processing_stage, job_status_by_file_id
 from services.workspace_files.chunk_retriever import (
     MAX_CHARS_PER_FILE,
     MAX_EVIDENCE_CHARS,
@@ -77,10 +77,11 @@ def _iso(dt: datetime | None) -> str | None:
     return dt.isoformat()
 
 
-def _payload(row: WorkspaceFile) -> dict[str, Any]:
+def _payload(row: WorkspaceFile, job_status: str | None = None) -> dict[str, Any]:
     extraction_status = getattr(row, "extraction_status", None) or "pending"
     index_status = getattr(row, "index_status", None) or "not_indexed"
     page_count = getattr(row, "page_count", None)
+    resolved_job = job_status if job_status is not None else getattr(row, "job_status", None)
     return {
         "id": str(row.id),
         "organization_id": str(row.org_id),
@@ -105,10 +106,31 @@ def _payload(row: WorkspaceFile) -> dict[str, Any]:
         "page_count": page_count,
         "indexed_chunk_count": getattr(row, "indexed_chunk_count", None),
         "indexed_at": _iso(getattr(row, "indexed_at", None)),
+        "job_status": resolved_job,
         # Derived stage for Sidebar / File Library / composer. Never READY
-        # unless row.status is already ready.
-        "processing_stage": derive_processing_stage(row),
+        # unless row.status is already ready. Never Extracting/Indexing unless
+        # the durable job is running.
+        "processing_stage": derive_processing_stage(row, resolved_job),
     }
+
+
+async def _job_status_map_for_files(
+    session,
+    *,
+    org_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    file_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, str]:
+    """Latest relevant job status per file. Strict org + workspace + file scope."""
+    if not file_ids:
+        return {}
+    stmt = select(DocumentProcessingJob).where(
+        DocumentProcessingJob.org_id == org_id,
+        DocumentProcessingJob.workspace_id == workspace_id,
+        DocumentProcessingJob.file_id.in_(file_ids),
+    )
+    jobs = (await session.execute(stmt)).scalars().all()
+    return job_status_by_file_id(jobs)
 
 
 def _preview_kind(media_type: str, filename: str) -> str:
@@ -225,7 +247,7 @@ async def upload_file(
         await session.commit()
         await session.refresh(row)
         file_uuid = row.id
-        payload = _payload(row)
+        payload = _payload(row, job_status="queued" if async_enabled else None)
 
     if async_enabled:
         # Durable async path: return 'queued'; a drain will process it to READY.
@@ -337,9 +359,15 @@ async def list_files(
             )
         stmt = stmt.order_by(desc(WorkspaceFile.created_at)).limit(limit)
         rows = (await session.execute(stmt)).scalars().all()
+        job_map = await _job_status_map_for_files(
+            session,
+            org_id=org_id,
+            workspace_id=workspace_id,
+            file_ids=[r.id for r in rows],
+        )
     return attach_request_id(
         {
-            "items": [_payload(r) for r in rows],
+            "items": [_payload(r, job_status=job_map.get(r.id)) for r in rows],
             "count": len(rows),
             "workspace_id": str(workspace_id),
             "max_upload_bytes": MAX_UPLOAD_BYTES,
@@ -361,7 +389,13 @@ async def get_file(
         row = await session.get(WorkspaceFile, file_id)
         if row is None or row.org_id != org_id or row.workspace_id != workspace_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
-        payload = _payload(row)
+        job_map = await _job_status_map_for_files(
+            session,
+            org_id=org_id,
+            workspace_id=workspace_id,
+            file_ids=[file_id],
+        )
+        payload = _payload(row, job_status=job_map.get(file_id))
         if include_text_preview and row.extracted_text:
             payload["text_preview"] = row.extracted_text[:8000]
     return attach_request_id(payload)

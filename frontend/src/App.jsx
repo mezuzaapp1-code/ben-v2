@@ -1777,6 +1777,7 @@ function App() {
             file_name: result?.display_name || file.name,
             file_status: status,
             processing_stage: result?.processing_stage,
+            job_status: result?.job_status,
             extraction_status: result?.extraction_status,
             index_status: result?.index_status,
             failure_message: result?.failure_message,
