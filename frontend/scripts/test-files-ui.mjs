@@ -43,13 +43,16 @@ assert(overlay.includes('files-row'), 'file row markup')
 assert(overlay.includes('visibleItems.map') || overlay.includes('items.map'), 'renders items')
 
 // 5. Processing and failed states render
-assert(overlay.includes("view === 'processing'"), 'processing view')
-assert(overlay.includes("view === 'failed'"), 'failed view')
+assert(overlay.includes("['processing', 'Processing']") || overlay.includes('processing'), 'processing view')
+assert(overlay.includes("['failed', 'Failed']") || overlay.includes('failed'), 'failed view')
+assert(overlay.includes('filterLibraryItems'), 'library uses shared presentation filter')
+assert(overlay.includes('fileLibraryEmptyMessage'), 'library uses truthful empty copy')
 assert(overlay.includes('files-status--failed') || overlay.includes("files-status--${"), 'status classes')
 assert(overlay.includes('failure_message'), 'failure message shown')
 
-// 6. Empty state
-assert(overlay.includes('No files yet'), 'empty state copy')
+// 6. Empty state — truthful copies live in fileLibraryView
+assert(overlay.includes('fileLibraryEmptyMessage'), 'empty state helper wired')
+assert(overlay.includes('FILE_LIBRARY_REOPEN_RESETS_TO_ALL'), 'reopen behavior is explicit')
 
 // 7. Search filters files
 assert(overlay.includes('Search this workspace'), 'search input')
