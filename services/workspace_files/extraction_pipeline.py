@@ -132,7 +132,8 @@ async def run_structured_extraction(
         filename = row.original_filename
         storage_key = row.storage_key
         row.extraction_status = "extracting"
-        row.index_status = "indexing"
+        # Indexing is a later stage; claiming both together hid INDEXING from the UI.
+        row.index_status = "not_indexed"
         row.processing_error = None
         await session.commit()
 
@@ -165,6 +166,10 @@ async def run_structured_extraction(
             parser.parse, path, media_type=media_type, filename=filename, max_pages=MAX_EXTRACT_PAGES,
         )
         parse_ms = round((time.perf_counter() - t_parse) * 1000.0, 1)
+
+        # Parse finished; chunk persist is the indexing stage. Status stays
+        # non-ready so retrieval cannot see the file early.
+        await _mark(file_id, org_id, index_status="indexing")
 
         t_chunk = time.perf_counter()
         chunks = chunk_structured_document(doc)

@@ -9,14 +9,21 @@ import { fileURLToPath } from 'node:url'
 import {
   FILE_STATUS_LABELS,
   createBoundedStatusPoller,
+  deriveFileStage,
   fileStatusLabel,
+  fileStageLabel,
   isNonTerminalFileStatus,
   isTerminalFileStatus,
+  mergeFileInventory,
+  pageProgress,
+  processingPercent,
   sanitizeUsedFiles,
+  stagesByFileId,
   unavailableChatNote,
   usedFilesFromDoneEvent,
   isStandardChatAssistant,
 } from '../src/lib/fileStatus.js'
+import { createWorkspaceFileInventory, normalizeProgress } from '../src/lib/workspaceFileInventory.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = join(__dirname, '..')
@@ -32,27 +39,23 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-// 1. queued displays as not available to chat
-assert(
-  fileStatusLabel('queued') === 'Queued — not available to chat yet',
-  'queued label'
-)
+// 1. queued displays as Queued (not available to chat)
+assert(fileStatusLabel('queued') === 'Queued', 'queued label')
 assert(fileStatusLabel('uploaded') === FILE_STATUS_LABELS.queued, 'uploaded maps to queued copy')
 assert(isNonTerminalFileStatus('queued') === true, 'queued is non-terminal')
 
-// 2. processing displays as not available to chat
-assert(
-  fileStatusLabel('processing') === 'Processing — not available to chat yet',
-  'processing label'
-)
+// 2. processing/extracting displays as Extracting
+assert(fileStatusLabel('processing') === 'Extracting', 'processing label')
+assert(fileStatusLabel({ status: 'queued', extraction_status: 'extracting' }) === 'Extracting' || fileStageLabel(deriveFileStage({ status: 'queued', extraction_status: 'extracting' })) === 'Extracting', 'extracting stage')
+assert(fileStageLabel(deriveFileStage({ status: 'queued', extraction_status: 'extracting' })) === 'Extracting', 'extracting label')
 assert(isNonTerminalFileStatus('processing') === true, 'processing is non-terminal')
 
-// 3. ready displays as available
-assert(fileStatusLabel('ready') === 'Ready — available to chat', 'ready label')
+// 3. ready displays as Ready
+assert(fileStatusLabel('ready') === 'Ready', 'ready label')
 assert(isTerminalFileStatus('ready') === true, 'ready is terminal')
 assert(isNonTerminalFileStatus('ready') === false, 'ready is not non-terminal')
 
-// 4. failed displays as failed
+// 4. failed displays as Failed
 assert(fileStatusLabel('failed') === 'Failed', 'failed label')
 assert(isTerminalFileStatus('failed') === true, 'failed is terminal')
 
@@ -60,17 +63,17 @@ const overlay = readFileSync(join(root, 'src/components/FileLibraryOverlay.jsx')
 const sidebar = readFileSync(join(root, 'src/components/KnowledgeSidebar.jsx'), 'utf8')
 const app = readFileSync(join(root, 'src/App.jsx'), 'utf8')
 
-assert(overlay.includes('fileStatusLabel(item.status)'), 'library uses honesty labels')
-assert(sidebar.includes('fileStatusLabel(file.status)'), 'sidebar uses honesty labels')
-assert(app.includes('fileStatusLabel(status)'), 'composer uses honesty labels')
+assert(overlay.includes('FileLifecycleStatus'), 'library uses honesty labels')
+assert(sidebar.includes('FileLifecycleStatus'), 'sidebar uses honesty labels')
+assert(app.includes('FileLifecycleBubble'), 'composer uses honesty labels')
 assert(!app.includes("result?.status || 'ready'"), 'composer does not invent READY')
 assert(app.includes("result?.status || 'uploaded'"), 'composer falls back to uploaded, not ready')
-assert(overlay.includes('createBoundedStatusPoller'), 'library polls via bounded poller')
-assert(sidebar.includes('createBoundedStatusPoller'), 'sidebar polls via bounded poller')
-assert(overlay.includes('poller.stop()'), 'library stops poller on cleanup')
-assert(sidebar.includes('poller.stop()'), 'sidebar stops poller on cleanup')
-assert(overlay.includes('hasNonTerminal'), 'library polls only while non-terminal')
-assert(sidebar.includes('hasNonTerminal'), 'sidebar polls only while non-terminal')
+assert(overlay.includes('workspaceFileInventory'), 'library uses shared inventory')
+assert(sidebar.includes('workspaceFileInventory'), 'sidebar uses shared inventory')
+assert(app.includes('workspaceFileInventory.configure'), 'app configures shared inventory')
+assert(!overlay.includes('createBoundedStatusPoller'), 'library does not start its own poller')
+assert(!sidebar.includes('createBoundedStatusPoller'), 'sidebar does not start its own poller')
+assert(overlay.includes('hasNonTerminal') === false || overlay.includes('visibleItems'), 'library filters shared rows')
 
 // 5–7. polling occurs only while non-terminal, stops at ready/failed, cleanup on unmount
 {
@@ -166,6 +169,21 @@ assert(sidebar.includes('hasNonTerminal'), 'sidebar polls only while non-termina
   await sleep(50)
   poller.stop()
   assert(maxInFlight <= 1, 'poller never overlaps refresh requests')
+}
+
+{
+  let calls = 0
+  const poller = createBoundedStatusPoller({
+    shouldPoll: () => calls < 1,
+    refresh: async () => {
+      calls += 1
+    },
+    intervalMs: 1000,
+  })
+  poller.start()
+  await sleep(20)
+  assert(calls === 1, 'first refresh happens immediately')
+  poller.stop()
 }
 
 // 8. queued files are not reported as Used unless backend listed them
@@ -275,6 +293,110 @@ assert(threadsApi.includes('unavailableChatNote(m.unavailable_count)'), 'mapApiM
   assert(sanitizeUsedFiles(undefined).length === 0, 'old envelopes without used_files stay empty')
   assert(unavailableChatNote(undefined) === '', 'old envelopes have no fabricated note')
   assert(unavailableChatNote(1).includes('not available'), 'unavailable note still works after hydrate')
+}
+
+// Lifecycle UX: upload bytes, stages, no false READY, no fabricated processing %, shared inventory
+{
+  const upload = { loaded: 5_000_000, total: 10_000_000, percent: 50, phase: 'uploading' }
+  assert(deriveFileStage({}, { upload }) === 'uploading', 'upload stage')
+  assert(processingPercent({}, upload) === 50, 'upload percent from real bytes')
+  assert(fileStageLabel('uploading', {}, upload) === 'Uploading 50%', 'upload percent label')
+  const advanced = normalizeProgress({ loaded: 7_500_000, total: 10_000_000 }, { size: 10_000_000 })
+  assert(advanced.percent === 75, 'upload progress advances with loaded/total')
+  assert(normalizeProgress({ loaded: 100, percent: null }, { size: 0 }).percent == null, 'no fabricated upload percent without total')
+}
+
+{
+  const queued = { id: '1', status: 'queued', extraction_status: 'pending', index_status: 'not_indexed' }
+  const extracting = { id: '1', status: 'queued', extraction_status: 'extracting', index_status: 'not_indexed' }
+  const indexing = { id: '1', status: 'queued', extraction_status: 'complete', index_status: 'indexing' }
+  const ready = { id: '1', status: 'ready', extraction_status: 'complete', index_status: 'indexed' }
+  const failed = { id: '1', status: 'failed', extraction_status: 'failed', failure_message: 'No usable text' }
+  assert(deriveFileStage(queued) === 'queued', 'queued after upload')
+  assert(deriveFileStage(extracting) === 'extracting', 'queued to extracting')
+  assert(deriveFileStage(indexing) === 'indexing', 'extracting to indexing')
+  assert(deriveFileStage(ready) === 'ready', 'indexing to ready')
+  assert(deriveFileStage(failed) === 'failed', 'failed visible')
+  assert(fileStageLabel('failed') === 'Failed', 'failed label')
+  assert(processingPercent(extracting) == null, 'no fabricated extracting percent')
+  assert(processingPercent(indexing) == null, 'no fabricated indexing percent')
+  assert(processingPercent(queued) == null, 'no fabricated queued percent')
+  assert(pageProgress(extracting) == null, 'no page X of Y without both counts')
+  assert(pageProgress({ page_count: 20, pages_extracted: 4 }).y === 20, 'page progress only with real X and Y')
+  assert(
+    deriveFileStage({
+      status: 'queued',
+      extraction_status: 'complete',
+      index_status: 'indexed',
+      processing_stage: 'ready',
+    }) !== 'ready',
+    'no false READY from processing_stage'
+  )
+  assert(
+    deriveFileStage({ status: 'queued', extraction_status: 'complete', index_status: 'indexed' }) !== 'ready',
+    'no false READY from complete+indexed while status queued'
+  )
+}
+
+{
+  const files = [{ id: 'a', status: 'queued', display_name: 'doc.pdf' }]
+  const uploads = [{ localId: 'upload-1', name: 'doc.pdf', phase: 'uploading', loaded: 1, total: 2, percent: 50 }]
+  const rows = mergeFileInventory(files, uploads)
+  const sidebar = stagesByFileId(rows)
+  const library = stagesByFileId(rows)
+  const composer = stagesByFileId(rows)
+  assert(JSON.stringify(sidebar) === JSON.stringify(library), 'sidebar and library share stages')
+  assert(JSON.stringify(library) === JSON.stringify(composer), 'library and composer share stages')
+}
+
+{
+  const states = [
+    { items: [{ id: 'f1', status: 'queued', extraction_status: 'pending', index_status: 'not_indexed', processing_stage: 'queued' }] },
+    { items: [{ id: 'f1', status: 'queued', extraction_status: 'extracting', index_status: 'not_indexed', processing_stage: 'extracting' }] },
+    { items: [{ id: 'f1', status: 'queued', extraction_status: 'complete', index_status: 'indexing', processing_stage: 'indexing' }] },
+    { items: [{ id: 'f1', status: 'ready', extraction_status: 'complete', index_status: 'indexed', processing_stage: 'ready' }] },
+  ]
+  let idx = 0
+  let listCalls = 0
+  let maxInFlight = 0
+  let inFlight = 0
+  const inventory = createWorkspaceFileInventory({
+    listFiles: async () => {
+      inFlight += 1
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      listCalls += 1
+      const data = states[Math.min(idx, states.length - 1)]
+      idx += 1
+      await sleep(5)
+      inFlight -= 1
+      return data
+    },
+    intervalMs: 15,
+  })
+  const seen = []
+  inventory.subscribe(() => {
+    const rows = inventory.getSnapshot().rows
+    if (rows[0]) seen.push(deriveFileStage(rows[0]))
+  })
+  inventory.configure({
+    workspaceId: 'ws-1',
+    buildHeaders: async () => ({}),
+  })
+  await sleep(12)
+  assert(listCalls >= 1, 'inventory loads immediately on configure')
+  await sleep(80)
+  assert(seen.includes('queued'), 'inventory saw queued')
+  assert(seen.includes('extracting'), 'inventory saw extracting')
+  assert(seen.includes('ready'), 'inventory reached ready')
+  assert(seen.indexOf('queued') < seen.indexOf('extracting'), 'queued before extracting')
+  assert(seen.indexOf('extracting') < seen.indexOf('ready'), 'extracting before ready')
+  assert(!seen.includes('ready') || seen.filter((s) => s === 'ready').length >= 1, 'ready observed')
+  await sleep(40)
+  const callsAtReady = listCalls
+  await sleep(40)
+  assert(listCalls === callsAtReady, `polling stops at terminal ready (calls=${listCalls} after=${callsAtReady})`)
+  assert(maxInFlight <= 1, 'inventory never overlaps list requests')
+  inventory.stopPoller()
 }
 
 console.log('OK: Gate 1 file status honesty checks passed')

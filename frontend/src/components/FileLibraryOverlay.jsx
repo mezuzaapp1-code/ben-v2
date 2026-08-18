@@ -4,14 +4,14 @@ import {
   deleteWorkspaceFile,
   fetchWorkspaceFileBlob,
   getWorkspaceFile,
-  listWorkspaceFiles,
   retryWorkspaceFile,
-  uploadWorkspaceFile,
 } from '../api/workspaceFiles.js'
+import { FileLifecycleStatus } from './FileLifecycleStatus.jsx'
+import { useWorkspaceFileInventory, workspaceFileInventory } from '../hooks/useWorkspaceFileInventory.jsx'
 import {
-  createBoundedStatusPoller,
-  fileStatusLabel,
-  isNonTerminalFileStatus,
+  deriveFileStage,
+  formatByteSize,
+  processingPercent,
 } from '../lib/fileStatus.js'
 import './FileLibraryOverlay.css'
 
@@ -19,10 +19,7 @@ const ACCEPT =
   '.pdf,.docx,.doc,.txt,.md,.markdown,.csv,.xlsx,.pptx,.png,.jpg,.jpeg,.gif,.webp,.json,application/pdf,text/plain,text/markdown,text/csv,image/*'
 
 function formatBytes(n) {
-  const v = Number(n) || 0
-  if (v < 1024) return `${v} B`
-  if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`
-  return `${(v / (1024 * 1024)).toFixed(1)} MB`
+  return formatByteSize(n)
 }
 
 function formatWhen(iso) {
@@ -80,68 +77,24 @@ export function FileLibraryOverlay({
   disabled = false,
 }) {
   const [view, setView] = useState('all') // all | recent | processing | failed
-  const [items, setItems] = useState([])
-  const [loading, setLoading] = useState(false)
+  const inventory = useWorkspaceFileInventory()
   const [error, setError] = useState(null)
   const [q, setQ] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [uploading, setUploading] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadError, setUploadError] = useState(null)
   const [dragActive, setDragActive] = useState(false)
   const [preview, setPreview] = useState(null)
   const [previewUrl, setPreviewUrl] = useState(null)
   const [busyId, setBusyId] = useState(null)
   const fileInputRef = useRef(null)
-  const itemsRef = useRef(items)
-  itemsRef.current = items
-
-  const statusFilter = useMemo(() => {
-    if (view === 'processing') return 'processing'
-    if (view === 'failed') return 'failed'
-    return undefined
-  }, [view])
-
-  const load = useCallback(async ({ silent = false } = {}) => {
-    if (!open || !workspaceId || !buildHeaders) return
-    if (!silent) {
-      setLoading(true)
-      setError(null)
-    }
-    try {
-      const headers = await buildHeaders()
-      const data = await listWorkspaceFiles(workspaceId, headers, {
-        status: statusFilter,
-        q: q || undefined,
-        limit: view === 'recent' ? 20 : 100,
-      })
-      setItems(Array.isArray(data.items) ? data.items : [])
-    } catch (e) {
-      if (!silent) {
-        setError(e?.message || 'Could not load files')
-        setItems([])
-      }
-    } finally {
-      if (!silent) setLoading(false)
-    }
-  }, [open, workspaceId, buildHeaders, statusFilter, q, view])
-
-  useEffect(() => {
-    if (!open) return
-    void load()
-  }, [open, load])
-
-  const hasNonTerminal = items.some((item) => isNonTerminalFileStatus(item.status))
-
-  useEffect(() => {
-    if (!open || !workspaceId || !hasNonTerminal) return undefined
-    const poller = createBoundedStatusPoller({
-      shouldPoll: () => itemsRef.current.some((item) => isNonTerminalFileStatus(item.status)),
-      refresh: () => load({ silent: true }),
-    })
-    poller.start()
-    return () => poller.stop()
-  }, [open, workspaceId, hasNonTerminal, load])
+  const items = inventory.rows
+  const loading = inventory.loading
+  const activeUpload = (inventory.uploads || []).find((item) => item.phase === 'uploading')
+  const uploadProgress = processingPercent(null, activeUpload)
+  const load = useCallback(async () => {
+    await workspaceFileInventory.refresh()
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -149,33 +102,45 @@ export function FileLibraryOverlay({
     }
   }, [previewUrl])
 
+  const visibleItems = useMemo(() => {
+    let list = items
+    const needle = q.trim().toLowerCase()
+    if (needle) {
+      list = list.filter((item) => {
+        const name = `${item.display_name || ''} ${item.original_filename || ''}`.toLowerCase()
+        return name.includes(needle)
+      })
+    }
+    if (view === 'processing') {
+      list = list.filter((item) => {
+        const stage = deriveFileStage(item, { upload: item.upload })
+        return stage === 'uploading' || stage === 'queued' || stage === 'extracting' || stage === 'indexing'
+      })
+    } else if (view === 'failed') {
+      list = list.filter((item) => deriveFileStage(item, { upload: item.upload }) === 'failed')
+    } else if (view === 'recent') {
+      list = list.slice(0, 20)
+    }
+    return list
+  }, [items, q, view])
+
   const runUpload = useCallback(
     async (fileList) => {
-      // Copy immediately — clearing input.value can empty a live FileList.
       const files = Array.from(fileList || []).filter(Boolean)
       if (!files.length || !workspaceId || uploading || disabled) return
       setUploading(true)
       setUploadError(null)
-      setUploadProgress(0)
       try {
-        const headers = await buildHeaders()
-        delete headers['Content-Type']
-        delete headers['content-type']
         for (const file of files) {
-          setUploadProgress(0)
-          await uploadWorkspaceFile(workspaceId, file, headers, {
-            onProgress: setUploadProgress,
-          })
+          await workspaceFileInventory.uploadFile(file)
         }
-        setUploadProgress(100)
-        await load()
       } catch (e) {
         setUploadError(e?.message || 'Upload failed')
       } finally {
         setUploading(false)
       }
     },
-    [workspaceId, uploading, disabled, buildHeaders, load]
+    [workspaceId, uploading, disabled]
   )
 
   const openPreview = useCallback(
@@ -337,7 +302,11 @@ export function FileLibraryOverlay({
                 disabled={disabled || uploading}
                 onClick={() => fileInputRef.current?.click()}
               >
-                {uploading ? `Uploading ${uploadProgress}%` : 'Upload'}
+                {uploading
+                  ? uploadProgress != null
+                    ? `Uploading ${uploadProgress}%`
+                    : 'Uploading'
+                  : 'Upload'}
               </button>
               <input
                 ref={fileInputRef}
@@ -382,25 +351,30 @@ export function FileLibraryOverlay({
               <p className="files-dropzone__hint">
                 PDF, DOCX, TXT, Markdown, CSV, XLSX, PPTX, images — max 50 MB
               </p>
-              {uploading ? (
+              {uploading && uploadProgress != null ? (
                 <div className="files-progress" aria-label="Upload progress">
                   <div className="files-progress__bar" style={{ width: `${uploadProgress}%` }} />
                 </div>
+              ) : uploading ? (
+                <p className="files-dropzone__hint">Uploading…</p>
               ) : null}
               {uploadError ? <p className="files-error">{uploadError}</p> : null}
             </div>
 
-            {error ? <p className="files-error">{error}</p> : null}
+            {error || inventory.error ? <p className="files-error">{error || inventory.error}</p> : null}
 
             <div className="files-body">
               <div className="files-list" aria-live="polite">
-                {loading && !items.length ? <div className="files-empty">Loading…</div> : null}
-                {!loading && !items.length ? (
+                {loading && !visibleItems.length ? <div className="files-empty">Loading…</div> : null}
+                {!loading && !visibleItems.length ? (
                   <div className="files-empty">
                     No files yet. Upload a document to start this workspace library.
                   </div>
                 ) : null}
-                {items.map((item) => (
+                {visibleItems.map((item) => {
+                  const stage = deriveFileStage(item, { upload: item.upload })
+                  const localOnly = Boolean(item.upload?.localId && !item.upload?.fileId && String(item.id || '').startsWith('upload-'))
+                  return (
                   <article key={item.id} className="files-row">
                     <div className="files-row__main">
                       <div className="files-row__name" title={item.display_name}>
@@ -412,35 +386,33 @@ export function FileLibraryOverlay({
                         <span>{formatWhen(item.created_at)}</span>
                         {item.uploaded_by ? <span>{item.uploaded_by}</span> : null}
                       </div>
-                      {item.status === 'failed' && item.failure_message ? (
-                        <p className="files-row__fail">{item.failure_message}</p>
+                      {stage === 'failed' && (item.failure_message || item.upload?.error) ? (
+                        <p className="files-row__fail">{item.failure_message || item.upload?.error}</p>
                       ) : null}
-                      {item.status === 'ready' && item.failure_message ? (
+                      {stage === 'ready' && item.failure_message ? (
                         <p className="files-row__warn">{item.failure_message}</p>
                       ) : null}
                     </div>
                     <div className="files-row__side">
-                      <span
-                        className={`files-status files-status--${String(item.status || '').toLowerCase()}`}
-                      >
-                        {fileStatusLabel(item.status)}
+                      <span className={`files-status files-status--${stage}`}>
+                        <FileLifecycleStatus file={item} upload={item.upload} />
                       </span>
                       <div className="files-row__actions">
                         <button
                           type="button"
-                          disabled={busyId === item.id}
+                          disabled={busyId === item.id || localOnly}
                           onClick={() => void openPreview(item)}
                         >
                           Open
                         </button>
                         <button
                           type="button"
-                          disabled={busyId === item.id}
+                          disabled={busyId === item.id || localOnly}
                           onClick={() => void downloadFile(item)}
                         >
                           Download
                         </button>
-                        {item.status === 'failed' ? (
+                        {stage === 'failed' && !localOnly ? (
                           <button
                             type="button"
                             disabled={busyId === item.id}
@@ -452,7 +424,7 @@ export function FileLibraryOverlay({
                         <button
                           type="button"
                           className="files-row__danger"
-                          disabled={busyId === item.id}
+                          disabled={busyId === item.id || localOnly}
                           onClick={() => void removeFile(item)}
                         >
                           Delete
@@ -460,7 +432,8 @@ export function FileLibraryOverlay({
                       </div>
                     </div>
                   </article>
-                ))}
+                  )
+                })}
               </div>
 
               {preview ? (

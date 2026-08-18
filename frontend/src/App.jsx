@@ -74,7 +74,8 @@ import {
   FileLibraryNavTrigger,
   FileLibraryOverlay,
 } from './components/FileLibraryOverlay.jsx'
-import { uploadWorkspaceFile } from './api/workspaceFiles.js'
+import { FileLifecycleBubble } from './components/FileLifecycleStatus.jsx'
+import { workspaceFileInventory } from './hooks/useWorkspaceFileInventory.jsx'
 import { parseNewsLocation, newsFeedPath, newsTopicPath } from './lib/newsRoutes.js'
 import { ProjectRepositoriesDashboard } from './components/ProjectRepositoriesDashboard.jsx'
 import { usePlatformActiveFeatures } from './hooks/usePlatformActiveFeatures.js'
@@ -93,7 +94,6 @@ import { DEFAULT_PROVIDER_MODELS, coerceRegisteredModel, getTier1Model } from '.
 import { getMessageTextDirection } from './lib/markdownDirection.js'
 import { singleDeleteConfirmMessage } from './lib/uiStrings.js'
 import {
-  fileStatusLabel,
   isStandardChatAssistant,
   unavailableChatNote,
   usedFilesFromDoneEvent,
@@ -773,6 +773,16 @@ function App() {
       cancelled = true
     }
   }, [persistentReady, getToken, buildAppHeaders, activeProjectId])
+
+  useEffect(() => {
+    workspaceFileInventory.configure({
+      workspaceId: persistentReady ? activeProjectId || null : null,
+      buildHeaders: persistentReady ? buildAppHeaders : null,
+    })
+    return () => {
+      workspaceFileInventory.configure({ workspaceId: null, buildHeaders: null })
+    }
+  }, [persistentReady, activeProjectId, buildAppHeaders])
 
   useEffect(() => {
     const footer = composerFooterRef.current
@@ -1737,21 +1747,22 @@ function App() {
       }
 
       const chatId = serverThreadIdForApi(tid) || tid
+      const localId = workspaceFileInventory.beginUpload(file)
       appendThreadMessages(tid, [
         {
           role: 'user',
           kind: 'file_upload',
           content: `Uploading: ${file.name}`,
+          file_name: file.name,
+          local_upload_id: localId,
+          workspace_id: activeProjectId,
         },
       ])
       setFileUploading(true)
       try {
-        const headers = await buildAppHeaders()
-        // Multipart upload must not send application/json Content-Type.
-        delete headers['Content-Type']
-        delete headers['content-type']
-        const result = await uploadWorkspaceFile(activeProjectId, file, headers, {
+        const { result } = await workspaceFileInventory.uploadFile(file, {
           sourceChatId: chatId,
+          localId,
         })
         const status = result?.status || 'uploaded'
         const failed = status === 'failed'
@@ -1761,8 +1772,14 @@ function App() {
             kind: failed ? 'api_error' : 'file_library',
             content: failed
               ? `Upload failed: ${result?.failure_message || result?.failure_code || 'processing error'}`
-              : `Saved to Workspace Files: ${result?.display_name || file.name} — ${fileStatusLabel(status)}.`,
+              : `Saved to Workspace Files: ${result?.display_name || file.name}`,
             file_id: result?.id,
+            file_name: result?.display_name || file.name,
+            file_status: status,
+            processing_stage: result?.processing_stage,
+            extraction_status: result?.extraction_status,
+            index_status: result?.index_status,
+            failure_message: result?.failure_message,
             workspace_id: result?.workspace_id || activeProjectId,
             model_used: '',
             cost_usd: 0,
@@ -2523,6 +2540,8 @@ function App() {
                     </div>
                   ) : null}
                 </div>
+              ) : m.kind === 'file_upload' || m.kind === 'file_library' ? (
+                <FileLifecycleBubble message={m} />
               ) : m.kind === 'council_synthesis' || m.kind === 'adhoc_synthesis' ? (
                 <div className="bubble synthesis assistant" dir={messageDir}>
                   <ChatMarkdown content={synthesisBubbleContent(m)} />

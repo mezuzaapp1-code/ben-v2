@@ -1,15 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { fetchActiveAttention, fetchProjectKnowledgeFiles } from '../api/knowledge.js'
-import {
-  listWorkspaceFiles,
-  uploadWorkspaceFile,
-} from '../api/workspaceFiles.js'
-import {
-  createBoundedStatusPoller,
-  fileStatusLabel,
-  isNonTerminalFileStatus,
-  normalizeFileStatus,
-} from '../lib/fileStatus.js'
+import { FileLifecycleStatus } from './FileLifecycleStatus.jsx'
+import { useWorkspaceFileInventory, workspaceFileInventory } from '../hooks/useWorkspaceFileInventory.jsx'
+import { deriveFileStage, formatByteSize, processingPercent } from '../lib/fileStatus.js'
 import './KnowledgeSidebar.css'
 
 const HEAD_SECTIONS = [
@@ -17,13 +10,6 @@ const HEAD_SECTIONS = [
   { key: 'documentation', label: 'Documentation Head', icon: '📄' },
   { key: 'history', label: 'History Head', icon: '🕒' },
 ]
-
-function formatBytes(bytes) {
-  const n = Number(bytes) || 0
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`
-}
 
 function scoreTooltip(breakdown) {
   if (!breakdown) return ''
@@ -66,89 +52,55 @@ export function KnowledgeSidebar({
   onOpenFileLibrary = null,
 }) {
   const inputRef = useRef(null)
-  const [files, setFiles] = useState([])
-  const filesRef = useRef(files)
-  filesRef.current = files
-  const [loading, setLoading] = useState(false)
+  const inventory = useWorkspaceFileInventory()
+  const [legacyFiles, setLegacyFiles] = useState([])
+  const [legacyLoading, setLegacyLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [progress, setProgress] = useState(0)
   const [error, setError] = useState(null)
   const [focusData, setFocusData] = useState(null)
   const [focusLoading, setFocusLoading] = useState(false)
   const [focusError, setFocusError] = useState(null)
+  const usingInventory = Boolean(workspaceId)
+  const files = usingInventory ? inventory.rows : legacyFiles
+  const loading = usingInventory ? inventory.loading : legacyLoading
+  const activeUpload = (inventory.uploads || []).find((item) => item.phase === 'uploading')
+  const progress = processingPercent(null, activeUpload)
 
-  const loadFiles = useCallback(async ({ silent = false } = {}) => {
-    if (!buildHeaders) {
-      setFiles([])
+  useEffect(() => {
+    if (workspaceId || !projectSlug || !buildHeaders) {
+      if (!workspaceId) setLegacyFiles([])
       return
     }
-    // Prefer Workspace File Library when workspace UUID is available.
-    if (workspaceId) {
-      if (!silent) {
-        setLoading(true)
-        setError(null)
-      }
+    let cancelled = false
+    setLegacyLoading(true)
+    setError(null)
+    void (async () => {
       try {
         const headers = await buildHeaders()
-        const data = await listWorkspaceFiles(workspaceId, headers, { limit: 50 })
-        setFiles(
-          (data.items || []).map((item) => ({
-            id: item.id,
-            name: item.display_name || item.original_filename,
-            size: item.byte_size,
-            status: item.status,
+        const data = await fetchProjectKnowledgeFiles(projectSlug, headers)
+        if (cancelled) return
+        setLegacyFiles(
+          (data.files || []).map((file) => ({
+            id: file.id,
+            display_name: file.filename || file.name,
+            original_filename: file.filename || file.name,
+            byte_size: file.size_bytes ?? file.size,
+            status: file.status,
           }))
         )
       } catch (e) {
-        if (!silent) {
-          setError(e?.message || 'Could not load workspace files')
-          setFiles([])
+        if (!cancelled) {
+          setError(e?.message || 'Could not load project knowledge files')
+          setLegacyFiles([])
         }
       } finally {
-        if (!silent) setLoading(false)
+        if (!cancelled) setLegacyLoading(false)
       }
-      return
-    }
-    if (!projectSlug) {
-      setFiles([])
-      return
-    }
-    setLoading(true)
-    setError(null)
-    try {
-      const headers = await buildHeaders()
-      const data = await fetchProjectKnowledgeFiles(projectSlug, headers)
-      setFiles(
-        (data.files || []).map((file) => ({
-          id: file.id,
-          name: file.filename || file.name,
-          size: file.size_bytes ?? file.size,
-          status: file.status,
-        }))
-      )
-    } catch (e) {
-      setError(e?.message || 'Could not load project knowledge files')
-      setFiles([])
-    } finally {
-      setLoading(false)
+    })()
+    return () => {
+      cancelled = true
     }
   }, [projectSlug, workspaceId, buildHeaders])
-
-  useEffect(() => {
-    void loadFiles()
-  }, [loadFiles])
-
-  const hasNonTerminal = Boolean(workspaceId) && files.some((file) => isNonTerminalFileStatus(file.status))
-
-  useEffect(() => {
-    if (!workspaceId || !hasNonTerminal) return undefined
-    const poller = createBoundedStatusPoller({
-      shouldPoll: () => filesRef.current.some((file) => isNonTerminalFileStatus(file.status)),
-      refresh: () => loadFiles({ silent: true }),
-    })
-    poller.start()
-    return () => poller.stop()
-  }, [workspaceId, hasNonTerminal, loadFiles])
 
   useEffect(() => {
     const req = attentionFocusRequest
@@ -209,18 +161,10 @@ export function KnowledgeSidebar({
     }
 
     setUploading(true)
-    setProgress(0)
     setError(null)
 
     try {
-      const headers = await buildHeaders()
-      delete headers['Content-Type']
-      delete headers['content-type']
-      await uploadWorkspaceFile(workspaceId, picked, headers, {
-        onProgress: (pct) => setProgress(pct),
-      })
-      setProgress(100)
-      await loadFiles()
+      await workspaceFileInventory.uploadFile(picked)
     } catch (e) {
       setError(e?.message || 'Upload failed')
     } finally {
@@ -270,11 +214,11 @@ export function KnowledgeSidebar({
             Open File Library
           </button>
         ) : null}
-        {(uploading || progress === 100) && (
+        {(uploading || progress != null) && (
           <div className="knowledge-sidebar__progress" aria-label="Upload progress">
             <div
               className="knowledge-sidebar__progress-bar"
-              style={{ width: `${progress}%` }}
+              style={{ width: `${progress ?? 0}%` }}
             />
           </div>
         )}
@@ -311,7 +255,9 @@ export function KnowledgeSidebar({
         )}
       </div>
 
-      {error ? <p className="knowledge-sidebar__error">{error}</p> : null}
+      {(error || inventory.error) ? (
+        <p className="knowledge-sidebar__error">{error || inventory.error}</p>
+      ) : null}
 
       <div className="knowledge-sidebar__list">
         <div className="knowledge-sidebar__list-header">
@@ -320,7 +266,7 @@ export function KnowledgeSidebar({
             type="button"
             className="knowledge-sidebar__refresh"
             disabled={disabled || loading || uploading}
-            onClick={() => void loadFiles()}
+            onClick={() => void workspaceFileInventory.refresh()}
           >
             ↻
           </button>
@@ -332,20 +278,21 @@ export function KnowledgeSidebar({
         ) : (
           <ul className="knowledge-sidebar__files">
             {files.map((file, index) => (
-              <li key={file.id || `${file.name}-${index}`} className="knowledge-sidebar__file-row">
+              <li key={file.id || `${file.display_name || file.name}-${index}`} className="knowledge-sidebar__file-row">
                 <div className="knowledge-sidebar__file-main">
-                  <span className="knowledge-sidebar__file-name" title={file.name}>
-                    {file.name}
+                  <span
+                    className="knowledge-sidebar__file-name"
+                    title={file.display_name || file.original_filename || file.name}
+                  >
+                    {file.display_name || file.original_filename || file.name}
                   </span>
-                  {file.status ? (
-                    <span
-                      className={`knowledge-sidebar__file-status knowledge-sidebar__file-status--${normalizeFileStatus(file.status)}`}
-                    >
-                      {fileStatusLabel(file.status)}
-                    </span>
-                  ) : null}
+                  <FileLifecycleStatus
+                    className={`knowledge-sidebar__file-status knowledge-sidebar__file-status--${deriveFileStage(file, { upload: file.upload })}`}
+                    file={file}
+                    upload={file.upload}
+                  />
                 </div>
-                <span className="knowledge-sidebar__file-meta">{formatBytes(file.size)}</span>
+                <span className="knowledge-sidebar__file-meta">{formatByteSize(file.byte_size ?? file.size)}</span>
               </li>
             ))}
           </ul>

@@ -15,6 +15,7 @@ from database.connection import get_db_session
 from database.models import Project, WorkspaceFile
 from services.ops.request_context import attach_request_id
 from services.workspace_files import storage
+from services.workspace_files.lifecycle import derive_processing_stage
 from services.workspace_files.chunk_retriever import (
     MAX_CHARS_PER_FILE,
     MAX_EVIDENCE_CHARS,
@@ -77,6 +78,9 @@ def _iso(dt: datetime | None) -> str | None:
 
 
 def _payload(row: WorkspaceFile) -> dict[str, Any]:
+    extraction_status = getattr(row, "extraction_status", None) or "pending"
+    index_status = getattr(row, "index_status", None) or "not_indexed"
+    page_count = getattr(row, "page_count", None)
     return {
         "id": str(row.id),
         "organization_id": str(row.org_id),
@@ -96,6 +100,14 @@ def _payload(row: WorkspaceFile) -> dict[str, Any]:
         "updated_at": _iso(row.updated_at),
         "has_extracted_text": bool((row.extracted_text or "").strip()),
         "preview_kind": _preview_kind(row.media_type, row.original_filename),
+        "extraction_status": extraction_status,
+        "index_status": index_status,
+        "page_count": page_count,
+        "indexed_chunk_count": getattr(row, "indexed_chunk_count", None),
+        "indexed_at": _iso(getattr(row, "indexed_at", None)),
+        # Derived stage for Sidebar / File Library / composer. Never READY
+        # unless row.status is already ready.
+        "processing_stage": derive_processing_stage(row),
     }
 
 

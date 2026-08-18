@@ -1,0 +1,69 @@
+.file-lifecycle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: var(--ben-text-muted, rgba(255, 255, 255, 0.7));
+}
+
+.file-lifecycle__label {
+  font-weight: 650;
+}
+
+.file-lifecycle__bytes {
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+.file-lifecycle__track {
+  display: block;
+  width: 8.5rem;
+  height: 5px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.file-lifecycle__bar {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #38bdf8, #6366f1);
+  transition: width 0.15s ease;
+}
+
+.file-lifecycle--queued .file-lifecycle__label,
+.file-lifecycle--extracting .file-lifecycle__label,
+.file-lifecycle--indexing .file-lifecycle__label,
+.file-lifecycle--uploading .file-lifecycle__label {
+  color: #fde68a;
+}
+
+.file-lifecycle--ready .file-lifecycle__label {
+  color: #86efac;
+}
+
+.file-lifecycle--failed .file-lifecycle__label,
+.file-lifecycle-bubble__fail {
+  color: #fca5a5;
+}
+
+.file-lifecycle-bubble__name {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.file-lifecycle-bubble__fail {
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+}
+
+.files-status--uploading,
+.files-status--extracting,
+.files-status--indexing,
+.knowledge-sidebar__file-status--uploading,
+.knowledge-sidebar__file-status--extracting,
+.knowledge-sidebar__file-status--indexing {
+  color: #fde68a;
+}

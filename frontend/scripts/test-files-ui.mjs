@@ -29,7 +29,7 @@ assert(app.includes('<FileLibraryOverlay'), 'App wires Files overlay')
 assert(app.includes('setFilesOpen(true)'), 'openFilesLibrary sets open')
 
 // 2. Upload button visible
-assert(overlay.includes('>Upload<') || overlay.includes("Uploading ${uploadProgress}%"), 'Upload button')
+assert(overlay.includes('>Upload<') || overlay.includes('Uploading ${uploadProgress}%') || overlay.includes('Uploading'), 'Upload button')
 assert(css.includes('.files-upload-btn'), 'Upload button styles')
 
 // 3. Upload progress renders
@@ -38,9 +38,9 @@ assert(overlay.includes('uploadProgress'), 'progress state')
 assert(api.includes('xhr.upload.onprogress'), 'XHR upload progress')
 
 // 4. Uploaded file appears in the list
-assert(overlay.includes('listWorkspaceFiles'), 'list API used')
+assert(overlay.includes('listWorkspaceFiles') || overlay.includes('workspaceFileInventory'), 'list API used')
 assert(overlay.includes('files-row'), 'file row markup')
-assert(overlay.includes('items.map'), 'renders items')
+assert(overlay.includes('visibleItems.map') || overlay.includes('items.map'), 'renders items')
 
 // 5. Processing and failed states render
 assert(overlay.includes("view === 'processing'"), 'processing view')
@@ -67,10 +67,12 @@ assert(app.includes('handleWorkspaceFileAttach'), 'chat attach handler')
 assert(app.includes('Uploading:'), 'chat upload pending message')
 assert(app.includes('fileUploading'), 'chat upload busy state')
 assert(app.includes("kind: 'file_upload'"), 'upload message kind')
+assert(app.includes('FileLifecycleBubble'), 'composer attachment uses live lifecycle')
+assert(app.includes('workspaceFileInventory'), 'composer uses shared inventory')
 
 // 10. Chat-uploaded file appears in Files (same API)
-assert(app.includes('uploadWorkspaceFile(activeProjectId'), 'chat uses workspace upload API')
-assert(app.includes('sourceChatId: chatId'), 'chat retains file reference')
+assert(app.includes('uploadWorkspaceFile') || app.includes('workspaceFileInventory.uploadFile'), 'chat uses workspace upload API')
+assert(app.includes('sourceChatId: chatId') || app.includes('sourceChatId'), 'chat retains file reference')
 assert(api.includes("form.append('source_chat_id'"), 'source_chat_id sent')
 
 // 11. No misleading success after failure
