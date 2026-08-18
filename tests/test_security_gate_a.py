@@ -328,7 +328,7 @@ def test_organization_signed_in_project_files_chat_still_work():
         created.append(str(org_id))
         return {"id": str(uuid.uuid4()), "org_id": str(org_id), "name": kwargs["name"]}
 
-    async def fake_list(org_id):
+    async def fake_list(org_id, **_k):
         return {"projects": [{"id": WS_A, "org_id": str(org_id), "name": "W"}]}
 
     async def fake_files(*, org_id, workspace_id, **_k):
@@ -369,7 +369,7 @@ def test_organization_signed_in_project_files_chat_still_work():
 def test_organization_b_cannot_see_organization_a_scope():
     seen: list[str] = []
 
-    async def list_projects(org_id):
+    async def list_projects(org_id, **_k):
         seen.append(f"projects:{org_id}")
         return {"projects": []}
 
@@ -553,7 +553,7 @@ def test_old_anonymous_fallback_no_longer_lists_shared_projects():
     """
     called = {"orgs": []}
 
-    async def capture_list(org_id):
+    async def capture_list(org_id, **_k):
         called["orgs"].append(str(org_id))
         return {"projects": [{"id": WS_A, "name": "Local Files Workspace"}]}
 

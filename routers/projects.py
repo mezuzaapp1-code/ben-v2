@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth.project_privileges import assert_can_create_project
@@ -30,6 +30,7 @@ from services.native_tools_service import (
 )
 from services.ops.timing import measure
 from services.project_tools import create_project_directory, slugify_project_name
+from services.project_library import clamp_project_page_limit
 from services.project_service import create_project, get_project, list_projects
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -194,12 +195,21 @@ def _org_from_ctx(ctx) -> uuid.UUID:
 
 
 @router.get("")
-async def api_list_projects(request: Request):
+async def api_list_projects(
+    request: Request,
+    limit: int | None = Query(None, ge=1, description="Page size; clamped to a hard maximum"),
+    cursor: str | None = Query(None, description="Opaque keyset cursor from the previous page"),
+):
     ctx = await build_project_tenant_context_from_request(
         request, route_operation="GET /api/projects"
     )
-    async with measure(subsystem="projects", operation="GET /api/projects"):
-        return await list_projects(_org_from_ctx(ctx))
+    page_limit = clamp_project_page_limit(limit)
+    async with measure(subsystem="projects", operation="projects_list"):
+        return await list_projects(
+            _org_from_ctx(ctx),
+            limit=page_limit,
+            cursor=cursor,
+        )
 
 
 @router.post("")

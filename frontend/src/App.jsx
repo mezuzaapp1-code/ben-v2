@@ -70,10 +70,15 @@ import { KnowledgeSidebar } from './components/KnowledgeSidebar.jsx'
 import { NewProjectModal } from './components/NewProjectModal.jsx'
 import { CapabilityCatalogTrigger, DiscoveryCenterOverlay } from './components/DiscoveryCenter.jsx'
 import { NewsNavTrigger, NewsOverlay } from './components/NewsOverlay.jsx'
+import { PROJECT_LIBRARY_DEFAULT_LIMIT } from './lib/projectLibrary.js'
 import {
   FileLibraryNavTrigger,
   FileLibraryOverlay,
 } from './components/FileLibraryOverlay.jsx'
+import {
+  ProjectLibraryNavTrigger,
+  ProjectLibraryOverlay,
+} from './components/ProjectLibraryOverlay.jsx'
 import { FileLifecycleBubble } from './components/FileLifecycleStatus.jsx'
 import { workspaceFileInventory } from './hooks/useWorkspaceFileInventory.jsx'
 import { parseNewsLocation, newsFeedPath, newsTopicPath } from './lib/newsRoutes.js'
@@ -525,6 +530,7 @@ function App() {
   const [promotingThread, setPromotingThread] = useState(false)
   const [receiptCapturing, setReceiptCapturing] = useState(false)
   const [filesOpen, setFilesOpen] = useState(false)
+  const [projectsOpen, setProjectsOpen] = useState(false)
   const [fileUploading, setFileUploading] = useState(false)
   const [attentionFocusRequest, setAttentionFocusRequest] = useState(null)
   const [newProjectModalOpen, setNewProjectModalOpen] = useState(false)
@@ -747,10 +753,38 @@ function App() {
   const openFilesLibrary = useCallback(() => {
     if (!persistentReady) return
     closeNavDrawerIfOverlay()
+    setProjectsOpen(false)
     setFilesOpen(true)
   }, [closeNavDrawerIfOverlay, persistentReady])
 
   const closeFilesLibrary = useCallback(() => setFilesOpen(false), [])
+
+  const openProjectsLibrary = useCallback(() => {
+    if (!persistentReady) return
+    closeNavDrawerIfOverlay()
+    setFilesOpen(false)
+    setProjectsOpen(true)
+  }, [closeNavDrawerIfOverlay, persistentReady])
+
+  const closeProjectsLibrary = useCallback(() => setProjectsOpen(false), [])
+
+  const handleOpenProject = useCallback((project) => {
+    const id = String(project?.id || '').trim()
+    if (!id) return
+    setActiveProjectId(id)
+    setProjectOptions((prev) => {
+      if (prev.some((row) => row.id === id)) return prev
+      return [
+        {
+          id,
+          name: project.name || 'Project',
+          status: project.status || 'active',
+        },
+        ...prev,
+      ]
+    })
+    setProjectsOpen(false)
+  }, [])
 
   const shellAccent = activeSpeakingProvider?.accent ?? '#5b8cff'
 
@@ -766,9 +800,9 @@ function App() {
       }
       try {
         const headers = await acquirePersistentHeaders(persistentHeaders)
-        const data = await fetchProjects(headers)
+        const data = await fetchProjects(headers, { limit: PROJECT_LIBRARY_DEFAULT_LIMIT })
         if (cancelled) return
-        const list = data.projects || []
+        const list = data.items || data.projects || []
         setProjectOptions(list)
         if (!activeProjectId && list[0]?.id) setActiveProjectId(list[0].id)
       } catch (err) {
@@ -2379,6 +2413,21 @@ function App() {
         buildHeaders={persistentReady ? persistentHeaders : null}
         disabled={fileUploading || !persistentReady}
       />
+      <ProjectLibraryOverlay
+        open={projectsOpen}
+        onClose={closeProjectsLibrary}
+        activeProjectId={activeProjectId}
+        activeProjectName={activeProjectName}
+        buildHeaders={persistentReady ? persistentHeaders : null}
+        disabled={loading || !persistentReady}
+        canCreateProject={canCreateProject}
+        onNewProject={() => {
+          setProjectsOpen(false)
+          setNewProjectError(null)
+          setNewProjectModalOpen(true)
+        }}
+        onOpenProject={handleOpenProject}
+      />
       <AppTopBar
         menuButtonRef={navMenuButtonRef}
         menuOpen={navDrawerOpen}
@@ -2434,6 +2483,11 @@ function App() {
                 </button>
               ) : null}
             </div>
+            <ProjectLibraryNavTrigger
+              onOpen={openProjectsLibrary}
+              active={projectsOpen}
+              disabled={loading || !persistentReady}
+            />
             <FileLibraryNavTrigger
               onOpen={openFilesLibrary}
               active={filesOpen}

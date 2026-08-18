@@ -5,11 +5,20 @@ import uuid
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, text
+from sqlalchemy import text
 
 from database.connection import get_db_session
 from database.models import PROJECT_STATUSES, Project
 from services.ops.request_context import attach_request_id
+from services.ops.structured_log import log_info
+from services.project_library import (
+    build_project_list_stmt,
+    clamp_project_page_limit,
+    decode_project_cursor,
+    encode_project_cursor,
+    fetch_file_counts,
+    library_item,
+)
 
 
 async def _set_org(session, org_id: uuid.UUID) -> None:
@@ -57,12 +66,63 @@ async def create_project(
     return attach_request_id(payload)
 
 
-async def list_projects(org_id: uuid.UUID) -> dict[str, Any]:
+async def list_projects(
+    org_id: uuid.UUID,
+    *,
+    limit: int | None = None,
+    cursor: str | None = None,
+    include_file_counts: bool = True,
+) -> dict[str, Any]:
+    """Bounded org-scoped project page. Never returns an unbounded result set.
+
+    Additive keys: ``items`` (library rows) and ``projects`` (same page, legacy
+    alias). ``next_cursor`` is an opaque keyset token or null.
+    """
+    page_limit = clamp_project_page_limit(limit)
+    cursor_ts = cursor_id = None
+    if cursor and str(cursor).strip():
+        cursor_ts, cursor_id = decode_project_cursor(str(cursor))
+
     async with get_db_session() as session:
         await _set_org(session, org_id)
-        q = select(Project).where(Project.org_id == org_id).order_by(Project.updated_at.desc())
-        rows = (await session.execute(q)).scalars().all()
-        payload = {"projects": [_project_payload(r) for r in rows]}
+        stmt = build_project_list_stmt(
+            org_id, limit=page_limit, cursor_ts=cursor_ts, cursor_id=cursor_id
+        )
+        fetched = list((await session.execute(stmt)).scalars().all())
+        has_next = len(fetched) > page_limit
+        page_rows = fetched[:page_limit]
+        counts: dict[uuid.UUID, int] = {}
+        if include_file_counts:
+            counts = await fetch_file_counts(
+                session,
+                org_id=org_id,
+                project_ids=[row.id for row in page_rows],
+            )
+
+    items = [
+        library_item(row, file_count=counts.get(row.id, 0)) for row in page_rows
+    ]
+    next_cursor = None
+    if has_next and page_rows:
+        last = page_rows[-1]
+        next_cursor = encode_project_cursor(updated_at=last.updated_at, project_id=last.id)
+
+    log_info(
+        "projects_list completed",
+        subsystem="projects",
+        operation="projects_list",
+        outcome="ok",
+        page_size=len(items),
+        has_next_page=bool(next_cursor),
+        limit=page_limit,
+    )
+    payload = {
+        "items": items,
+        "next_cursor": next_cursor,
+        "limit": page_limit,
+        # Additive alias for existing first-page consumers (picker / basalt).
+        "projects": items,
+    }
     return attach_request_id(payload)
 
 

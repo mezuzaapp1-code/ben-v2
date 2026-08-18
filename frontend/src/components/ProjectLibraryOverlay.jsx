@@ -1,0 +1,254 @@
+import PropTypes from 'prop-types'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { acquirePersistentHeaders } from '../api/benHeaders.js'
+import { fetchProjects } from '../api/projects.js'
+import {
+  PROJECT_LIBRARY_DEFAULT_LIMIT,
+  PROJECT_LIBRARY_MAX_ITEMS,
+  PROJECT_LIBRARY_REOPEN_RESETS,
+  applyProjectPage,
+  projectLibraryEmptyMessage,
+} from '../lib/projectLibrary.js'
+import './ProjectLibraryOverlay.css'
+
+function formatWhen(iso) {
+  if (!iso) return '—'
+  try {
+    return new Date(iso).toLocaleString()
+  } catch {
+    return iso
+  }
+}
+
+export function ProjectLibraryNavTrigger({ onOpen, active = false, disabled = false }) {
+  return (
+    <button
+      type="button"
+      className={`projects-nav-trigger${active ? ' projects-nav-trigger--active' : ''}`}
+      onClick={onOpen}
+      disabled={disabled}
+      aria-haspopup="dialog"
+      aria-current={active ? 'page' : undefined}
+    >
+      <span>Projects</span>
+      <span className="projects-nav-trigger__chevron" aria-hidden="true">
+        ▸
+      </span>
+    </button>
+  )
+}
+
+ProjectLibraryNavTrigger.propTypes = {
+  onOpen: PropTypes.func.isRequired,
+  active: PropTypes.bool,
+  disabled: PropTypes.bool,
+}
+
+ProjectLibraryNavTrigger.defaultProps = {
+  active: false,
+  disabled: false,
+}
+
+/**
+ * Org Project Library — one bounded page at a time, Load more continuation.
+ */
+export function ProjectLibraryOverlay({
+  open,
+  onClose,
+  activeProjectId = null,
+  activeProjectName = '',
+  buildHeaders,
+  disabled = false,
+  canCreateProject = false,
+  onNewProject,
+  onOpenProject,
+}) {
+  const [pageState, setPageState] = useState({ items: [], nextCursor: null })
+  const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [error, setError] = useState(null)
+  const requestSeq = useRef(0)
+  const loadPageRef = useRef(null)
+  const items = pageState.items
+  const nextCursor = pageState.nextCursor
+
+  const loadPage = useCallback(
+    async ({ cursor = null, append = false } = {}) => {
+      if (!buildHeaders) {
+        setPageState({ items: [], nextCursor: null })
+        setError(null)
+        setLoading(false)
+        setLoadingMore(false)
+        return
+      }
+      const seq = ++requestSeq.current
+      if (append) setLoadingMore(true)
+      else {
+        setLoading(true)
+        setError(null)
+      }
+      try {
+        const headers = await acquirePersistentHeaders(buildHeaders)
+        const data = await fetchProjects(headers, {
+          limit: PROJECT_LIBRARY_DEFAULT_LIMIT,
+          cursor,
+        })
+        if (seq !== requestSeq.current) return
+        setPageState((prev) =>
+          applyProjectPage(
+            { items: append ? prev.items : [], nextCursor: null },
+            data,
+            { maxItems: PROJECT_LIBRARY_MAX_ITEMS }
+          )
+        )
+        setError(null)
+      } catch (e) {
+        if (seq !== requestSeq.current) return
+        setError(e?.message || 'Could not load projects.')
+        if (!append) setPageState({ items: [], nextCursor: null })
+      } finally {
+        if (seq === requestSeq.current) {
+          setLoading(false)
+          setLoadingMore(false)
+        }
+      }
+    },
+    [buildHeaders]
+  )
+  loadPageRef.current = loadPage
+
+  useEffect(() => {
+    if (!open || !PROJECT_LIBRARY_REOPEN_RESETS) return
+    requestSeq.current += 1
+    setPageState({ items: [], nextCursor: null })
+    setError(null)
+    setLoading(true)
+    void loadPageRef.current?.({ append: false })
+  }, [open])
+
+  const emptyCopy = projectLibraryEmptyMessage({
+    signedIn: Boolean(buildHeaders),
+    loading,
+    error,
+    itemCount: items.length,
+  })
+
+  if (!open) return null
+
+  const showMore = Boolean(nextCursor) && items.length < PROJECT_LIBRARY_MAX_ITEMS && !loading
+
+  return (
+    <div className="projects-overlay" role="dialog" aria-modal="true" aria-label="Projects">
+      <button type="button" className="projects-overlay__scrim" onClick={onClose} aria-label="Close projects" />
+      <div className="projects-overlay__panel">
+        <header className="projects-overlay__header">
+          <div>
+            <h2 className="projects-overlay__title">Projects</h2>
+            <p className="projects-overlay__subtitle">
+              {activeProjectName
+                ? `Active project: ${activeProjectName}`
+                : 'No project selected'}
+            </p>
+          </div>
+          <button type="button" className="projects-overlay__close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </header>
+
+        <div className="projects-toolbar">
+          <button
+            type="button"
+            className="projects-new-btn"
+            disabled={disabled || !canCreateProject}
+            onClick={() => onNewProject?.()}
+          >
+            + New project
+          </button>
+        </div>
+
+        {error ? (
+          <p className="projects-error">
+            {error}{' '}
+            <button type="button" onClick={() => void loadPage({ append: false })}>
+              Retry
+            </button>
+          </p>
+        ) : null}
+
+        <div className="projects-body">
+          {loading ? <p className="projects-status">Loading projects…</p> : null}
+          {!loading && emptyCopy ? <div className="projects-empty">{emptyCopy}</div> : null}
+          {!loading && items.length > 0 ? (
+            <ul className="projects-list">
+              {items.map((project) => {
+                const isActive = String(project.id) === String(activeProjectId || '')
+                const fileCount = Number(project.file_count) || 0
+                return (
+                  <li
+                    key={project.id}
+                    className={`projects-row${isActive ? ' projects-row--active' : ''}`}
+                  >
+                    <div className="projects-row__main">
+                      <span className="projects-row__name">
+                        {project.name || 'Untitled project'}
+                        {isActive ? <span className="projects-row__badge">Active</span> : null}
+                      </span>
+                      <span className="projects-row__meta">
+                        {project.status || 'active'}
+                        {' · '}
+                        {fileCount} {fileCount === 1 ? 'file' : 'files'}
+                        {' · '}
+                        {formatWhen(project.updated_at)}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="projects-row__open"
+                      disabled={disabled}
+                      onClick={() => onOpenProject?.(project)}
+                    >
+                      Open
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : null}
+          {showMore ? (
+            <div className="projects-more">
+              <button
+                type="button"
+                disabled={disabled || loadingMore}
+                onClick={() => void loadPage({ cursor: nextCursor, append: true })}
+              >
+                {loadingMore ? 'Loading…' : 'Load more'}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+ProjectLibraryOverlay.propTypes = {
+  open: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+  activeProjectId: PropTypes.string,
+  activeProjectName: PropTypes.string,
+  buildHeaders: PropTypes.func,
+  disabled: PropTypes.bool,
+  canCreateProject: PropTypes.bool,
+  onNewProject: PropTypes.func,
+  onOpenProject: PropTypes.func,
+}
+
+ProjectLibraryOverlay.defaultProps = {
+  activeProjectId: null,
+  activeProjectName: '',
+  buildHeaders: null,
+  disabled: false,
+  canCreateProject: false,
+  onNewProject: null,
+  onOpenProject: null,
+}
