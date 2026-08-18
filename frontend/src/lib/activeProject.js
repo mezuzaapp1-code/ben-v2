@@ -3,12 +3,18 @@
  *
  * Project Library pages are browsing/cache only. Opening a project writes
  * this identity. Refetching page 1 must not drop an off-page active project.
+ * Sign-out / persistentReady=false must clear this identity so the next
+ * session cannot inherit the previous tenant's project.
  */
 export function selectActiveProject(project) {
   const id = String(project?.id || '').trim()
   if (!id) return { id: null, name: '' }
   const name = String(project?.name || '').trim() || 'Project'
   return { id, name }
+}
+
+export function clearActiveProject() {
+  return { id: null, name: '' }
 }
 
 export function reconcileActiveProject(active, pageRows) {

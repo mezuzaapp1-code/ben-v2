@@ -215,6 +215,8 @@ def test_file_lifecycle_inventory_clear_on_workspace_change_still_present():
     assert "setActiveProjectId(selected.id)" in app
     assert "reconcileActiveProject" in app
     assert "selectActiveProject" in app
+    assert "clearActiveProject" in app
+    assert "setActiveProjectId(cleared.id)" in app
     assert "workspaceFileInventory.configure" in app
     assert "workspaceId: persistentReady ? activeProjectId || null : null" in app
 

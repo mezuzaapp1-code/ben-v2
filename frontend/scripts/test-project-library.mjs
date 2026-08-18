@@ -16,6 +16,7 @@ import {
   projectLibraryEmptyMessage,
 } from '../src/lib/projectLibrary.js'
 import {
+  clearActiveProject,
   fileLibraryWorkspaceBinding,
   projectLibraryActiveCopy,
   reconcileActiveProject,
@@ -118,6 +119,32 @@ assert(overlay.includes('projects-row__badge'), 'Active badge')
   assert(files.workspaceName === 'Project 51', '8: File Library workspace name is 51')
 }
 
+{
+  const page1 = Array.from({ length: 50 }, (_, i) => ({
+    id: `A-${i + 1}`,
+    name: `Org A Project ${i + 1}`,
+  }))
+  let active = selectActiveProject({ id: 'A-51', name: 'Project A51' })
+  active = reconcileActiveProject(active, page1)
+  assert(active.id === 'A-51' && active.name === 'Project A51', '1: off-page A51 survives page 1 refetch')
+
+  active = clearActiveProject()
+  assert(active.id == null && active.name === '', '2: sign-out clears canonical active project')
+  assert(projectLibraryActiveCopy(active) === 'No project selected', '2: signed-out copy has no old label')
+  assert(fileLibraryWorkspaceBinding(active).workspaceId == null, '2: File Library workspace id cleared')
+  assert(fileLibraryWorkspaceBinding(active).workspaceName === '', '2: File Library name cleared')
+
+  const orgBPage1 = [{ id: 'B-1', name: 'Org B First' }, { id: 'B-2', name: 'Org B Second' }]
+  const resurrected = reconcileActiveProject(active, orgBPage1)
+  assert(resurrected.id !== 'A-51', '3: re-sign-in does not keep A51 id')
+  assert(resurrected.name !== 'Project A51', '3: re-sign-in does not keep A51 name')
+  assert(resurrected.id === 'B-1' && resurrected.name === 'Org B First', '5: new session auto-selects page 1')
+}
+
+assert(app.includes('clearActiveProject()'), 'sign-out clears via clearActiveProject')
+assert(app.includes('setActiveProjectId(cleared.id)'), 'sign-out clears activeProjectId')
+assert(app.includes('setActiveProjectName(cleared.name)'), 'sign-out clears activeProjectName')
+
 assert(app.includes('workspaceName={activeProjectName}'), '8: File Library receives independent name')
 assert(app.includes('workspaceId={activeProjectId}'), '8: File Library receives active UUID')
 
@@ -149,6 +176,44 @@ assert(
   await new Promise((r) => setTimeout(r, 20))
   assert(inventory.getSnapshot().rows.some((row) => row.id === 'file-ws-b'), 'new project files load after clear')
   assert(listed >= 2, 'workspace list fetched for each workspace')
+}
+
+{
+  const requested = []
+  const inventory = createWorkspaceFileInventory({
+    listFiles: async (workspaceId) => {
+      requested.push(workspaceId)
+      return {
+        items: [{ id: `file-${workspaceId}`, display_name: workspaceId, status: 'ready' }],
+      }
+    },
+    uploadFile: async () => ({}),
+  })
+  inventory.configure({
+    workspaceId: 'A-51',
+    buildHeaders: () => ({ Authorization: 'Bearer org-a' }),
+  })
+  await new Promise((r) => setTimeout(r, 20))
+  inventory.configure({ workspaceId: null, buildHeaders: null })
+  const signedOut = inventory.getSnapshot()
+  assert(signedOut.files.length === 0, '4: inventory cleared while signed out')
+  assert(signedOut.rows.length === 0, '4: no signed-out file rows')
+  assert(signedOut.workspaceId == null, '4: inventory workspace id is null')
+  inventory.configure({
+    workspaceId: 'B-1',
+    buildHeaders: () => ({ Authorization: 'Bearer org-b' }),
+  })
+  await new Promise((r) => setTimeout(r, 20))
+  assert(!requested.includes('A-51') || requested[requested.length - 1] === 'B-1', '3: latest list is new session')
+  assert(
+    !inventory.getSnapshot().rows.some((row) => row.id === 'file-A-51'),
+    '3: A51 workspace files are not retained after new session'
+  )
+  assert(
+    inventory.getSnapshot().rows.some((row) => row.id === 'file-B-1'),
+    '5: new authenticated workspace files load'
+  )
+  assert(!requested.slice(1).includes('A-51'), '3: no A51 workspace request after sign-out')
 }
 
 assert(app.includes('<NewProjectModal'), '13: New Project modal remains')

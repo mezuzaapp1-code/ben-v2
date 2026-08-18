@@ -71,7 +71,7 @@ import { NewProjectModal } from './components/NewProjectModal.jsx'
 import { CapabilityCatalogTrigger, DiscoveryCenterOverlay } from './components/DiscoveryCenter.jsx'
 import { NewsNavTrigger, NewsOverlay } from './components/NewsOverlay.jsx'
 import { PROJECT_LIBRARY_DEFAULT_LIMIT } from './lib/projectLibrary.js'
-import { reconcileActiveProject, selectActiveProject } from './lib/activeProject.js'
+import { reconcileActiveProject, selectActiveProject, clearActiveProject } from './lib/activeProject.js'
 import {
   FileLibraryNavTrigger,
   FileLibraryOverlay,
@@ -785,7 +785,13 @@ function App() {
     let cancelled = false
     ;(async () => {
       if (!persistentReady) {
-        if (!cancelled) setProjectOptions([])
+        if (!cancelled) {
+          const cleared = clearActiveProject()
+          activeProjectRef.current = cleared
+          setProjectOptions([])
+          setActiveProjectId(cleared.id)
+          setActiveProjectName(cleared.name)
+        }
         return
       }
       try {
