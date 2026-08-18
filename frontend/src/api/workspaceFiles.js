@@ -55,8 +55,13 @@ export async function uploadWorkspaceFile(
       if (k.toLowerCase() !== 'content-type') xhr.setRequestHeader(k, v)
     })
     xhr.upload.onprogress = (evt) => {
-      if (!onProgress || !evt.lengthComputable) return
-      onProgress(Math.round((evt.loaded / evt.total) * 100))
+      if (!onProgress) return
+      const fileTotal = Number(file?.size) > 0 ? Number(file.size) : null
+      const total = evt.lengthComputable && evt.total > 0 ? evt.total : fileTotal
+      const loaded = Number.isFinite(evt.loaded) ? evt.loaded : null
+      const percent =
+        total && loaded != null ? Math.min(100, Math.round((loaded / total) * 100)) : null
+      onProgress({ loaded, total, percent })
     }
     xhr.onload = () => {
       let data = {}

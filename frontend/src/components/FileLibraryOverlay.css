@@ -320,9 +320,17 @@
 
 .files-status--processing,
 .files-status--queued,
-.files-status--uploaded {
+.files-status--uploaded,
+.files-status--uploading,
+.files-status--extracting,
+.files-status--indexing {
   color: #fde68a;
   border-color: color-mix(in srgb, #eab308 40%, var(--ben-border));
+}
+
+.files-status .file-lifecycle {
+  align-items: center;
+  text-align: center;
 }
 
 .files-preview {
