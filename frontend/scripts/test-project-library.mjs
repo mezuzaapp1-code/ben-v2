@@ -12,8 +12,11 @@ import {
   PROJECT_LIBRARY_EMPTY,
   PROJECT_LIBRARY_MAX_ITEMS,
   PROJECT_LIBRARY_REOPEN_RESETS,
+  PROJECT_LIBRARY_SEARCH_DEBOUNCE_MS,
   applyProjectPage,
+  debounceProjectSearch,
   mergeProjectPage,
+  normalizeProjectSearchQuery,
   projectLibraryEmptyMessage,
 } from '../src/lib/projectLibrary.js'
 import {
@@ -446,5 +449,65 @@ assert(inventorySrc.includes('files = []'), '16: inventory still clears on scope
 assert(app.includes('workspaceFileInventory'), '16: shared inventory unchanged')
 
 assert(!app.includes('BEN_WORKSPACE_CHUNK_RETRIEVAL'), '18: frontend does not enable Gate 4A')
+
+assert(overlay.includes('Search projects...'), 'search field in library header')
+assert(overlay.includes('+ New project') || overlay.includes('+ New project'), 'new project remains')
+assert(overlay.includes('PROJECT_LIBRARY_SEARCH_DEBOUNCE_MS'), 'search is debounced')
+assert(overlay.includes('query: debouncedQuery || undefined'), '5: search is server-side query param')
+assert(api.includes("params.set('query'"), '5: client sends query to GET /api/projects')
+assert(!overlay.includes('.filter('), '5: overlay does not locally filter loaded rows')
+assert(!overlay.includes('fetchProject('), 'search does not fetch per-project details')
+assert(overlay.includes("setSearchInput('')"), '4: tenant/open change clears search input')
+assert(overlay.includes("setDebouncedQuery('')"), '4: tenant/open change clears search query')
+assert(overlay.includes('searching'), '8: overlay uses searching empty state')
+assert(PROJECT_LIBRARY_EMPTY.searchEmpty === 'No matching projects.', '8: zero-result copy')
+assert(
+  projectLibraryEmptyMessage({
+    signedIn: true,
+    loading: false,
+    error: null,
+    itemCount: 0,
+    searching: true,
+  }) === PROJECT_LIBRARY_EMPTY.searchEmpty,
+  '8: search empty copy is No matching projects.'
+)
+assert(normalizeProjectSearchQuery('  Amazon  ') === 'Amazon', 'search trims')
+assert(normalizeProjectSearchQuery('   ') === '', 'blank search restores browse')
+assert(overlay.includes('debouncedQuery || undefined'), '9: empty query omits search filter')
+assert(!overlay.includes('onOpenProject?.(project)') || overlay.includes('onClick={() => onOpenProject?.(project)}'), 'Open only on click')
+assert(!overlay.includes('onOpenProject(items'), 'search results do not auto-open')
+assert(app.includes('bindActiveProject(sessionTenantId, project)'), '2: Open still uses tenant-bound select')
+
+{
+  const calls = []
+  const run = debounceProjectSearch((value) => calls.push(value), 25)
+  run('A')
+  run('Am')
+  run('Ama')
+  run('Amazon')
+  await new Promise((r) => setTimeout(r, 80))
+  assert(calls.length === 1, '6: debounce collapses keystrokes to one request')
+  assert(calls[0] === 'Amazon', '6: last typed value is searched')
+  assert(PROJECT_LIBRARY_SEARCH_DEBOUNCE_MS === 250, '6: production debounce is 250ms')
+}
+
+{
+  const tenant = resolveActiveTenantId({
+    clerkEnabled: true,
+    isSignedIn: true,
+    orgId: 'org_A',
+    userId: 'user_1',
+  })
+  const page1 = Array.from({ length: 50 }, (_, i) => ({
+    id: `A-${i + 1}`,
+    name: `Org A Project ${i + 1}`,
+  }))
+  const found = bindActiveProject(tenant, { id: 'A-51', name: 'Project A51' })
+  assert(found.id === 'A-51', '1/2: opening a search hit sets active id without loading pages')
+  const afterBrowse = reconcileActiveProject(found, page1, tenant)
+  assert(afterBrowse.id === 'A-51', '3: search hit outside page 1 stays active after browse reload')
+  assert(afterBrowse.name === 'Project A51', '3: off-page search name survives page 1')
+  assert(projectLibraryActiveCopy(afterBrowse).includes('Project A51'), '2: Open result label is the hit')
+}
 
 console.log('PASS: project library V1 UI')

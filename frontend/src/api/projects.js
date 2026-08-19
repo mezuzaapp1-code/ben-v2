@@ -24,10 +24,12 @@ export async function fetchProjects(headers, options = {}, maybeSignal) {
   const fromSignal =
     options && typeof options === 'object' && typeof options.aborted === 'boolean'
   const opts = fromSignal ? { signal: options } : options || {}
-  const { limit, cursor, signal = maybeSignal } = opts
+  const { limit, cursor, query, signal = maybeSignal } = opts
   const params = new URLSearchParams()
   if (limit != null) params.set('limit', String(limit))
   if (cursor) params.set('cursor', String(cursor))
+  const needle = typeof query === 'string' ? query.trim() : ''
+  if (needle) params.set('query', needle)
   const qs = params.toString()
   return projectFetch(qs ? `?${qs}` : '', { headers, signal })
 }
