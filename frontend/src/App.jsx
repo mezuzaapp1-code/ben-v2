@@ -70,10 +70,23 @@ import { KnowledgeSidebar } from './components/KnowledgeSidebar.jsx'
 import { NewProjectModal } from './components/NewProjectModal.jsx'
 import { CapabilityCatalogTrigger, DiscoveryCenterOverlay } from './components/DiscoveryCenter.jsx'
 import { NewsNavTrigger, NewsOverlay } from './components/NewsOverlay.jsx'
+import { PROJECT_LIBRARY_DEFAULT_LIMIT } from './lib/projectLibrary.js'
+import {
+  activeProjectForTenant,
+  applyTenantScopeChange,
+  bindActiveProject,
+  clearActiveProject,
+  reconcileActiveProject,
+} from './lib/activeProject.js'
+import { resolveActiveTenantId } from './lib/tenantIdentity.js'
 import {
   FileLibraryNavTrigger,
   FileLibraryOverlay,
 } from './components/FileLibraryOverlay.jsx'
+import {
+  ProjectLibraryNavTrigger,
+  ProjectLibraryOverlay,
+} from './components/ProjectLibraryOverlay.jsx'
 import { FileLifecycleBubble } from './components/FileLifecycleStatus.jsx'
 import { workspaceFileInventory } from './hooks/useWorkspaceFileInventory.jsx'
 import { parseNewsLocation, newsFeedPath, newsTopicPath } from './lib/newsRoutes.js'
@@ -490,12 +503,15 @@ function CopyConversationButton({ messages }) {
 }
 
 function App() {
-  const { getToken, clerkEnabled, isLoaded, isSignedIn } = useBenAuthContext()
+  const { getToken, clerkEnabled, isLoaded, isSignedIn, orgId, userId } = useBenAuthContext()
   const persistentReady = isClerkPersistentSessionReady({
     clerkEnabled,
     isLoaded,
     isSignedIn,
   })
+  const sessionTenantId = persistentReady
+    ? resolveActiveTenantId({ clerkEnabled, isSignedIn, orgId, userId })
+    : null
   const showClerkSignIn = shouldShowClerkSignIn({ clerkEnabled, isLoaded, isSignedIn })
   const betaSession = useBetaSession()
   const [threads, setThreads] = useState([])
@@ -517,7 +533,7 @@ function App() {
   const [selectedGeminiModel, setSelectedGeminiModel] = useState(() =>
     coerceRegisteredModel('gemini', DEFAULT_PROVIDER_MODELS.gemini)
   )
-  const [activeProjectId, setActiveProjectId] = useState(null)
+  const [activeProject, setActiveProject] = useState(() => clearActiveProject(null))
   const [projectOptions, setProjectOptions] = useState([])
   const [projectToast, setProjectToast] = useState(null)
   const [toolTelemetry, setToolTelemetry] = useState(null)
@@ -525,6 +541,7 @@ function App() {
   const [promotingThread, setPromotingThread] = useState(false)
   const [receiptCapturing, setReceiptCapturing] = useState(false)
   const [filesOpen, setFilesOpen] = useState(false)
+  const [projectsOpen, setProjectsOpen] = useState(false)
   const [fileUploading, setFileUploading] = useState(false)
   const [attentionFocusRequest, setAttentionFocusRequest] = useState(null)
   const [newProjectModalOpen, setNewProjectModalOpen] = useState(false)
@@ -546,11 +563,12 @@ function App() {
   const invoiceCaptureRef = useRef(null)
   const creditCaptureRef = useRef(null)
   const attachFileRef = useRef(null)
+  const activeProjectRef = useRef(clearActiveProject(null))
 
-  const activeProjectName = useMemo(
-    () => projectOptions.find((p) => p.id === activeProjectId)?.name ?? '',
-    [projectOptions, activeProjectId]
-  )
+  const liveActive = activeProjectForTenant(activeProject, sessionTenantId)
+  const activeProjectId = liveActive.id
+  const activeProjectName = liveActive.name
+  activeProjectRef.current = liveActive
 
   const closeNavDrawer = useCallback(() => setNavDrawerOpen(false), [])
   const closeNavDrawerIfOverlay = useCallback(() => {
@@ -747,10 +765,27 @@ function App() {
   const openFilesLibrary = useCallback(() => {
     if (!persistentReady) return
     closeNavDrawerIfOverlay()
+    setProjectsOpen(false)
     setFilesOpen(true)
   }, [closeNavDrawerIfOverlay, persistentReady])
 
   const closeFilesLibrary = useCallback(() => setFilesOpen(false), [])
+
+  const openProjectsLibrary = useCallback(() => {
+    if (!persistentReady) return
+    closeNavDrawerIfOverlay()
+    setFilesOpen(false)
+    setProjectsOpen(true)
+  }, [closeNavDrawerIfOverlay, persistentReady])
+
+  const closeProjectsLibrary = useCallback(() => setProjectsOpen(false), [])
+
+  const handleOpenProject = useCallback((project) => {
+    const selected = bindActiveProject(sessionTenantId, project)
+    if (!selected.id) return
+    setActiveProject(selected)
+    setProjectsOpen(false)
+  }, [sessionTenantId])
 
   const shellAccent = activeSpeakingProvider?.accent ?? '#5b8cff'
 
@@ -759,34 +794,53 @@ function App() {
 
   useEffect(() => {
     let cancelled = false
+    const tenantAtStart = sessionTenantId
     ;(async () => {
-      if (!persistentReady) {
-        if (!cancelled) setProjectOptions([])
+      if (!persistentReady || !tenantAtStart) {
+        if (!cancelled) {
+          const cleared = clearActiveProject(null)
+          activeProjectRef.current = cleared
+          setProjectOptions([])
+          setActiveProject(cleared)
+        }
         return
       }
       try {
         const headers = await acquirePersistentHeaders(persistentHeaders)
-        const data = await fetchProjects(headers)
-        if (cancelled) return
-        const list = data.projects || []
+        if (cancelled || activeProjectRef.current.tenantId !== tenantAtStart) return
+        const data = await fetchProjects(headers, { limit: PROJECT_LIBRARY_DEFAULT_LIMIT })
+        if (cancelled || activeProjectRef.current.tenantId !== tenantAtStart) return
+        const list = Array.isArray(data.items)
+          ? data.items
+          : Array.isArray(data.projects)
+            ? data.projects
+            : []
         setProjectOptions(list)
-        if (!activeProjectId && list[0]?.id) setActiveProjectId(list[0].id)
+        const next = reconcileActiveProject(activeProjectRef.current, list, tenantAtStart)
+        activeProjectRef.current = next
+        setActiveProject((prev) => {
+          if (prev.tenantId !== tenantAtStart) return prev
+          if (prev.id === next.id && prev.name === next.name && prev.tenantId === next.tenantId) {
+            return prev
+          }
+          return next
+        })
       } catch (err) {
         if (isAuthTokenUnavailable(err)) return
-        if (!cancelled) setProjectOptions([])
+        if (!cancelled && activeProjectRef.current.tenantId === tenantAtStart) setProjectOptions([])
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [persistentReady, persistentHeaders, activeProjectId])
+  }, [persistentReady, persistentHeaders, sessionTenantId])
 
   useEffect(() => {
     workspaceFileInventory.configure({
       workspaceId: persistentReady ? activeProjectId || null : null,
       buildHeaders: persistentReady ? persistentHeaders : null,
     })
-  }, [persistentReady, activeProjectId, persistentHeaders])
+  }, [persistentReady, activeProjectId, persistentHeaders, sessionTenantId])
 
   useEffect(() => {
     return () => {
@@ -2265,14 +2319,20 @@ function App() {
         setStoredActiveThreadId(entry.id)
 
         if (projectId) {
-          setActiveProjectId(projectId)
-          setProjectOptions((prev) => {
-            if (prev.some((project) => project.id === projectId)) return prev
-            return [
-              { id: projectId, name: projectTitle || projectSlug || 'New project' },
-              ...prev,
-            ]
+          const selected = bindActiveProject(sessionTenantId, {
+            id: projectId,
+            name: projectTitle || projectSlug || 'New project',
           })
+          if (selected.id) {
+            setActiveProject(selected)
+            setProjectOptions((prev) => {
+              if (prev.some((project) => project.id === projectId)) return prev
+              return [
+                { id: projectId, name: selected.name },
+                ...prev,
+              ]
+            })
+          }
         }
 
         closeNavDrawerIfOverlay()
@@ -2291,7 +2351,7 @@ function App() {
         window.setTimeout(() => setProjectToast(null), 5000)
       }
     },
-    [buildAppHeaders, closeNavDrawerIfOverlay, runProjectSetupBootstrap]
+    [buildAppHeaders, closeNavDrawerIfOverlay, runProjectSetupBootstrap, sessionTenantId]
   )
 
   const handleNewProjectSubmit = useCallback(
@@ -2340,6 +2400,12 @@ function App() {
     [activeId, appendThreadMessages, newThread, threads]
   )
 
+  if (activeProject.tenantId !== sessionTenantId) {
+    const next = applyTenantScopeChange(activeProject, sessionTenantId)
+    setActiveProject({ tenantId: next.tenantId, id: next.id, name: next.name })
+    setProjectOptions([])
+  }
+
   return (
     <div className={`app app--gemini${navDrawerOpen ? ' app--nav-open' : ''}`}>
       <NewProjectModal
@@ -2378,6 +2444,22 @@ function App() {
         workspaceName={activeProjectName}
         buildHeaders={persistentReady ? persistentHeaders : null}
         disabled={fileUploading || !persistentReady}
+      />
+      <ProjectLibraryOverlay
+        open={projectsOpen}
+        onClose={closeProjectsLibrary}
+        tenantId={sessionTenantId}
+        activeProjectId={activeProjectId}
+        activeProjectName={activeProjectName}
+        buildHeaders={persistentReady ? persistentHeaders : null}
+        disabled={loading || !persistentReady}
+        canCreateProject={canCreateProject}
+        onNewProject={() => {
+          setProjectsOpen(false)
+          setNewProjectError(null)
+          setNewProjectModalOpen(true)
+        }}
+        onOpenProject={handleOpenProject}
       />
       <AppTopBar
         menuButtonRef={navMenuButtonRef}
@@ -2434,6 +2516,11 @@ function App() {
                 </button>
               ) : null}
             </div>
+            <ProjectLibraryNavTrigger
+              onOpen={openProjectsLibrary}
+              active={projectsOpen}
+              disabled={loading || !persistentReady}
+            />
             <FileLibraryNavTrigger
               onOpen={openFilesLibrary}
               active={filesOpen}

@@ -54,7 +54,7 @@ export function ProjectWorkspacePanel({
         const headers = await buildBenHeaders(getToken)
         const data = await fetchProjects(headers)
         if (cancelled) return
-        const list = data.projects || data || []
+        const list = data.items || data.projects || data || []
         setProjects(list)
         if (!activeProjectId && list[0]?.id) {
           onProjectChange(list[0].id)

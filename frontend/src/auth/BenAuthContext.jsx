@@ -5,6 +5,8 @@ const defaultAuth = {
   clerkEnabled: false,
   isLoaded: true,
   isSignedIn: false,
+  orgId: null,
+  userId: null,
   getToken: async () => null,
 }
 

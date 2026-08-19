@@ -92,5 +92,18 @@ assert(appSrc.includes('ClerkSignInBanner'), 'App has main-shell Sign in banner'
 assert(appSrc.includes('if (!persistentReady)'), 'App gates persistent fetches')
 assert(appSrc.includes('fetchProjects'), 'projects client still used after sign-in')
 assert(appSrc.includes('fetchThreadList'), 'threads client still used after sign-in')
+assert(appSrc.includes('sessionTenantId'), 'App tracks Clerk tenant separately from persistentReady')
+assert(appSrc.includes('resolveActiveTenantId'), 'App resolves org vs personal tenant from Clerk orgId/userId')
+
+const benAuthSrc = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), '../src/hooks/useBenAuth.js'),
+  'utf8'
+)
+assert(benAuthSrc.includes('orgId'), 'useBenAuth exposes Clerk orgId')
+assert(benAuthSrc.includes('userId'), 'useBenAuth exposes Clerk userId')
+assert(
+  isClerkPersistentSessionReady({ clerkEnabled: true, isLoaded: true, isSignedIn: true }),
+  'org switch does not change persistentReady (function ignores orgId)'
+)
 
 console.log('PASS clerk persistent access + source guards')

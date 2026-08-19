@@ -280,7 +280,7 @@ const inventorySrc = readFileSync(join(root, 'src/lib/workspaceFileInventory.js'
 
 assert(app.includes('persistentHeaders'), 'App keeps a stable persistent header builder')
 assert(app.includes('buildAppHeadersRef'), 'App stores latest token builder in a ref')
-assert(app.includes('[persistentReady, activeProjectId, persistentHeaders]'), 'inventory configure ignores getToken identity')
+assert(app.includes('[persistentReady, activeProjectId, persistentHeaders, sessionTenantId]'), 'inventory configure ignores getToken identity and follows tenant')
 assert(!app.includes('[persistentReady, activeProjectId, buildAppHeaders]'), 'old header-identity configure deps removed')
 assert(app.includes('acquirePersistentHeaders(persistentHeaders)'), 'projects wait for a real token')
 assert(

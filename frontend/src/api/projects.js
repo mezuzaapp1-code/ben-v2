@@ -20,8 +20,16 @@ async function projectFetch(path, { method = 'GET', headers, body, signal } = {}
   return data
 }
 
-export async function fetchProjects(headers, signal) {
-  return projectFetch('', { headers, signal })
+export async function fetchProjects(headers, options = {}, maybeSignal) {
+  const fromSignal =
+    options && typeof options === 'object' && typeof options.aborted === 'boolean'
+  const opts = fromSignal ? { signal: options } : options || {}
+  const { limit, cursor, signal = maybeSignal } = opts
+  const params = new URLSearchParams()
+  if (limit != null) params.set('limit', String(limit))
+  if (cursor) params.set('cursor', String(cursor))
+  const qs = params.toString()
+  return projectFetch(qs ? `?${qs}` : '', { headers, signal })
 }
 
 export async function createProject(payload, headers, signal) {

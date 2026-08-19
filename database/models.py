@@ -234,6 +234,7 @@ class Project(Base):
         Index("ix_projects_org", "org_id"),
         Index("ix_projects_org_status", "org_id", "status"),
         Index("ix_projects_created", "created_at"),
+        Index("ix_projects_org_updated_id", "org_id", "updated_at", "id"),
         {"schema": SCHEMA},
     )
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))

@@ -1,0 +1,229 @@
+.projects-nav-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.55rem 0.2rem;
+  border: none;
+  background: transparent;
+  color: var(--ben-text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.projects-nav-trigger--active,
+.projects-nav-trigger:hover:not(:disabled) {
+  color: var(--ben-text);
+}
+
+.projects-nav-trigger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.projects-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1220;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: clamp(0.4rem, 1.5vw, 1rem);
+}
+
+.projects-overlay__scrim {
+  position: absolute;
+  inset: 0;
+  border: none;
+  margin: 0;
+  padding: 0;
+  background: var(--ben-modal-scrim);
+  cursor: pointer;
+}
+
+.projects-overlay__panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(720px, 100%);
+  max-height: min(96vh, 1100px);
+  background: var(--ben-surface);
+  border: 1px solid var(--ben-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.projects-overlay__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--ben-border);
+}
+
+.projects-overlay__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--ben-text);
+}
+
+.projects-overlay__subtitle {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  color: var(--ben-text-muted);
+}
+
+.projects-overlay__close {
+  border: none;
+  background: transparent;
+  color: var(--ben-text-muted);
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.projects-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--ben-border);
+}
+
+.projects-new-btn {
+  border: 1px solid var(--ben-border);
+  background: var(--ben-surface-2, transparent);
+  color: var(--ben-text);
+  border-radius: 8px;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.projects-new-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.projects-body {
+  flex: 1;
+  overflow: auto;
+  padding: 0.5rem 0.75rem 1rem;
+}
+
+.projects-empty,
+.projects-status,
+.projects-error {
+  margin: 1rem;
+  font-size: 0.88rem;
+  color: var(--ben-text-muted);
+}
+
+.projects-error {
+  color: var(--ben-danger, #c44);
+}
+
+.projects-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.projects-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid var(--ben-border);
+  border-radius: 10px;
+  background: var(--ben-surface);
+}
+
+.projects-row--active {
+  border-color: var(--ben-accent, #5b8cff);
+  box-shadow: inset 3px 0 0 var(--ben-accent, #5b8cff);
+}
+
+.projects-row__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.projects-row__name {
+  font-size: 0.92rem;
+  font-weight: 650;
+  color: var(--ben-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projects-row__meta {
+  font-size: 0.75rem;
+  color: var(--ben-text-muted);
+}
+
+.projects-row__badge {
+  display: inline-block;
+  margin-inline-start: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--ben-accent, #5b8cff);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.projects-row__open {
+  flex-shrink: 0;
+  border: 1px solid var(--ben-border);
+  background: transparent;
+  color: var(--ben-text);
+  border-radius: 8px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.projects-row__open:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.projects-more {
+  display: flex;
+  justify-content: center;
+  padding: 0.85rem 0 0.2rem;
+}
+
+.projects-more button {
+  border: 1px solid var(--ben-border);
+  background: transparent;
+  color: var(--ben-text);
+  border-radius: 8px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.projects-more button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
