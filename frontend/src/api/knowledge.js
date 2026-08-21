@@ -1,4 +1,5 @@
 import { BEN_API_BASE } from '../config.js'
+import { buildAttentionQuery } from '../lib/attentionQuery.js'
 import { humanizeBenHttpError, parseBenErrorResponse } from './benErrors.js'
 
 async function parseJson(res) {
@@ -106,7 +107,8 @@ export async function fetchProjectKnowledgeFiles(projectSlug, headers) {
 }
 
 export async function fetchActiveAttention(projectSlug, threadId, query, headers) {
-  const params = new URLSearchParams({ query })
+  const boundedQuery = buildAttentionQuery(query)
+  const params = new URLSearchParams({ query: boundedQuery })
   const res = await fetch(
     `${BEN_API_BASE}/api/projects/${encodeURIComponent(projectSlug)}/threads/${encodeURIComponent(threadId)}/active-attention?${params}`,
     { headers }

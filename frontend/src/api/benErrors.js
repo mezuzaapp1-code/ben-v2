@@ -26,6 +26,32 @@ const CLERK_ORG_MESSAGE =
 const CLERK_ORG_HINT =
   'Sign out and continue anonymously, or select an organization using the switcher above.'
 
+function validationItems(detail) {
+  return Array.isArray(detail) ? detail.filter((item) => item && typeof item === 'object') : []
+}
+
+function locText(item) {
+  return Array.isArray(item?.loc) ? item.loc.map(String).join('.') : ''
+}
+
+function messageFromFastApiValidation(detail) {
+  const items = validationItems(detail)
+  const tooLong = items.find((item) => {
+    const type = String(item.type || '')
+    const msg = String(item.msg || '')
+    return type === 'string_too_long' || /at most \d+ characters/i.test(msg)
+  })
+  if (tooLong) {
+    const loc = locText(tooLong)
+    const msg = String(tooLong.msg || '')
+    if (/\bquery\b/i.test(loc) || /\bquery\b/i.test(msg)) {
+      return 'Context Focus query was too long.'
+    }
+    return 'Request is too long.'
+  }
+  return 'Invalid request. Check your session and try again.'
+}
+
 export function parseBenErrorResponse(status, data) {
   const detail = data?.detail
   if (typeof detail === 'object' && detail !== null && OVERLOAD_CODES.has(detail.code)) {
@@ -67,9 +93,7 @@ export function parseBenErrorResponse(status, data) {
     return {
       code: 'validation_error',
       message:
-        typeof detail === 'string'
-          ? detail
-          : 'Invalid request. Check your session and try again.',
+        typeof detail === 'string' ? detail : messageFromFastApiValidation(detail),
       hint: null,
       recoverable: true,
     }

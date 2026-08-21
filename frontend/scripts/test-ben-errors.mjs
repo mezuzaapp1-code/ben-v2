@@ -49,4 +49,22 @@ assert(
   'not generic 503'
 )
 
+const focusTooLong = {
+  detail: [
+    {
+      type: 'string_too_long',
+      loc: ['query', 'query'],
+      msg: 'String should have at most 4096 characters',
+    },
+  ],
+}
+assert(
+  humanizeBenHttpError(422, focusTooLong) === 'Context Focus query was too long.',
+  'Focus string_too_long is not a session error'
+)
+assert(
+  parseBenErrorResponse(422, { detail: 'Invalid project_id' })?.message === 'Invalid project_id',
+  'string 422 detail preserved'
+)
+
 console.log('PASS benErrors humanization')
