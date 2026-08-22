@@ -1,5 +1,5 @@
-# Local SQLite knowledge store
-data/knowledge.db
+# Local SQLite runtime stores (knowledge base, threads, projects, system)
+data/
 
 # Secrets and local env (never commit)
 .env
