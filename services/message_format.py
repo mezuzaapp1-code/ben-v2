@@ -155,7 +155,8 @@ def provider_expansion_too_large(expanded: str) -> str | None:
         return None
     return (
         f"This message is {format_char_count(n)} characters. BEN will not send more than "
-        f"{format_char_count(PROVIDER_EXPANDED_MAX_CHARS)} characters to the model in one turn. "
+        f"{format_char_count(PROVIDER_EXPANDED_MAX_CHARS)} characters in one request. "
+        "This is a BEN transport limit, not a guarantee that the selected model can fit the content. "
         "The Large Paste was not truncated and remains recoverable."
     )
 

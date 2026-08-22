@@ -121,6 +121,9 @@ assert(LARGE_PASTE_PROVIDER_MAX_CHARS === 400000, 'provider refuse 400000')
   const err = providerExpansionError(body)
   assert(err && err.includes('1,000,000'), '1MB-class explicit')
   assert(err.includes('not truncated'), '1MB not silently trimmed')
+  assert(err.includes('in one request'), '400k is a BEN request/transport guard')
+  assert(err.includes('transport limit'), 'wording names transport, not model fit')
+  assert(!err.includes('to the model'), 'does not claim the model can fit it')
 }
 
 {

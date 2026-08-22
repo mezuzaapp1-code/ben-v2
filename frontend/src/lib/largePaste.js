@@ -288,7 +288,8 @@ export function providerExpansionError(expanded) {
   if (n <= LARGE_PASTE_PROVIDER_MAX_CHARS) return null
   return (
     `This message is ${formatCharCount(n)} characters. BEN will not send more than ` +
-    `${formatCharCount(LARGE_PASTE_PROVIDER_MAX_CHARS)} characters to the model in one turn. ` +
+    `${formatCharCount(LARGE_PASTE_PROVIDER_MAX_CHARS)} characters in one request. ` +
+    'This is a BEN transport limit, not a guarantee that the selected model can fit the content. ' +
     'The Large Paste was not truncated and remains in the composer.'
   )
 }

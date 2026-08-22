@@ -167,6 +167,10 @@ def test_1mb_class_is_explicit_not_truncated():
     assert err is not None
     assert "1,000,000" in err
     assert "not truncated" in err.lower()
+    assert "in one request" in err
+    assert "transport limit" in err
+    assert "to the model" not in err
+    assert "guarantee" in err
 
 
 def test_history_and_rolling_context_use_stub_not_body():
@@ -250,6 +254,74 @@ def test_thread_sqlite_owns_large_paste_lifecycle(tmp_path, monkeypatch):
     assert db_path.exists()
     assert thread_store.delete_thread_database_file(str(tid)) is True
     assert not db_path.exists()
+
+
+def test_user_turn_survives_sqlite_persist_reload_expand_and_history_stub(tmp_path, monkeypatch):
+    """Storage-boundary proof: persist envelope, reload via production decode, expand, stub."""
+    from database import thread_store
+    from services.message_format import expand_user_message_for_provider, format_large_paste_stub
+    from services.thread_service import (
+        _sqlite_messages_for_api,
+        format_full_thread_history_for_handoff,
+        persist_chat_exchange_sqlite,
+        thread_store_messages_as_chat_rows,
+    )
+
+    monkeypatch.setattr(thread_store, "_DATA_ROOT", tmp_path)
+    monkeypatch.setattr(thread_store, "_SYSTEM_DB", tmp_path / "system_main.db")
+    monkeypatch.setattr(thread_store, "_THREADS_DIR", tmp_path / "threads")
+    thread_store.init_thread_store()
+
+    tid = uuid.uuid4()
+    canary = "CANARY-END-שלום-🌍-```md"
+    paste = ("א" * 12_000) + "\n" + canary
+    encoded = encode_user_turn(
+        [
+            {"type": "text", "text": "Before.\n"},
+            _paste_part(paste, pid="store-1"),
+            {"type": "text", "text": "\nAfter."},
+        ]
+    )
+    persist_chat_exchange_sqlite(
+        tid,
+        user_text=encoded,
+        assistant_content=encode_chat_assistant("ack", model_used="m", cost_usd=0.0, provider_id="gpt"),
+        provider="gpt",
+    )
+
+    stored = thread_store.list_thread_messages(str(tid))
+    user_row = next(row for row in stored if row.role == "user")
+    assert user_row.content == encoded
+    stored_payload = json.loads(user_row.content)
+    assert stored_payload["kind"] == "user_turn"
+    assert stored_payload["parts"][1]["text"] == paste
+    assert stored_payload["parts"][1]["text"].endswith(canary)
+
+    api_messages = _sqlite_messages_for_api(tid)
+    reloaded = next(m for m in api_messages if m["role"] == "user")
+    assert reloaded["kind"] == "user_turn"
+    assert reloaded["parts"][1]["text"] == paste
+    assert reloaded["parts"][1]["text"].endswith(canary)
+    assert reloaded["parts"][0]["text"] == "Before.\n"
+    assert reloaded["parts"][2]["text"] == "\nAfter."
+    assert paste not in reloaded["content"]
+    assert '{"ben":' not in reloaded["content"]
+    assert format_large_paste_stub(len(paste)) in reloaded["content"]
+
+    expanded = expand_user_message_for_provider(user_row.content)
+    assert expanded == f"Before.\n{paste}\nAfter."
+    assert expanded.endswith("After.")
+    assert canary in expanded
+    assert '{"ben":' not in expanded
+
+    history = format_full_thread_history_for_handoff(thread_store_messages_as_chat_rows(stored))
+    assert history is not None
+    assert paste not in history
+    assert canary not in history
+    assert '{"ben":' not in history
+    assert format_large_paste_stub(len(paste)) in history
+    assert "Before." in history
+    assert "After." in history
 
 
 @pytest.mark.asyncio
@@ -358,3 +430,5 @@ async def test_oversize_current_turn_is_honest_and_not_persisted():
     err = next(e for e in events if e["type"] == "error")
     assert "not truncated" in err["message"].lower()
     assert "500,000" in err["message"]
+    assert "transport limit" in err["message"]
+    assert "to the model" not in err["message"]
