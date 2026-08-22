@@ -25,6 +25,11 @@ from services.project_tools import slugify_project_name
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 project_knowledge_router = APIRouter(prefix="/api/projects", tags=["project-knowledge"])
 
+# Decoded-character ceiling for GET active-attention ?query=. Keep in sync with
+# frontend/src/lib/attentionQuery.js ATTENTION_QUERY_SERVER_MAX_CHARS.
+# Chat /chat/stream is intentionally NOT bounded by this value.
+ACTIVE_ATTENTION_QUERY_MAX_CHARS = 4096
+
 
 class KnowledgeBaseCreateBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -133,7 +138,7 @@ async def get_active_attention_focus(
     request: Request,
     project_slug: str,
     thread_id: str,
-    query: str = Query(..., min_length=1, max_length=4096),
+    query: str = Query(..., min_length=1, max_length=ACTIVE_ATTENTION_QUERY_MAX_CHARS),
 ):
     await build_project_tenant_context_from_request(
         request,

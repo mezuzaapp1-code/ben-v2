@@ -1171,6 +1171,8 @@ function App() {
       )
       const apiThreadId = serverThreadIdForApi(tid)
       const threadProjectSlug = threads.find((x) => x.id === tid)?.projectSlug
+      // Focus is auxiliary: never gate /chat/stream. The GET query is bounded
+      // inside fetchActiveAttention; chat still receives `text` in full.
       if (threadProjectSlug && text) {
         setAttentionFocusRequest({
           key: `${Date.now()}-${tid}`,
