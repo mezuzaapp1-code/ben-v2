@@ -20,9 +20,8 @@ XAI_CHAT_COMPLETIONS_URL = "https://api.x.ai/v1/chat/completions"
 XAI_FLAGSHIP_MODEL = "grok-4.6"
 XAI_FAST_MODEL = "grok-4.3"
 
-# Chat Completions search_parameters.mode defaults to "on". V1 text chat must not
-# independently invoke Web/X search; BEN decides external capabilities.
-_SEARCH_OFF = {"mode": "off"}
+# Live Search (`search_parameters`) is gone on Chat Completions (HTTP 410).
+# Search stays off by omitting search/tool fields. Do not send tools.
 
 
 class XAIProvider(BaseProvider):
@@ -38,7 +37,6 @@ class XAIProvider(BaseProvider):
         body: dict = {
             "model": model,
             "messages": self._messages(message, system),
-            "search_parameters": dict(_SEARCH_OFF),
         }
         if stream:
             body["stream"] = True

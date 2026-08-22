@@ -46,21 +46,39 @@ def test_xai_gateway_registered():
     assert gateway_provider_api_key_env("xai") == "XAI_API_KEY"
 
 
-def test_xai_request_body_disables_search_and_omits_tools():
+_FORBIDDEN_XAI_BODY_KEYS = (
+    "search_parameters",
+    "web_search_options",
+    "tools",
+    "tool_choice",
+)
+
+
+def _assert_no_search_or_tools(body: dict) -> None:
+    for key in _FORBIDDEN_XAI_BODY_KEYS:
+        assert key not in body
+    assert "search_parameters" not in json.dumps(body)
+
+
+def test_xai_request_body_omits_search_and_tools():
     body = XAIProvider()._json_body(XAI_FLAGSHIP_MODEL, "hello", None, stream=True)
-    assert body["model"] == XAI_FLAGSHIP_MODEL
-    assert body["search_parameters"] == {"mode": "off"}
-    assert "tools" not in body
-    assert "tool_choice" not in body
+    assert body["model"] == XAI_FLAGSHIP_MODEL == "grok-4.6"
+    assert set(body) == {"model", "messages", "stream", "stream_options"}
+    _assert_no_search_or_tools(body)
     assert body["stream"] is True
     assert body["stream_options"] == {"include_usage": True}
 
 
 def test_xai_request_body_uses_caller_model():
     body = XAIProvider()._json_body(XAI_FAST_MODEL, "hi", "sys", stream=False)
-    assert body["model"] == XAI_FAST_MODEL
-    assert body["search_parameters"] == {"mode": "off"}
+    assert body["model"] == XAI_FAST_MODEL == "grok-4.3"
+    assert set(body) == {"model", "messages"}
+    _assert_no_search_or_tools(body)
     assert "stream" not in body
+    assert "stream_options" not in body
+    assert body["messages"][0]["role"] == "system"
+    assert body["messages"][0]["content"] == "sys"
+    assert body["messages"][1] == {"role": "user", "content": "hi"}
 
 
 @pytest.mark.asyncio
@@ -111,8 +129,9 @@ async def test_xai_stream_normalizes_openai_sse(monkeypatch):
     assert captured["method"] == "POST"
     assert captured["url"] == XAI_CHAT_COMPLETIONS_URL
     assert captured["json"]["model"] == XAI_FLAGSHIP_MODEL
-    assert captured["json"]["search_parameters"] == {"mode": "off"}
-    assert "tools" not in captured["json"]
+    assert captured["json"]["stream"] is True
+    assert captured["json"]["stream_options"] == {"include_usage": True}
+    _assert_no_search_or_tools(captured["json"])
     assert captured["auth_prefix"] == "Bearer"
     assert chunks[0] == "Hello "
     assert chunks[1] == "Grok"
@@ -122,6 +141,43 @@ async def test_xai_stream_normalizes_openai_sse(monkeypatch):
     assert chunks[2].usage.output_tokens == 2
     assert chunks[2].finish_reason == "stop"
     assert chunks[2].provider_request_id == "cmpl-x"
+
+
+@pytest.mark.asyncio
+async def test_xai_non_stream_send_omits_search_and_keeps_chat_completions(monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-key-not-a-secret")
+    captured: dict = {}
+
+    class _FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "id": "cmpl-ns",
+                "choices": [{"message": {"content": "OK"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
+            }
+
+    class _FakeAsyncClient:
+        async def post(self, url, *, headers, json):
+            captured["url"] = url
+            captured["json"] = json
+            captured["auth_prefix"] = str(headers.get("Authorization", "")).split(" ", 1)[0]
+            return _FakeResponse()
+
+    result = await XAIProvider().send_message(
+        _FakeAsyncClient(),  # type: ignore[arg-type]
+        model=XAI_FAST_MODEL,
+        message="Return OK",
+        tenant_id="t",
+    )
+    assert captured["url"] == XAI_CHAT_COMPLETIONS_URL == "https://api.x.ai/v1/chat/completions"
+    assert captured["json"]["model"] == "grok-4.3"
+    assert "stream" not in captured["json"]
+    _assert_no_search_or_tools(captured["json"])
+    assert captured["auth_prefix"] == "Bearer"
+    assert result.content == "OK"
 
 
 def test_normalize_openai_usage_reads_xai_shaped_fields():
@@ -211,5 +267,8 @@ async def test_large_paste_canary_reaches_xai_adapter():
     assert paste in seen["message"]
     assert seen["message"].startswith("Review:\n")
     assert seen["message"].endswith("\nThanks")
+    assert '{"ben":' not in seen["message"]
+    assert '"kind"' not in seen["message"]
+    assert "user_turn" not in seen["message"]
     assert seen["model"] == XAI_FLAGSHIP_MODEL
     assert any(e.get("type") == "done" for e in events)

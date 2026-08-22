@@ -66,6 +66,8 @@ assert(!selectorCss.includes('33.333%'), 'EngineSelector pills are not locked to
 
 const adapter = readFileSync(join(root, '../services/providers/xai_provider.py'), 'utf8')
 assert(!adapter.includes('model = "grok-4.6"'), 'adapter does not hardcode the selected model')
-assert(adapter.includes('"mode": "off"') || adapter.includes("mode\": \"off\""), 'search disabled in adapter')
+assert(!adapter.includes('"search_parameters"'), 'adapter does not send search_parameters')
+assert(!adapter.includes('"web_search_options"'), 'adapter does not send web_search_options')
+assert(!adapter.includes('"tools"'), 'adapter does not send tools')
 
 console.log('PASS: Grok provider/model menu uses the existing selector architecture')
