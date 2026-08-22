@@ -559,6 +559,9 @@ function App() {
   const [selectedGeminiModel, setSelectedGeminiModel] = useState(() =>
     coerceRegisteredModel('gemini', DEFAULT_PROVIDER_MODELS.gemini)
   )
+  const [selectedGrokModel, setSelectedGrokModel] = useState(() =>
+    coerceRegisteredModel('grok', DEFAULT_PROVIDER_MODELS.grok)
+  )
   const [activeProject, setActiveProject] = useState(() => clearActiveProject(null))
   const [projectOptions, setProjectOptions] = useState([])
   const [projectToast, setProjectToast] = useState(null)
@@ -731,6 +734,7 @@ function App() {
     if (providerId === 'gpt') setSelectedGptModel(tier1)
     else if (providerId === 'claude') setSelectedClaudeModel(tier1)
     else if (providerId === 'gemini') setSelectedGeminiModel(tier1)
+    else if (providerId === 'grok') setSelectedGrokModel(tier1)
   }, [])
 
   const activeSpeakingProvider = useMemo(
@@ -743,8 +747,9 @@ function App() {
       gpt: selectedGptModel,
       claude: selectedClaudeModel,
       gemini: selectedGeminiModel,
+      grok: selectedGrokModel,
     }),
-    [selectedGptModel, selectedClaudeModel, selectedGeminiModel]
+    [selectedGptModel, selectedClaudeModel, selectedGeminiModel, selectedGrokModel]
   )
 
   const activeModelOverride = useMemo(() => {
@@ -756,6 +761,7 @@ function App() {
     if (providerId === 'gpt') setSelectedGptModel(modelId)
     else if (providerId === 'claude') setSelectedClaudeModel(modelId)
     else if (providerId === 'gemini') setSelectedGeminiModel(modelId)
+    else if (providerId === 'grok') setSelectedGrokModel(modelId)
   }, [])
 
   const attachMenuItems = useMemo(

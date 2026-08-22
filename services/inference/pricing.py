@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from services.inference.contracts import InferenceCost, InferencePricingSnapshot, InferenceUsage
-from services.providers.model_registry import token_rates
+from services.providers.model_registry import cached_input_rate, token_rates
 
 
 def pricing_version() -> str:
@@ -13,18 +13,25 @@ def pricing_version() -> str:
     return str(version or "unknown")
 
 
-def resolve_pricing_snapshot(*, provider: str, model: str) -> InferencePricingSnapshot:
+def resolve_pricing_snapshot(
+    *,
+    provider: str,
+    model: str,
+    usage: InferenceUsage | None = None,
+) -> InferencePricingSnapshot:
     prov = (provider or "").strip().lower()
     mid = (model or "").strip()
-    ir, or_ = token_rates(prov, mid)
-    # Pass 1: input/output only; cached/reasoning inherit input/output when absent from registry.
+    prompt_tokens = int(usage.input_tokens) if usage is not None else 0
+    ir, or_ = token_rates(prov, mid, prompt_tokens=prompt_tokens)
+    cached = cached_input_rate(prov, mid, prompt_tokens=prompt_tokens)
+    # Cached/reasoning inherit input/output when the registry has no model-specific cached rate.
     return InferencePricingSnapshot(
         pricing_version=pricing_version(),
         provider=prov,
         model=mid,
         input_usd_per_token=float(ir),
         output_usd_per_token=float(or_),
-        cached_input_usd_per_token=float(ir),
+        cached_input_usd_per_token=float(cached) if cached is not None else float(ir),
         reasoning_usd_per_token=float(or_),
         currency="USD",
     )

@@ -23,6 +23,14 @@
       "gateway": "google",
       "api_key_env": "GOOGLE_API_KEY",
       "accent": "#4285f4"
+    },
+    {
+      "id": "grok",
+      "label": "Grok",
+      "short_label": "Grok",
+      "gateway": "xai",
+      "api_key_env": "XAI_API_KEY",
+      "accent": "#0f0f14"
     }
   ]
 }

@@ -77,7 +77,7 @@ async def account_provider_attempt(
     if workspace_id and not resolved_ctx.workspace_id:
         resolved_ctx = replace(resolved_ctx, workspace_id=workspace_id)
     resolved_usage = usage or usage_missing()
-    snapshot = resolve_pricing_snapshot(provider=provider, model=model)
+    snapshot = resolve_pricing_snapshot(provider=provider, model=model, usage=resolved_usage)
     cost = calculate_cost(resolved_usage, snapshot)
     record = build_call_record(
         ctx=resolved_ctx,

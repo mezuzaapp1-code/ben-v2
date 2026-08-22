@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from services.providers.anthropic_provider import ANTHROPIC_FLAGSHIP_MODEL
-from services.tier1_models import TIER1_GEMINI_MODEL, tier1_model_for
+from services.tier1_models import TIER1_GEMINI_MODEL, TIER1_GROK_MODEL, tier1_model_for
 
 
 def test_tier1_claude_matches_flagship():
@@ -16,3 +16,8 @@ def test_tier1_gemini_is_registered_flash():
 
 def test_tier1_gpt_is_registered_legacy():
     assert tier1_model_for("gpt") == "gpt-4o"
+
+
+def test_tier1_grok_is_flagship():
+    assert tier1_model_for("grok") == TIER1_GROK_MODEL
+    assert TIER1_GROK_MODEL == "grok-4.6"

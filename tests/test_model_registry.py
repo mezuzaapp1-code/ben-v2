@@ -51,3 +51,6 @@ def test_allowed_models_includes_all_providers():
     assert "openai" in providers
     assert "anthropic" in providers
     assert "google" in providers
+    assert "xai" in providers
+    assert is_registered_model("xai", "grok-4.6")
+    assert is_registered_model("xai", "grok-4.3")

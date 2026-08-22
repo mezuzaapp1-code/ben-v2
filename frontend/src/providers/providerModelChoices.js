@@ -12,6 +12,8 @@ export const TIER1_PROVIDER_MODELS = Object.freeze({
 
   gemini: 'gemini-3.5-flash',
 
+  grok: 'grok-4.6',
+
 })
 
 
@@ -25,6 +27,8 @@ export const PROVIDER_MODEL_OPTIONS = Object.freeze({
   claude: Object.freeze(['claude-opus-4.8', 'claude-sonnet-4.6', 'claude-sonnet-4-6']),
 
   gemini: Object.freeze(['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash']),
+
+  grok: Object.freeze(['grok-4.6', 'grok-4.3']),
 
 })
 
@@ -87,6 +91,8 @@ export function formatModelShortLabel(modelId) {
     .replace(/^claude-/i, '')
 
     .replace(/^gemini-/i, '')
+
+    .replace(/^grok-/i, '')
 
     .replace(/-latest$/i, '')
 

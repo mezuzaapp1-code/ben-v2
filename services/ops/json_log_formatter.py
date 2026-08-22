@@ -55,7 +55,7 @@ def _is_sensitive_key(key: str) -> bool:
 def _safe_value(key: str, value: Any) -> Any:
     if _is_sensitive_key(key):
         return None
-    if isinstance(value, str) and value.startswith(("sk-", "sk_ant", "Bearer ")):
+    if isinstance(value, str) and value.startswith(("sk-", "sk_ant", "Bearer ", "xai-")):
         return None
     return value
 

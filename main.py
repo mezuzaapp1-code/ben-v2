@@ -422,7 +422,7 @@ class ChatBody(BaseModel):
 
     provider_id: str | None = Field(
         None,
-        description="Speaking provider for chat routing: gpt, claude, or gemini",
+        description="Speaking provider for chat routing: gpt, claude, gemini, or grok",
     )
 
     preferred_language: str | None = Field(
@@ -923,7 +923,7 @@ class AdhocExpertBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     session_id: str = Field(..., description="UUID grouping this ad-hoc round")
-    provider_id: str = Field(..., description="Speaking provider: gpt, claude, or gemini")
+    provider_id: str = Field(..., description="Speaking provider: gpt, claude, gemini, or grok")
     tier: str = "free"
     anchor_message_id: int | None = Field(
         None,

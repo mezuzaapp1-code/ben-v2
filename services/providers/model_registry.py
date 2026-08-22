@@ -10,6 +10,7 @@ from typing import Any
 from services.providers.anthropic_provider import ANTHROPIC_FAST_MODEL, ANTHROPIC_FLAGSHIP_MODEL
 from services.providers.gemini_provider import GEMINI_FAST_MODEL
 from services.providers.openai_provider import OPENAI_CHAT_FAST_MODEL, OPENAI_REASONING_MODEL
+from services.providers.xai_provider import XAI_FAST_MODEL, XAI_FLAGSHIP_MODEL
 
 _REGISTRY_PATH = Path(__file__).resolve().parents[2] / "shared" / "frontier_models.json"
 
@@ -22,6 +23,8 @@ _DEFAULT_RATES: dict[tuple[str, str], tuple[float, float]] = {
     ("anthropic", ANTHROPIC_FAST_MODEL): (1e-6, 5e-6),
     ("google", GEMINI_FAST_MODEL): (0.1e-6, 0.4e-6),
     ("google", "gemini-2.5-flash"): (0.1e-6, 0.4e-6),
+    ("xai", XAI_FLAGSHIP_MODEL): (2e-6, 6e-6),
+    ("xai", XAI_FAST_MODEL): (1.25e-6, 2.5e-6),
 }
 
 _DEFAULT_API_ENV: dict[tuple[str, str], tuple[str, ...]] = {
@@ -58,7 +61,12 @@ def allowed_models() -> frozenset[tuple[str, str]]:
     data = _load_registry()
     providers = data.get("providers")
     if isinstance(providers, dict):
-        gateway_map = {"openai": "openai", "anthropic": "anthropic", "google": "google"}
+        gateway_map = {
+            "openai": "openai",
+            "anthropic": "anthropic",
+            "google": "google",
+            "xai": "xai",
+        }
         for prov_key, spec in providers.items():
             gateway = gateway_map.get(str(prov_key).strip().lower())
             if not gateway or not isinstance(spec, dict):
@@ -97,20 +105,65 @@ def assert_model_registered(provider: str, model: str) -> str:
     return mid
 
 
-def token_rates(provider: str, model: str) -> tuple[float, float]:
+def _pair_from_raw(raw: Any) -> tuple[float, float] | None:
+    if isinstance(raw, list) and len(raw) >= 2:
+        try:
+            return float(raw[0]), float(raw[1])
+        except (TypeError, ValueError):
+            return None
+    if isinstance(raw, dict):
+        try:
+            return float(raw["input"]), float(raw["output"])
+        except (KeyError, TypeError, ValueError):
+            return None
+    return None
+
+
+def _context_pricing_band(provider: str, model: str, prompt_tokens: int) -> dict[str, Any] | None:
+    data = _load_registry()
+    pricing = data.get("context_pricing")
+    if not isinstance(pricing, dict):
+        return None
+    spec = pricing.get(f"{provider}:{model}")
+    if not isinstance(spec, dict):
+        return None
+    try:
+        threshold = int(spec.get("prompt_threshold_tokens") or 0)
+    except (TypeError, ValueError):
+        threshold = 0
+    band_key = "at_or_above" if threshold and int(prompt_tokens) >= threshold else "below"
+    band = spec.get(band_key)
+    return band if isinstance(band, dict) else None
+
+
+def token_rates(provider: str, model: str, *, prompt_tokens: int = 0) -> tuple[float, float]:
     prov = (provider or "").strip().lower()
     mid = (model or "").strip()
+    band = _context_pricing_band(prov, mid, prompt_tokens)
+    if band is not None:
+        parsed = _pair_from_raw(band)
+        if parsed is not None:
+            return parsed
     data = _load_registry()
     rates = data.get("token_rates_usd_per_token")
     if isinstance(rates, dict):
-        key = f"{prov}:{mid}"
-        raw = rates.get(key)
-        if isinstance(raw, list) and len(raw) >= 2:
-            try:
-                return float(raw[0]), float(raw[1])
-            except (TypeError, ValueError):
-                pass
+        parsed = _pair_from_raw(rates.get(f"{prov}:{mid}"))
+        if parsed is not None:
+            return parsed
     return _DEFAULT_RATES.get((prov, mid), (0.5e-6, 1.5e-6))
+
+
+def cached_input_rate(provider: str, model: str, *, prompt_tokens: int = 0) -> float | None:
+    """xAI documents a cheaper cached-input rate; others inherit input rate."""
+    prov = (provider or "").strip().lower()
+    mid = (model or "").strip()
+    band = _context_pricing_band(prov, mid, prompt_tokens)
+    if band is not None:
+        try:
+            return float(band["cached"])
+        except (KeyError, TypeError, ValueError):
+            pass
+    return None
 
 
 def _env_override_keys(provider: str, model: str) -> tuple[str, ...]:
@@ -147,4 +200,6 @@ def registry_public_snapshot() -> dict[str, Any]:
         "anthropic_flagship": ANTHROPIC_FLAGSHIP_MODEL,
         "anthropic_fast": ANTHROPIC_FAST_MODEL,
         "gemini_fast": GEMINI_FAST_MODEL,
+        "xai_flagship": XAI_FLAGSHIP_MODEL,
+        "xai_fast": XAI_FAST_MODEL,
     }

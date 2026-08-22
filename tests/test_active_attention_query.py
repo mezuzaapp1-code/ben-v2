@@ -111,7 +111,7 @@ def test_chat_stream_keeps_full_long_message_for_each_engine():
     assert len(full) > 19_000
     client = TestClient(main.app)
     with patch_main_persistent_tenant(TENANT), patch("main.stream_chat_response", _fake_stream):
-        for provider in ("gpt", "claude", "gemini"):
+        for provider in ("gpt", "claude", "gemini", "grok"):
             res = client.post(
                 "/chat/stream",
                 json={"message": full, "tier": "pro", "provider_id": provider},
@@ -120,6 +120,6 @@ def test_chat_stream_keeps_full_long_message_for_each_engine():
             assert res.status_code == 200, (provider, res.text)
 
     by_provider = dict(captured)
-    assert set(by_provider) >= {"gpt", "claude", "gemini"}
+    assert set(by_provider) >= {"gpt", "claude", "gemini", "grok"}
     for provider, message in captured:
         assert message == full, f"{provider} must receive the full chat message"

@@ -13,18 +13,21 @@ from services.providers.anthropic_provider import AnthropicProvider
 from services.providers.base_provider import BaseProvider, ProviderStreamEnd
 from services.providers.gemini_provider import GeminiProvider
 from services.providers.openai_provider import OpenAIProvider
+from services.providers.xai_provider import XAIProvider
 
 
 def test_gateway_provider_registry():
     assert get_gateway_provider("openai").provider_name == "openai"
     assert get_gateway_provider("anthropic").provider_name == "anthropic"
     assert get_gateway_provider("google").provider_name == "google"
+    assert get_gateway_provider("xai").provider_name == "xai"
 
 
 def test_adapter_types():
     assert isinstance(OpenAIProvider(), BaseProvider)
     assert isinstance(AnthropicProvider(), BaseProvider)
     assert isinstance(GeminiProvider(), BaseProvider)
+    assert isinstance(XAIProvider(), BaseProvider)
 
 
 @pytest.mark.asyncio

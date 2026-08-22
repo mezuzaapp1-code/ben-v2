@@ -42,8 +42,15 @@ def test_sanitize_empty_read_timeout():
     assert sanitize_provider_error_message(httpx.ReadTimeout("")) == "request timed out"
 
 
+def test_sanitize_redacts_xai_key_material():
+    msg = sanitize_provider_error_message(RuntimeError("auth failed xai-abcdefghijklmnopqrstuvwxyz"))
+    assert "xai-abcdefghijklmnopqrstuvwxyz" not in msg
+    assert "[redacted]" in msg
+
+
 def test_gateway_provider_label():
     assert gateway_provider_label("anthropic") == "Claude"
+    assert gateway_provider_label("xai") == "Grok"
 
 
 @pytest.mark.asyncio

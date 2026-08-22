@@ -82,12 +82,13 @@ def client():
 def test_normalize_chat_provider_id_valid():
     assert normalize_chat_provider_id("gpt") == "gpt"
     assert normalize_chat_provider_id(" Claude ") == "claude"
+    assert normalize_chat_provider_id(" grok ") == "grok"
     assert normalize_chat_provider_id(None) is None
     assert normalize_chat_provider_id("") is None
 
 
 def test_normalize_chat_provider_id_invalid():
-    with pytest.raises(ValueError, match="claude, gemini, gpt"):
+    with pytest.raises(ValueError, match="claude, gemini, gpt, grok"):
         normalize_chat_provider_id("openai")
 
 
@@ -175,6 +176,21 @@ async def test_route_request_explicit_provider_calls_only_that_gateway(monkeypat
         out = await route_request("hello", TENANT, "free", provider_id="gemini")
     assert seen == ["google"]
 
+    seen.clear()
+    async def fake_xai(cx, *, model, message, tenant_id, system=None):
+        seen.append("xai")
+        return ProviderSendResult.from_token_counts("grok-ok", 1, 1)
+
+    with (
+        patch.object(get_gateway_provider("openai"), "send_message", side_effect=fake_openai),
+        patch.object(get_gateway_provider("anthropic"), "send_message", side_effect=fake_anthropic),
+        patch.object(get_gateway_provider("google"), "send_message", side_effect=fake_google),
+        patch.object(get_gateway_provider("xai"), "send_message", side_effect=fake_xai),
+    ):
+        monkeypatch.setenv("XAI_API_KEY", "xai-test")
+        out = await route_request("hello", TENANT, "free", provider_id="grok")
+    assert seen == ["xai"]
+
 
 def test_council_body_rejects_provider_id(client):
     with patch.object(main, "run_council", new_callable=AsyncMock) as mock_council:
@@ -248,6 +264,8 @@ def test_validate_chat_model_override_rejects_unknown():
 def test_validate_chat_model_override_accepts_tier1():
     validate_chat_model_override("claude", "claude-opus-4.8")
     validate_chat_model_override("gemini", "gemini-3.5-flash")
+    validate_chat_model_override("grok", "grok-4.6")
+    validate_chat_model_override("grok", "grok-4.3")
 
 
 def test_chat_stream_rejects_unknown_model_override(client):

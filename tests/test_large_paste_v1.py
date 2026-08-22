@@ -326,7 +326,10 @@ def test_user_turn_survives_sqlite_persist_reload_expand_and_history_stub(tmp_pa
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("provider_id,gateway", [("gpt", "openai"), ("claude", "anthropic"), ("gemini", "google")])
+@pytest.mark.parametrize(
+    "provider_id,gateway",
+    [("gpt", "openai"), ("claude", "anthropic"), ("gemini", "google"), ("grok", "xai")],
+)
 async def test_current_turn_providers_receive_full_expansion(provider_id, gateway):
     from services.chat_service import stream_chat_response
 

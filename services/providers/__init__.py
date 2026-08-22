@@ -5,17 +5,20 @@ from services.providers.anthropic_provider import AnthropicProvider
 from services.providers.base_provider import BaseProvider
 from services.providers.gemini_provider import GeminiProvider
 from services.providers.openai_provider import OpenAIProvider
+from services.providers.xai_provider import XAIProvider
 
 _GATEWAY_PROVIDERS: dict[str, BaseProvider] = {
     "openai": OpenAIProvider(),
     "anthropic": AnthropicProvider(),
     "google": GeminiProvider(),
+    "xai": XAIProvider(),
 }
 
 _PROVIDER_API_KEYS = {
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "google": "GOOGLE_API_KEY",
+    "xai": "XAI_API_KEY",
 }
 
 

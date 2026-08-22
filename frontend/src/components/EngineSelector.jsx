@@ -1,7 +1,7 @@
 import { getSpeakingProviders } from '../providers/providerRegistry.js'
 import './EngineSelector.css'
 
-/** Tier 1 engine family picker — GPT / Claude / Gemini only (no sub-model labels). */
+/** Tier 1 engine family picker — speaking providers from the registry (no sub-model labels). */
 export function EngineSelector({ activeProviderId, onActiveProviderChange, disabled = false }) {
   const providers = getSpeakingProviders()
 

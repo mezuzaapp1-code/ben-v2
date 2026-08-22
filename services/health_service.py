@@ -52,10 +52,12 @@ def _env_present(name: str) -> bool:
 def env_checks() -> dict[str, bool]:
     openai_ok = _env_present("OPENAI_API_KEY")
     anthropic_ok = _env_present("ANTHROPIC_API_KEY")
+    xai_ok = _env_present("XAI_API_KEY")
     synthesis_ok = bool(_env_present("SYNTHESIS_MODEL") or openai_ok)
     return {
         "openai_configured": openai_ok,
         "anthropic_configured": anthropic_ok,
+        "xai_configured": xai_ok,
         "synthesis_model_configured": synthesis_ok,
     }
 
@@ -114,6 +116,8 @@ async def build_health_payload() -> tuple[dict[str, Any], int]:
         log_warning("OPENAI_API_KEY not configured", subsystem="health", category="config_error")
     if not checks_env["anthropic_configured"]:
         log_warning("ANTHROPIC_API_KEY not configured", subsystem="health", category="config_error")
+    if not checks_env["xai_configured"]:
+        log_warning("XAI_API_KEY not configured", subsystem="health", category="config_error")
 
     try:
         async with asyncio.timeout(HEALTH_ROUTE_TIMEOUT_S):

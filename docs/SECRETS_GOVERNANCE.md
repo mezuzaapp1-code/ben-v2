@@ -20,7 +20,7 @@ How BEN-V2 stores, accesses, rotates, and logs secrets. **Documentation v1** —
 | Class | Examples | Required at startup | Logged if missing? |
 |-------|----------|---------------------|--------------------|
 | **Critical** | `DATABASE_URL`, `OPENAI_API_KEY` | Yes — fail fast (`validate_startup`) | Warning only (not values) |
-| **Provider optional** | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `SYNTHESIS_MODEL` | No | Warning (`subsystem=startup`) |
+| **Provider optional** | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `GOOGLE_API_KEY`, `XAI_API_KEY`, `SYNTHESIS_MODEL` | No | Warning (`subsystem=startup`) |
 | **Auth** | `CLERK_SECRET_KEY` | Yes when `ENFORCE_AUTH=true` (future) | Warning |
 | **Deploy metadata** | `RAILWAY_GIT_COMMIT_SHA`, `GIT_COMMIT` | No | Never log values |
 | **Internal automation** | `BEN_INTERNAL_API_KEY` (future) | No | Never log values |
@@ -36,6 +36,7 @@ How BEN-V2 stores, accesses, rotates, and logs secrets. **Documentation v1** —
 | `OPENAI_API_KEY` | Server env | `council_service`, `model_gateway` |
 | `ANTHROPIC_API_KEY` | Server env | `council_service` (legal expert) |
 | `GOOGLE_API_KEY` | Server env | `model_gateway`, `council_service` (Strategy Advisor) |
+| `XAI_API_KEY` | Server env | `model_gateway` (`XAIProvider`) |
 | `GEMINI_MODEL` / `GOOGLE_MODEL` | Server env | Council Strategy override (default `gemini-2.5-flash`; do not use retired 1.5 ids) |
 | `CLERK_SECRET_KEY` | Server env | `auth/clerk_auth.py` |
 | Stripe / Clerk webhook secrets | Server env | `billing/` (when routes enabled) |
@@ -49,7 +50,7 @@ Browser clients must **not** receive provider API keys. Frontend uses Clerk publ
 `services/ops/json_log_formatter.py` strips structured fields and string values when:
 
 - Key matches: `api_key`, `authorization`, `password`, `secret`, `token`, `database_url`
-- String starts with: `sk-`, `sk_ant`, `Bearer `
+- String starts with: `sk-`, `sk_ant`, `Bearer `, `xai-`
 
 **Gaps to close in implementation phase:**
 

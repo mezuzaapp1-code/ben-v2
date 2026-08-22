@@ -18,6 +18,7 @@ from services.providers.anthropic_provider import ANTHROPIC_FAST_MODEL, ANTHROPI
 from services.providers.gemini_provider import GEMINI_FAST_MODEL
 from services.providers.model_registry import assert_model_registered, resolve_api_model, token_rates
 from services.providers.openai_provider import OPENAI_CHAT_FAST_MODEL, OPENAI_REASONING_MODEL
+from services.providers.xai_provider import XAI_FLAGSHIP_MODEL
 from services.providers.speaking_registry import (
     all_provider_ids,
     gateway_for_provider_id,
@@ -155,11 +156,15 @@ def _model_for_gateway_provider(gateway_prov: str, tier: str) -> str:
         if t in ("pro", "enterprise"):
             return os.getenv("ANTHROPIC_MODEL", "").strip() or ANTHROPIC_FLAGSHIP_MODEL
         return os.getenv("ANTHROPIC_MODEL", "").strip() or ANTHROPIC_FAST_MODEL
-    return (
-        os.getenv("GEMINI_MODEL", "").strip()
-        or os.getenv("GOOGLE_MODEL", "").strip()
-        or GEMINI_FAST_MODEL
-    )
+    if gateway_prov == "xai":
+        return XAI_FLAGSHIP_MODEL
+    if gateway_prov == "google":
+        return (
+            os.getenv("GEMINI_MODEL", "").strip()
+            or os.getenv("GOOGLE_MODEL", "").strip()
+            or GEMINI_FAST_MODEL
+        )
+    raise ValueError(f"unknown gateway provider: {gateway_prov}")
 
 
 def _attempts(
@@ -218,7 +223,7 @@ def reset_circuit_breakers_for_tests() -> None:
 
 
 def _cost(prov: str, model: str, inp: int, out: int) -> float:
-    ir, or_ = token_rates(prov, model)
+    ir, or_ = token_rates(prov, model, prompt_tokens=inp)
     return ir * inp + or_ * out
 
 
