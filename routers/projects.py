@@ -199,6 +199,11 @@ async def api_list_projects(
     request: Request,
     limit: int | None = Query(None, ge=1, description="Page size; clamped to a hard maximum"),
     cursor: str | None = Query(None, description="Opaque keyset cursor from the previous page"),
+    query: str | None = Query(
+        None,
+        max_length=128,
+        description="Optional name contains / exact UUID search within the current tenant",
+    ),
 ):
     ctx = await build_project_tenant_context_from_request(
         request, route_operation="GET /api/projects"
@@ -209,6 +214,7 @@ async def api_list_projects(
             _org_from_ctx(ctx),
             limit=page_limit,
             cursor=cursor,
+            query=query,
         )
 
 

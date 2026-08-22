@@ -18,6 +18,7 @@ from services.project_library import (
     encode_project_cursor,
     fetch_file_counts,
     library_item,
+    normalize_project_search_query,
 )
 
 
@@ -71,14 +72,18 @@ async def list_projects(
     *,
     limit: int | None = None,
     cursor: str | None = None,
+    query: str | None = None,
     include_file_counts: bool = True,
 ) -> dict[str, Any]:
     """Bounded org-scoped project page. Never returns an unbounded result set.
 
     Additive keys: ``items`` (library rows) and ``projects`` (same page, legacy
     alias). ``next_cursor`` is an opaque keyset token or null.
+    Optional ``query`` filters by name contains (ILIKE) and/or exact UUID,
+    still inside ``org_id``.
     """
     page_limit = clamp_project_page_limit(limit)
+    needle = normalize_project_search_query(query)
     cursor_ts = cursor_id = None
     if cursor and str(cursor).strip():
         cursor_ts, cursor_id = decode_project_cursor(str(cursor))
@@ -86,7 +91,11 @@ async def list_projects(
     async with get_db_session() as session:
         await _set_org(session, org_id)
         stmt = build_project_list_stmt(
-            org_id, limit=page_limit, cursor_ts=cursor_ts, cursor_id=cursor_id
+            org_id,
+            limit=page_limit,
+            cursor_ts=cursor_ts,
+            cursor_id=cursor_id,
+            query=needle,
         )
         fetched = list((await session.execute(stmt)).scalars().all())
         has_next = len(fetched) > page_limit
@@ -115,6 +124,7 @@ async def list_projects(
         page_size=len(items),
         has_next_page=bool(next_cursor),
         limit=page_limit,
+        search=bool(needle),
     )
     payload = {
         "items": items,
