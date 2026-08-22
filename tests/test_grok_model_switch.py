@@ -179,7 +179,7 @@ async def test_grok_model_switch_persists_actual_model_same_thread(monkeypatch):
             ):
                 pass
 
-    assert [row["thread_id"] for row in persisted] == [str(tid)] * 3
+    assert [str(row["thread_id"]) for row in persisted] == [str(tid)] * 3
     assert [row["provider"] for row in persisted] == ["grok", "grok", "grok"]
     models = []
     for row in persisted:

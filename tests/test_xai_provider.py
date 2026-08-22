@@ -24,6 +24,21 @@ from services.providers.xai_provider import (
 )
 
 
+def test_health_reports_xai_configured_boolean_only(monkeypatch):
+    from services.health_service import env_checks
+
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    assert env_checks()["xai_configured"] is False
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-key-not-a-secret")
+    assert env_checks()["xai_configured"] is True
+    assert set(env_checks()) >= {
+        "openai_configured",
+        "anthropic_configured",
+        "xai_configured",
+        "synthesis_model_configured",
+    }
+
+
 def test_xai_gateway_registered():
     adapter = get_gateway_provider("xai")
     assert adapter.provider_name == "xai"
