@@ -80,6 +80,7 @@ from services.providers.call_diagnostics import estimate_request_tokens
 from services.ops.timeouts import CHAT_EXPLICIT_PROVIDER_TIMEOUT_S, HTTP_CLIENT_TIMEOUT_S
 from services.providers import gateway_provider_api_key_env, get_gateway_provider
 from services.providers.provider_errors import format_chat_provider_error, sanitize_provider_error_message
+from services.providers.xai_error_diagnostics import log_safe_xai_http_status_error
 
 _CHAIN = ("openai", "anthropic", "google")
 _FALLBACK = {
@@ -386,6 +387,8 @@ async def route_request(
             except BaseException as e:
                 last = e
                 last_prov = prov
+                if prov == "xai":
+                    log_safe_xai_http_status_error(e)
                 elapsed_ms = (time.perf_counter() - attempt_t0) * 1000.0
                 last_accounted = await account_provider_attempt(
                     provider=prov,
@@ -534,6 +537,8 @@ async def route_request_stream(
             except BaseException as e:
                 last = e
                 last_prov = prov
+                if prov == "xai":
+                    log_safe_xai_http_status_error(e)
                 if not attempt_accounted:
                     elapsed_ms = (time.perf_counter() - attempt_t0) * 1000.0
                     await account_provider_attempt(

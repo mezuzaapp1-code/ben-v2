@@ -15,6 +15,7 @@ STRUCTURED_FIELDS = (
     "model",
     "duration_ms",
     "outcome",
+    "call_outcome",
     "category",
     "event",
     "http_status",

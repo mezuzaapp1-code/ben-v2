@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from services.ops.structured_log import log_warning
+from services.ops.structured_log import log_info
 
 ERROR_MESSAGE_MAX = 200
 _SECRET_RE = re.compile(
@@ -105,12 +105,15 @@ def extract_safe_xai_http_error(response: httpx.Response) -> dict[str, Any]:
 
 
 def log_safe_xai_http_error(response: httpx.Response) -> dict[str, Any]:
+    """Emit on the same ben.ops INFO sink as inference_call_accounted."""
     fields = extract_safe_xai_http_error(response)
-    log_warning(
+    log_info(
         "xAI provider HTTP error",
-        subsystem="xai_provider",
+        subsystem="inference_accounting",
         provider="xai",
+        operation="provider_http_error",
         event="provider_http_error",
+        outcome="error",
         http_status=fields.get("http_status"),
         error_code=fields.get("error_code"),
         error_type=fields.get("error_type"),
@@ -119,6 +122,12 @@ def log_safe_xai_http_error(response: httpx.Response) -> dict[str, Any]:
         cf_ray=fields.get("cf_ray"),
     )
     return fields
+
+
+def log_safe_xai_http_status_error(exc: BaseException) -> dict[str, Any] | None:
+    if not isinstance(exc, httpx.HTTPStatusError) or exc.response is None:
+        return None
+    return log_safe_xai_http_error(exc.response)
 
 
 async def ensure_xai_response_content(response: httpx.Response) -> None:

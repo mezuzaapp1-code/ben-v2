@@ -199,7 +199,7 @@ async def test_xai_http_400_logs_allowlist_and_keeps_request_shape(monkeypatch, 
             captured["json"] = json
             return err_resp
 
-    with caplog.at_level(logging.WARNING, logger="ben.ops"):
+    with caplog.at_level(logging.INFO, logger="ben.ops"):
         with pytest.raises(httpx.HTTPStatusError) as ei:
             await XAIProvider().send_message(
                 _FakeAsyncClient(),  # type: ignore[arg-type]

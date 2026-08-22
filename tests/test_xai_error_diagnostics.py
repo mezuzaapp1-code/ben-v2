@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import httpx
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -130,7 +131,7 @@ def test_log_event_is_allowlisted_and_formatter_safe(caplog):
         headers={"cf-ray": "ray-9", "authorization": f"Bearer {KEY_CANARY}"},
     )
     logger = logging.getLogger("ben.ops")
-    with caplog.at_level(logging.WARNING, logger="ben.ops"):
+    with caplog.at_level(logging.INFO, logger="ben.ops"):
         log_safe_xai_http_error(resp)
     assert caplog.records
     rec = caplog.records[-1]
@@ -139,6 +140,8 @@ def test_log_event_is_allowlisted_and_formatter_safe(caplog):
     payload = json.loads(line)
     assert payload["provider"] == "xai"
     assert payload["event"] == "provider_http_error"
+    assert payload["operation"] == "provider_http_error"
+    assert payload["subsystem"] == "inference_accounting"
     assert payload["http_status"] == 400
     assert payload["error_code"] == "invalid-argument"
     assert KEY_CANARY not in line
@@ -163,6 +166,102 @@ def test_user_facing_xai_http_error_is_generic():
     assert "invalid-argument" not in msg
 
 
+def test_production_logging_config_uses_same_sink_as_accounted():
+    """Prove the diagnostic uses the Railway-visible ben.ops INFO stderr JSON sink."""
+    from services.ops import logging_config
+    from services.ops.json_log_formatter import STRUCTURED_FIELDS
+    from services.ops.structured_log import log_info, log_warning
+    from services.providers import xai_error_diagnostics as diag
+
+    logger = logging.getLogger("ben.ops")
+    saved_handlers = list(logger.handlers)
+    saved_level = logger.level
+    saved_propagate = logger.propagate
+    saved_configured = logging_config._CONFIGURED
+    try:
+        logging_config._CONFIGURED = False
+        logging_config.configure_ben_ops_logging()
+        assert logger.name == "ben.ops"
+        assert logger.level == logging.INFO
+        assert logger.propagate is False
+        assert logger.handlers
+        handler = logger.handlers[0]
+        assert isinstance(handler, logging.StreamHandler)
+        assert handler.stream is sys.stderr
+        assert handler.level == logging.INFO
+        assert isinstance(handler.formatter, BenOpsJsonFormatter)
+    finally:
+        logger.handlers.clear()
+        for existing in saved_handlers:
+            logger.addHandler(existing)
+        logger.setLevel(saved_level)
+        logger.propagate = saved_propagate
+        logging_config._CONFIGURED = saved_configured
+    for key in (
+        "subsystem",
+        "operation",
+        "provider",
+        "event",
+        "outcome",
+        "call_outcome",
+        "http_status",
+        "error_code",
+        "error_type",
+        "error_message",
+        "request_id",
+        "cf_ray",
+    ):
+        assert key in STRUCTURED_FIELDS
+    assert diag.log_info is log_info
+    assert diag.log_info is not log_warning
+
+
+def test_diagnostic_reaches_same_stderr_sink_as_inference_call_accounted():
+    import io
+    from services.ops.structured_log import log_info
+
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(BenOpsJsonFormatter())
+    logger = logging.getLogger("ben.ops")
+    logger.addHandler(handler)
+    saved_level = logger.level
+    logger.setLevel(logging.INFO)
+    try:
+        log_info(
+            "inference call accounted",
+            subsystem="inference_accounting",
+            operation="record_inference_call",
+            outcome="ok",
+            provider="xai",
+            model="grok-4.6",
+            call_outcome="error",
+        )
+        resp = _response(
+            400,
+            {"code": "invalid-argument", "error": "Incorrect API key provided."},
+            headers={"cf-ray": "sink-ray"},
+        )
+        log_safe_xai_http_error(resp)
+        lines = [json.loads(row) for row in buf.getvalue().splitlines() if row.strip()]
+        accounted = next(row for row in lines if row.get("message") == "inference call accounted")
+        diagnostic = next(row for row in lines if row.get("event") == "provider_http_error")
+        assert accounted["outcome"] == "ok"
+        assert accounted["call_outcome"] == "error"
+        assert accounted["provider"] == "xai"
+        assert diagnostic["http_status"] == 400
+        assert diagnostic["error_code"] == "invalid-argument"
+        assert diagnostic["error_message"] == "Incorrect API key provided."
+        assert diagnostic["cf_ray"] == "sink-ray"
+        assert diagnostic["subsystem"] == accounted["subsystem"] == "inference_accounting"
+        assert KEY_CANARY not in buf.getvalue()
+        assert PROMPT_CANARY not in buf.getvalue()
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(saved_level)
+
+
 def test_gpt_claude_gemini_http_errors_unchanged():
     req = httpx.Request("POST", "https://example.test")
     resp = httpx.Response(400, request=req)
@@ -170,6 +269,70 @@ def test_gpt_claude_gemini_http_errors_unchanged():
     assert format_chat_provider_error("openai", exc, timeout_s=25) == "GPT error: HTTP 400"
     assert format_chat_provider_error("anthropic", exc, timeout_s=25) == "Claude error: HTTP 400"
     assert format_chat_provider_error("google", exc, timeout_s=25) == "Gemini error: HTTP 400"
+
+
+@pytest.mark.asyncio
+async def test_gateway_xai_http_error_emits_on_accounted_sink(monkeypatch):
+    import io
+    from unittest.mock import patch
+
+    from services.inference.execution_context import begin_execution_context, set_execution_context
+    from services.model_gateway import reset_circuit_breakers_for_tests, route_request_stream
+    from services.providers import get_gateway_provider
+
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-key-not-a-secret")
+    reset_circuit_breakers_for_tests()
+    begin_execution_context(org_id="00000000-0000-0000-0000-000000000001", workspace_id=None, pipeline="chat")
+
+    async def boom(cx, *, model, message, tenant_id, system=None):
+        raise httpx.HTTPStatusError(
+            "bad",
+            request=httpx.Request("POST", "https://api.x.ai/v1/chat/completions"),
+            response=_response(
+                400,
+                {"code": "invalid-argument", "error": "Incorrect API key provided."},
+                headers={"cf-ray": "gw-ray"},
+            ),
+        )
+        yield  # pragma: no cover
+
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(BenOpsJsonFormatter())
+    logger = logging.getLogger("ben.ops")
+    logger.addHandler(handler)
+    saved_level = logger.level
+    logger.setLevel(logging.INFO)
+    try:
+        with patch.object(get_gateway_provider("xai"), "stream_message", side_effect=boom):
+            chunks = []
+            async for chunk, model, prov in route_request_stream(
+                "hi",
+                "00000000-0000-0000-0000-000000000001",
+                "free",
+                provider_id="grok",
+                model_override="grok-4.6",
+            ):
+                chunks.append((chunk, model, prov))
+        assert chunks
+        assert chunks[0][0] == "Grok request failed (HTTP 400)"
+        lines = [json.loads(row) for row in buf.getvalue().splitlines() if row.strip()]
+        diagnostic = next(row for row in lines if row.get("event") == "provider_http_error")
+        assert diagnostic["http_status"] == 400
+        assert diagnostic["error_code"] == "invalid-argument"
+        assert diagnostic["cf_ray"] == "gw-ray"
+        assert diagnostic["subsystem"] == "inference_accounting"
+        accounted = [row for row in lines if row.get("message") == "inference call accounted"]
+        if accounted:
+            assert accounted[0]["outcome"] == "ok"
+            assert accounted[0].get("call_outcome") == "error"
+        assert "hi" not in buf.getvalue()
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(saved_level)
+        set_execution_context(None)
+        reset_circuit_breakers_for_tests()
 
 
 def test_grok_request_body_unchanged_by_diagnostics():
