@@ -17,7 +17,8 @@
     "test:project-library": "node scripts/test-project-library.mjs",
     "test:attention-query": "node scripts/test-attention-query.mjs",
     "test:ben-errors": "node scripts/test-ben-errors.mjs",
-    "test:large-paste": "node scripts/test-large-paste.mjs"
+    "test:large-paste": "node scripts/test-large-paste.mjs",
+    "test:chat-stream-ownership": "node scripts/test-chat-stream-ownership.mjs"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.61.3",

@@ -149,6 +149,15 @@ def user_turn_focus_query_source(content: str) -> str:
     return " ".join(stubs)
 
 
+def user_turn_copilot_intent_source(content: str) -> str:
+    """Copilot intent surface: typed instruction or bounded stub — never large_paste body.
+
+    Explicit commands such as "@intel check this site" still reach Copilot when they
+    are instruction text. Incidental words inside a Large Paste do not.
+    """
+    return user_turn_focus_query_source(content)
+
+
 def provider_expansion_too_large(expanded: str) -> str | None:
     n = code_point_count(expanded)
     if n <= PROVIDER_EXPANDED_MAX_CHARS:

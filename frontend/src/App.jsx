@@ -112,6 +112,13 @@ import {
   usedFilesFromDoneEvent,
 } from './lib/fileStatus.js'
 import {
+  appendActionCard,
+  applyOwnedAssistantChunk,
+  applyOwnedAssistantDone,
+  createOwnedAssistant,
+  rollbackOwnedSend,
+} from './lib/chatStreamOwnership.js'
+import {
   canSendComposerParts,
   cloneParts,
   composerPartsFromMessage,
@@ -1191,6 +1198,7 @@ function App() {
       return
     }
     const sendNonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const clientRequestId = createClientRequestId()
     setLoading(true)
     try {
       const headers = await acquirePersistentHeaders(persistentHeaders)
@@ -1200,6 +1208,7 @@ function App() {
         kind: hasLargePaste(snapshot) ? USER_TURN_KIND : undefined,
         parts: hasLargePaste(snapshot) ? snapshot : undefined,
         _sendNonce: sendNonce,
+        client_request_id: clientRequestId,
       }
       setComposerParts(emptyComposerParts())
       setThreads((prev) =>
@@ -1220,7 +1229,6 @@ function App() {
           threadId: apiThreadId || tid,
         })
       }
-      const clientRequestId = createClientRequestId()
       setThreads((prev) =>
         prev.map((t) =>
           t.id === tid
@@ -1228,14 +1236,11 @@ function App() {
                 ...t,
                 messages: [
                   ...t.messages,
-                  {
-                    role: 'assistant',
-                    content: '',
-                    model_used: '',
-                    provider_id: activeSpeakingProviderId,
-                    provider_used: '',
-                    cost_usd: 0,
-                  },
+                  createOwnedAssistant({
+                    sendNonce,
+                    clientRequestId,
+                    providerId: activeSpeakingProviderId,
+                  }),
                 ],
                 loaded: true,
               }
@@ -1266,18 +1271,7 @@ function App() {
               if (t.id !== tid && t.id !== serverTid) return t
               return {
                 ...t,
-                messages: [
-                  ...t.messages,
-                  {
-                    role: 'assistant',
-                    kind: 'action_card',
-                    card_type: event.card_type,
-                    action_payload: event.payload,
-                    content: '',
-                    model_used: '',
-                    cost_usd: 0,
-                  },
-                ],
+                messages: appendActionCard(t.messages, event, { sendNonce }),
               }
             })
           )
@@ -1292,11 +1286,7 @@ function App() {
           setThreads((prev) =>
             prev.map((t) => {
               if (t.id !== tid && t.id !== serverTid) return t
-              const msgs = [...t.messages]
-              const last = msgs[msgs.length - 1]
-              if (last?.role === 'assistant') {
-                msgs[msgs.length - 1] = { ...last, content: `${last.content || ''}${chunk}` }
-              }
+              const msgs = applyOwnedAssistantChunk(t.messages, sendNonce, chunk)
               const nextId = serverTid && isDraftThreadId(t.id) ? serverTid : t.id
               return { ...t, id: nextId, messages: msgs, isDraft: false }
             })
@@ -1311,34 +1301,13 @@ function App() {
           setThreads((prev) => {
             const nextList = prev.map((t) => {
               if (t.id !== tid && t.id !== serverTid) return t
-              const msgs = [...t.messages]
-              const last = msgs[msgs.length - 1]
-              if (last?.role === 'assistant') {
-                msgs[msgs.length - 1] = {
-                  ...last,
-                  content: event.response ?? last.content ?? '',
-                  model_used: event.model_used ?? '',
-                  provider_id: event.provider_id ?? activeSpeakingProviderId,
-                  provider_used: event.provider_used ?? '',
-                  cost_usd: event.cost_usd ?? 0,
-                  ttft_ms: event.ttft_ms ?? null,
-                  tps: event.tps ?? null,
-                  sqlite_message_id: event.sqlite_assistant_id ?? last.sqlite_message_id ?? null,
-                  used_files: usedFilesFromDoneEvent(event),
-                  workspace_files_unavailable_note: unavailableChatNote(
-                    event.workspace_files_unavailable_count
-                  ),
-                }
-              }
-              if (event.sqlite_user_id != null && msgs.length >= 2) {
-                const userIdx = msgs.length - 2
-                if (msgs[userIdx]?.role === 'user') {
-                  msgs[userIdx] = {
-                    ...msgs[userIdx],
-                    sqlite_message_id: event.sqlite_user_id,
-                  }
-                }
-              }
+              const msgs = applyOwnedAssistantDone(t.messages, sendNonce, {
+                ...event,
+                used_files: usedFilesFromDoneEvent(event),
+                workspace_files_unavailable_note: unavailableChatNote(
+                  event.workspace_files_unavailable_count
+                ),
+              }, { speakingProviderId: activeSpeakingProviderId })
               const nextId = serverTid && (isDraftThreadId(t.id) || t.id === tid) ? serverTid : t.id
               return { ...t, id: nextId, messages: msgs, loaded: true, isDraft: false }
             })
@@ -1375,11 +1344,7 @@ function App() {
             ? {
                 ...t,
                 messages: [
-                  ...t.messages.filter(
-                    (m, i, arr) =>
-                      m._sendNonce !== sendNonce &&
-                      !(i === arr.length - 1 && m.role === 'assistant' && !m.content)
-                  ),
+                  ...rollbackOwnedSend(t.messages, sendNonce),
                   { role: 'assistant', kind: 'api_error', content: msg, model_used: '', cost_usd: 0 },
                 ],
               }
@@ -2225,6 +2190,7 @@ function App() {
       setLoading(true)
       setToolTelemetry('⚙️ System: Initializing project workspace agent...')
       let serverTid = threadId
+      const sendNonce = `setup-${createClientRequestId()}`
       try {
         const headers = await buildAppHeaders()
         setThreads((prev) =>
@@ -2234,14 +2200,10 @@ function App() {
                   ...t,
                   messages: [
                     ...t.messages,
-                    {
-                      role: 'assistant',
-                      content: '',
-                      model_used: '',
-                      provider_id: activeSpeakingProviderId,
-                      provider_used: '',
-                      cost_usd: 0,
-                    },
+                    createOwnedAssistant({
+                      sendNonce,
+                      providerId: activeSpeakingProviderId,
+                    }),
                   ],
                   loaded: true,
                 }
@@ -2259,6 +2221,14 @@ function App() {
           headers,
         })) {
           if (event.type === 'meta' && event.thread_id) serverTid = event.thread_id
+          else if (event.type === 'mutated_state') {
+            setThreads((prev) =>
+              prev.map((t) => {
+                if (t.id !== threadId && t.id !== serverTid) return t
+                return { ...t, messages: appendActionCard(t.messages, event, { sendNonce }) }
+              })
+            )
+          }
           else if (event.type === 'tool_active') {
             setToolTelemetry(event.message || `⚙️ System: Running ${event.tool || 'tool'}...`)
           } else if (event.type === 'tool_done') setToolTelemetry(null)
@@ -2269,11 +2239,7 @@ function App() {
             setThreads((prev) =>
               prev.map((t) => {
                 if (t.id !== threadId && t.id !== serverTid) return t
-                const msgs = [...t.messages]
-                const last = msgs[msgs.length - 1]
-                if (last?.role === 'assistant') {
-                  msgs[msgs.length - 1] = { ...last, content: `${last.content || ''}${chunk}` }
-                }
+                const msgs = applyOwnedAssistantChunk(t.messages, sendNonce, chunk)
                 return { ...t, id: serverTid, messages: msgs, loaded: true, sessionType: 'project_setup' }
               })
             )
@@ -2283,19 +2249,9 @@ function App() {
             setThreads((prev) =>
               prev.map((t) => {
                 if (t.id !== threadId && t.id !== serverTid) return t
-                const msgs = [...t.messages]
-                const last = msgs[msgs.length - 1]
-                if (last?.role === 'assistant') {
-                  msgs[msgs.length - 1] = {
-                    ...last,
-                    content: event.response ?? last.content ?? '',
-                    model_used: event.model_used ?? '',
-                    provider_id: event.provider_id ?? activeSpeakingProviderId,
-                    provider_used: event.provider_used ?? '',
-                    cost_usd: event.cost_usd ?? 0,
-                    sqlite_message_id: event.sqlite_assistant_id ?? last.sqlite_message_id ?? null,
-                  }
-                }
+                const msgs = applyOwnedAssistantDone(t.messages, sendNonce, event, {
+                  speakingProviderId: activeSpeakingProviderId,
+                })
                 return { ...t, id: serverTid, messages: msgs, loaded: true, sessionType: 'project_setup' }
               })
             )
@@ -2315,9 +2271,7 @@ function App() {
               ? {
                   ...t,
                   messages: [
-                    ...t.messages.filter(
-                      (m, i, arr) => !(i === arr.length - 1 && m.role === 'assistant' && !m.content)
-                    ),
+                    ...rollbackOwnedSend(t.messages, sendNonce),
                     { role: 'assistant', kind: 'api_error', content: msg, model_used: '', cost_usd: 0 },
                   ],
                 }

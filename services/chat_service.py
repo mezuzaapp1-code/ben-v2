@@ -21,6 +21,7 @@ from services.message_format import (
     gateway_to_provider_id,
     provider_expansion_too_large,
     thread_title_from_user_message,
+    user_turn_copilot_intent_source,
     user_turn_focus_query_source,
 )
 from services.copilot_orchestrator import run_copilot_preamble
@@ -358,7 +359,7 @@ async def stream_chat_response(
     if project_id and not expert_opinion:
         try:
             copilot_events = await run_copilot_preamble(
-                expand_user_message_for_provider(message), org, project_id
+                user_turn_copilot_intent_source(message), org, project_id
             )
             for evt in copilot_events:
                 yield _stream_ndjson(evt)
