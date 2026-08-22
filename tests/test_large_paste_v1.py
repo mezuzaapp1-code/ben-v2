@@ -25,6 +25,7 @@ from services.message_format import (
     format_large_paste_stub,
     provider_expansion_too_large,
     thread_title_from_user_message,
+    user_turn_copilot_intent_source,
     user_turn_focus_query_source,
 )
 from services.rolling_context import build_rolling_context_prompt
@@ -432,3 +433,247 @@ async def test_oversize_current_turn_is_honest_and_not_persisted():
     assert "500,000" in err["message"]
     assert "transport limit" in err["message"]
     assert "to the model" not in err["message"]
+
+
+PRODUCTION_CANARY = "BEN-LP-END-92741"
+
+
+def _production_failure_paste() -> str:
+    body = (
+        "Large Paste production verification document.\n"
+        "Travel to verify BEN after reading the full body.\n"
+        "This also mentions government intelligence and site intelligence.\n"
+    )
+    body += "X" * 12_000
+    return body + (
+        "\nRead the unique verification code below and return ONLY that exact code, "
+        f"with no additional words.\n\n{PRODUCTION_CANARY}"
+    )
+
+
+def test_copilot_intent_ignores_large_paste_body():
+    paste = _production_failure_paste()
+    assert "to verify BEN" in paste
+    assert "intelligence" in paste
+    encoded = encode_user_turn([_paste_part(paste, pid="intent")])
+    intent = user_turn_copilot_intent_source(encoded)
+    expanded = expand_user_message_for_provider(encoded)
+    assert expanded == paste
+    assert PRODUCTION_CANARY in expanded
+    assert paste not in intent
+    assert "to verify BEN" not in intent
+    assert "intelligence" not in intent
+    assert format_large_paste_stub(len(paste)) == intent
+
+
+def test_copilot_intent_keeps_explicit_instruction_and_raw_short_chat():
+    paste = _production_failure_paste()
+    encoded = encode_user_turn(
+        [
+            {"type": "text", "text": "@intel check the project\n"},
+            _paste_part(paste, pid="cmd"),
+        ]
+    )
+    intent = user_turn_copilot_intent_source(encoded)
+    assert intent == "@intel check the project"
+    assert paste not in intent
+    assert user_turn_copilot_intent_source("@intel check this site") == "@intel check this site"
+    assert user_turn_focus_query_source(encoded) == intent
+
+
+@pytest.mark.asyncio
+async def test_large_paste_body_does_not_trigger_copilot_or_memory_writes():
+    from services.chat_service import stream_chat_response
+    from services.copilot_orchestrator import run_copilot_preamble as real_preamble
+
+    paste = _production_failure_paste()
+    encoded = encode_user_turn([_paste_part(paste, pid="prod-fail")])
+    org = uuid.uuid4()
+    tid = uuid.uuid4()
+    project_id = uuid.uuid4()
+    seen: dict = {}
+
+    async def fake_stream(message, tenant_id, tier, *, provider_id=None, model_override=None, system=None):
+        seen["message"] = message
+        yield (PRODUCTION_CANARY, "gpt-test", "openai")
+
+    async def spy_preamble(text, org_id, proj_id):
+        seen["copilot_intent"] = text
+        return await real_preamble(text, org_id, proj_id)
+
+    save_memory = AsyncMock()
+    ambient = AsyncMock(return_value=None)
+    intel = AsyncMock()
+
+    with (
+        patch("services.chat_service.resolve_thread_id", new=AsyncMock(return_value=tid)),
+        patch("services.chat_service.is_project_setup_thread", return_value=False),
+        patch(
+            "services.chat_service.build_chat_message_with_thread_context",
+            new=AsyncMock(side_effect=lambda _o, _t, m: m),
+        ),
+        patch("services.chat_service.inject_knowledge_few_shot", new=AsyncMock(side_effect=lambda _m, p: p)),
+        patch("services.chat_service.apply_language_context", side_effect=lambda msg, _lang: msg),
+        patch("services.chat_service.route_request_stream", side_effect=fake_stream),
+        patch("services.chat_service.persist_chat_exchange_sqlite", return_value=(11, 12)),
+        patch("services.chat_service._schedule_chat_persist"),
+        patch("services.chat_service.run_copilot_preamble", side_effect=spy_preamble),
+        patch("services.copilot_orchestrator.apply_ambient_memory_from_message", new=ambient),
+        patch("services.copilot_orchestrator.fetch_site_intelligence", new=intel),
+        patch("services.project_copilot_tools.save_project_memory", new=save_memory),
+    ):
+        events = []
+        async for line in stream_chat_response(
+            encoded,
+            "user-1",
+            str(org),
+            "free",
+            thread_id=tid,
+            provider_id="gpt",
+            project_id=project_id,
+        ):
+            events.append(json.loads(line))
+
+    assert seen["message"] == paste
+    assert PRODUCTION_CANARY in seen["message"]
+    assert '{"ben":' not in seen["message"]
+    assert seen["copilot_intent"] != paste
+    assert paste not in seen["copilot_intent"]
+    assert "to verify BEN" not in seen["copilot_intent"]
+    assert "intelligence" not in seen["copilot_intent"]
+    assert format_large_paste_stub(len(paste)) == seen["copilot_intent"]
+    assert not any(e.get("type") == "mutated_state" for e in events)
+    ambient.assert_awaited()
+    assert "to verify BEN" not in str(ambient.await_args)
+    intel.assert_not_awaited()
+    save_memory.assert_not_awaited()
+    done = next(e for e in events if e["type"] == "done")
+    assert done["response"] == PRODUCTION_CANARY
+
+
+@pytest.mark.asyncio
+async def test_explicit_intel_instruction_outside_paste_still_triggers_copilot():
+    from services.chat_service import stream_chat_response
+    from services.copilot_orchestrator import run_copilot_preamble as real_preamble
+
+    paste = _production_failure_paste()
+    encoded = encode_user_turn(
+        [
+            {"type": "text", "text": "@intel check the project\n"},
+            _paste_part(paste, pid="cmd-intel"),
+        ]
+    )
+    org = uuid.uuid4()
+    tid = uuid.uuid4()
+    project_id = uuid.uuid4()
+    seen: dict = {}
+    intel = AsyncMock(
+        return_value={
+            "mutated_state": {
+                "card_type": "government_intelligence",
+                "payload": {"tool": "fetch_site_intelligence", "query": "project"},
+            }
+        }
+    )
+
+    async def fake_stream(message, tenant_id, tier, *, provider_id=None, model_override=None, system=None):
+        seen["message"] = message
+        yield (PRODUCTION_CANARY, "gpt-test", "openai")
+
+    async def spy_preamble(text, org_id, proj_id):
+        seen["copilot_intent"] = text
+        return await real_preamble(text, org_id, proj_id)
+
+    with (
+        patch("services.chat_service.resolve_thread_id", new=AsyncMock(return_value=tid)),
+        patch("services.chat_service.is_project_setup_thread", return_value=False),
+        patch(
+            "services.chat_service.build_chat_message_with_thread_context",
+            new=AsyncMock(side_effect=lambda _o, _t, m: m),
+        ),
+        patch("services.chat_service.inject_knowledge_few_shot", new=AsyncMock(side_effect=lambda _m, p: p)),
+        patch("services.chat_service.apply_language_context", side_effect=lambda msg, _lang: msg),
+        patch("services.chat_service.route_request_stream", side_effect=fake_stream),
+        patch("services.chat_service.persist_chat_exchange_sqlite", return_value=(11, 12)),
+        patch("services.chat_service._schedule_chat_persist"),
+        patch("services.chat_service.run_copilot_preamble", side_effect=spy_preamble),
+        patch("services.copilot_orchestrator.apply_ambient_memory_from_message", new=AsyncMock(return_value=None)),
+        patch("services.copilot_orchestrator.fetch_site_intelligence", new=intel),
+    ):
+        events = []
+        async for line in stream_chat_response(
+            encoded,
+            "user-1",
+            str(org),
+            "free",
+            thread_id=tid,
+            provider_id="gpt",
+            project_id=project_id,
+        ):
+            events.append(json.loads(line))
+
+    assert seen["copilot_intent"] == "@intel check the project"
+    assert paste not in seen["copilot_intent"]
+    assert PRODUCTION_CANARY in seen["message"]
+    assert paste in seen["message"]
+    intel.assert_awaited()
+    cards = [e for e in events if e.get("type") == "mutated_state"]
+    assert any(e.get("card_type") == "government_intelligence" for e in cards)
+    done = next(e for e in events if e["type"] == "done")
+    assert done["response"] == PRODUCTION_CANARY
+
+
+@pytest.mark.asyncio
+async def test_short_chat_still_reaches_copilot_unchanged():
+    from services.chat_service import stream_chat_response
+    from services.copilot_orchestrator import run_copilot_preamble as real_preamble
+
+    org = uuid.uuid4()
+    tid = uuid.uuid4()
+    seen: dict = {}
+    intel = AsyncMock(
+        return_value={
+            "mutated_state": {"card_type": "government_intelligence", "payload": {"query": "site"}}
+        }
+    )
+
+    async def fake_stream(message, *_a, **_k):
+        seen["message"] = message
+        yield ("ok", "m", "openai")
+
+    async def spy_preamble(text, org_id, proj_id):
+        seen["copilot_intent"] = text
+        return await real_preamble(text, org_id, proj_id)
+
+    with (
+        patch("services.chat_service.resolve_thread_id", new=AsyncMock(return_value=tid)),
+        patch("services.chat_service.is_project_setup_thread", return_value=False),
+        patch(
+            "services.chat_service.build_chat_message_with_thread_context",
+            new=AsyncMock(side_effect=lambda _o, _t, m: m),
+        ),
+        patch("services.chat_service.inject_knowledge_few_shot", new=AsyncMock(side_effect=lambda _m, p: p)),
+        patch("services.chat_service.apply_language_context", side_effect=lambda msg, _lang: msg),
+        patch("services.chat_service.route_request_stream", side_effect=fake_stream),
+        patch("services.chat_service.persist_chat_exchange_sqlite", return_value=(1, 2)),
+        patch("services.chat_service._schedule_chat_persist"),
+        patch("services.chat_service.run_copilot_preamble", side_effect=spy_preamble),
+        patch("services.copilot_orchestrator.apply_ambient_memory_from_message", new=AsyncMock(return_value=None)),
+        patch("services.copilot_orchestrator.fetch_site_intelligence", new=intel),
+    ):
+        events = []
+        async for line in stream_chat_response(
+            "@intel check this site",
+            "user-1",
+            str(org),
+            "free",
+            thread_id=tid,
+            provider_id="gpt",
+            project_id=uuid.uuid4(),
+        ):
+            events.append(json.loads(line))
+
+    assert seen["copilot_intent"] == "@intel check this site"
+    assert seen["message"] == "@intel check this site"
+    intel.assert_awaited()
+    assert any(e.get("card_type") == "government_intelligence" for e in events)
