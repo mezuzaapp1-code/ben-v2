@@ -111,6 +111,21 @@ import {
   unavailableChatNote,
   usedFilesFromDoneEvent,
 } from './lib/fileStatus.js'
+import {
+  canSendComposerParts,
+  cloneParts,
+  composerPartsFromMessage,
+  displayTextFromParts,
+  emptyComposerParts,
+  encodeUserTurn,
+  expandPartsForProvider,
+  focusSourceFromParts,
+  formatPasteChipLabel,
+  hasLargePaste,
+  instructionTextFromParts,
+  providerExpansionError,
+  USER_TURN_KIND,
+} from './lib/largePaste.js'
 import './App.css'
 
 const HAS_CLERK_UI = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim())
@@ -364,7 +379,7 @@ function MessageActionBar({ role, content, onEditRequest, sqliteMessageId, onExp
         <button
           type="button"
           style={messageActionBtnStyle}
-          onClick={() => onEditRequest(String(content ?? ''))}
+          onClick={() => onEditRequest()}
           aria-label="Edit request"
         >
           <EditIcon />
@@ -516,7 +531,11 @@ function App() {
   const betaSession = useBetaSession()
   const [threads, setThreads] = useState([])
   const [activeId, setActiveId] = useState(null)
-  const [input, setInput] = useState('')
+  const [composerParts, setComposerParts] = useState(() => emptyComposerParts())
+  const input = useMemo(() => instructionTextFromParts(composerParts), [composerParts])
+  const setInput = useCallback((next) => {
+    setComposerParts([{ type: 'text', text: String(next ?? '') }])
+  }, [])
   const [tier, setTier] = useState('free')
   const [loading, setLoading] = useState(false)
   const [hydrating, setHydrating] = useState(true)
@@ -696,8 +715,8 @@ function App() {
   // Phase 1: composer/provider select must not depend on Switchboard activations.
   const canSendComposer = useMemo(() => {
     if (loading || !persistentReady) return false
-    return Boolean(input.trim())
-  }, [loading, persistentReady, input])
+    return canSendComposerParts(composerParts)
+  }, [loading, persistentReady, composerParts])
 
   const handleEngineSelect = useCallback((providerId) => {
     setActiveSpeakingProviderId(providerId)
@@ -990,8 +1009,12 @@ function App() {
     return id
   }, [])
 
-  const handleEditRequest = useCallback((text) => {
-    setInput(text)
+  const handleEditRequest = useCallback((messageOrText) => {
+    if (messageOrText && typeof messageOrText === 'object') {
+      setComposerParts(composerPartsFromMessage(messageOrText))
+      return
+    }
+    setComposerParts([{ type: 'text', text: String(messageOrText ?? '') }])
   }, [])
 
   const pushThreadAssistantError = useCallback((tid, content, kind = 'api_error') => {
@@ -1154,29 +1177,46 @@ function App() {
 
   const send = useCallback(async () => {
     if (loading) return
-    const text = input.trim()
+    if (!canSendComposerParts(composerParts)) return
+    const snapshot = cloneParts(composerParts)
+    const encoded = encodeUserTurn(snapshot)
+    const display = displayTextFromParts(snapshot)
+    const expanded = expandPartsForProvider(snapshot)
+    const oversize = providerExpansionError(expanded)
     let tid = activeId
     if (!tid || !threads.some((x) => x.id === tid)) tid = newThread()
 
-    if (!text) return
+    if (oversize) {
+      pushThreadAssistantError(tid, oversize)
+      return
+    }
+    const sendNonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`
     setLoading(true)
     try {
       const headers = await acquirePersistentHeaders(persistentHeaders)
-      const userMsg = { role: 'user', content: text }
-      setInput('')
+      const userMsg = {
+        role: 'user',
+        content: display,
+        kind: hasLargePaste(snapshot) ? USER_TURN_KIND : undefined,
+        parts: hasLargePaste(snapshot) ? snapshot : undefined,
+        _sendNonce: sendNonce,
+      }
+      setComposerParts(emptyComposerParts())
       setThreads((prev) =>
         prev.map((t) =>
-          t.id === tid ? { ...t, title: text.slice(0, 48) || t.title, messages: [...t.messages, userMsg] } : t
+          t.id === tid ? { ...t, title: display.slice(0, 48) || t.title, messages: [...t.messages, userMsg] } : t
         )
       )
       const apiThreadId = serverThreadIdForApi(tid)
       const threadProjectSlug = threads.find((x) => x.id === tid)?.projectSlug
       // Focus is auxiliary: never gate /chat/stream. The GET query is bounded
-      // inside fetchActiveAttention; chat still receives `text` in full.
-      if (threadProjectSlug && text) {
+      // inside fetchActiveAttention. Chat receives the encoded user turn
+      // (expanded to the full Large Paste body on the current provider call).
+      const focusSource = focusSourceFromParts(snapshot)
+      if (threadProjectSlug && focusSource) {
         setAttentionFocusRequest({
           key: `${Date.now()}-${tid}`,
-          query: text,
+          query: focusSource,
           threadId: apiThreadId || tid,
         })
       }
@@ -1206,7 +1246,7 @@ function App() {
       let streamOk = false
       let serverTid = apiThreadId || tid
       for await (const event of postChatStream({
-        message: text,
+        message: encoded,
         threadId: apiThreadId,
         projectId: activeProjectId || undefined,
         tier,
@@ -1328,13 +1368,18 @@ function App() {
       const msg = isAuthTokenUnavailable(e)
         ? e.message || 'Sign in required.'
         : parsed?.message || humanizeChatFetchError(e)
+      setComposerParts(snapshot)
       setThreads((prev) =>
         prev.map((t) =>
           t.id === tid
             ? {
                 ...t,
                 messages: [
-                  ...t.messages.filter((m, i, arr) => !(i === arr.length - 1 && m.role === 'assistant' && !m.content)),
+                  ...t.messages.filter(
+                    (m, i, arr) =>
+                      m._sendNonce !== sendNonce &&
+                      !(i === arr.length - 1 && m.role === 'assistant' && !m.content)
+                  ),
                   { role: 'assistant', kind: 'api_error', content: msg, model_used: '', cost_usd: 0 },
                 ],
               }
@@ -1346,7 +1391,7 @@ function App() {
       setToolTelemetry(null)
     }
   }, [
-    input,
+    composerParts,
     loading,
     activeId,
     threads,
@@ -1356,6 +1401,7 @@ function App() {
     newThread,
     persistentHeaders,
     activeProjectId,
+    pushThreadAssistantError,
   ])
 
   const applyCouncilMessages = useCallback((tid, extras, resolvedId) => {
@@ -1662,16 +1708,16 @@ function App() {
   ])
 
   const handleComposerSubmit = useCallback(() => {
-    const text = input.trim()
-    if (!text) return
+    if (!canSendComposerParts(composerParts)) return
+    const text = instructionTextFromParts(composerParts).trim()
     closeNavDrawerIfOverlay()
     closeSettings()
-    if (CODEBASE_TRIGGER.test(text)) {
+    if (text && CODEBASE_TRIGGER.test(text)) {
       council({ question: text, forceCodebase: true })
       return
     }
     void send()
-  }, [input, send, council, closeSettings, closeNavDrawerIfOverlay])
+  }, [composerParts, send, council, closeSettings, closeNavDrawerIfOverlay])
 
   const appendThreadMessages = useCallback((tid, newMessages) => {
     setThreads((prev) =>
@@ -2683,7 +2729,21 @@ function App() {
                       : undefined
                   }
                 >
-                  {shouldRenderAssistantMarkdown(m) ? (
+                  {m.role === 'user' && Array.isArray(m.parts) && m.parts.some((part) => part.type === 'large_paste') ? (
+                    <div className="bubble-user-turn">
+                      {m.parts.map((part, partIndex) =>
+                        part.type === 'large_paste' ? (
+                          <div key={part.id || `paste-${partIndex}`} className="bubble-large-paste">
+                            {formatPasteChipLabel(part)}
+                          </div>
+                        ) : part.text ? (
+                          <div key={`text-${partIndex}`} className="bubble-text">
+                            {part.text}
+                          </div>
+                        ) : null
+                      )}
+                    </div>
+                  ) : shouldRenderAssistantMarkdown(m) ? (
                     <ChatMarkdown content={m.content} />
                   ) : (
                     <div className="bubble-text">{m.content}</div>
@@ -2721,7 +2781,7 @@ function App() {
                 <MessageActionBar
                   role={m.role}
                   content={m.content}
-                  onEditRequest={m.role === 'user' ? handleEditRequest : undefined}
+                  onEditRequest={m.role === 'user' ? () => handleEditRequest(m) : undefined}
                   sqliteMessageId={resolveSqliteMessageId(m)}
                   expertDisabled={loading || !isPersistedThreadId(serverThreadIdForApi(activeId) || '')}
                   onExpertOpinion={(payload) =>
@@ -2749,6 +2809,8 @@ function App() {
             <ComposerCapsule
               value={input}
               onChange={setInput}
+              parts={composerParts}
+              onPartsChange={setComposerParts}
               onSubmit={handleComposerSubmit}
               placeholder={composerPlaceholder}
               ariaLabel={composerAriaLabel}

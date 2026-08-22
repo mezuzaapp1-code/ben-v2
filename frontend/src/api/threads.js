@@ -81,6 +81,7 @@ export function mapApiMessage(m) {
     expert_outcome: m.expert_outcome,
     expert_status: m.expert_status,
     kind: m.kind,
+    parts: Array.isArray(m.parts) ? m.parts : undefined,
     synthesis: m.synthesis,
     adhoc_session_id: m.adhoc_session_id ?? '',
     output_locale: m.output_locale ?? m.synthesis?.output_locale ?? '',

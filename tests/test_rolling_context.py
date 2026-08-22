@@ -2,13 +2,19 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 import uuid
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@127.0.0.1:5432/test")
+
 from database.models import Message
-from services.message_format import encode_chat_assistant
+from services.message_format import encode_chat_assistant, encode_user_turn, format_large_paste_stub
 from services.rolling_context import (
     DEFAULT_OPINION_REQUEST,
     build_rolling_context_prompt,
@@ -35,6 +41,31 @@ def test_build_rolling_context_prompt_appends_all_turns_sequentially():
         "Consider scalability early.\n\n"
         "Give your expert opinion."
     )
+
+
+def test_build_rolling_context_prompt_stubs_large_paste_user_turn():
+    paste = "R" * 80_000
+    encoded = encode_user_turn(
+        [
+            {"type": "text", "text": "Prior ask "},
+            {
+                "type": "large_paste",
+                "id": "hist-1",
+                "label": "Pasted text",
+                "text": paste,
+                "char_count": 80_000,
+            },
+        ]
+    )
+    messages = [
+        Message(role="user", content=encoded, org_id=uuid.uuid4(), thread_id=uuid.uuid4()),
+        Message(role="assistant", content=_assistant("Understood."), org_id=uuid.uuid4(), thread_id=uuid.uuid4()),
+    ]
+    prompt = build_rolling_context_prompt(messages, opinion_request="Add opinion")
+    assert paste not in prompt
+    assert '{"ben":' not in prompt
+    assert format_large_paste_stub(80_000) in prompt
+    assert "Prior ask" in prompt
 
 
 def test_build_rolling_context_prompt_uses_default_opinion_request():

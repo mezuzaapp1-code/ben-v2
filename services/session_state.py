@@ -152,7 +152,8 @@ async def prefetch_session_state(org_id: uuid.UUID, thread_id: uuid.UUID | None)
     last_asst: str | None = None
     for message in rows:
         if message.role == "user" and last_user is None:
-            last_user = str(message.content or "")[:512]
+            decoded = decode_message(message.role, message.content)
+            last_user = str(decoded.get("content") or "")[:512]
         elif message.role == "assistant" and last_asst is None:
             decoded = decode_message(message.role, message.content)
             last_asst = str(decoded.get("content") or "")[:512]

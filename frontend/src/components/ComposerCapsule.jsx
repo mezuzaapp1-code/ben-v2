@@ -3,8 +3,45 @@ import { useAutoResizeTextarea } from '../hooks/useAutoResizeTextarea.js'
 import { useDismissOnOutside } from '../hooks/useDismissOnOutside.js'
 import { getSpeakingProviders } from '../providers/providerRegistry.js'
 import { isProviderGloballyActive } from '../lib/globalFeatureCatalog.js'
+import {
+  formatPasteChipLabel,
+  insertLargePasteAtCursor,
+  shouldCreateLargePaste,
+  unwrapLargePaste,
+} from '../lib/largePaste.js'
 import { EngineSettingsPanel } from './AdvancedEngineSettings.jsx'
 import './ComposerCapsule.css'
+
+function ComposerTextSegment({
+  value,
+  onChange,
+  onPaste,
+  onKeyDown,
+  placeholder,
+  ariaLabel,
+  disabled,
+}) {
+  const { ref: textareaRef, syncHeight } = useAutoResizeTextarea(value, {
+    minRows: 1,
+    maxRows: 6,
+  })
+  return (
+    <textarea
+      ref={textareaRef}
+      className="composer-capsule__input"
+      value={value}
+      onChange={(event) => onChange?.(event.target.value)}
+      onPaste={onPaste}
+      onKeyDown={onKeyDown}
+      placeholder={placeholder}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      rows={1}
+      enterKeyHint="send"
+      onInput={syncHeight}
+    />
+  )
+}
 
 /**
  * ChatGPT-style integrated composer: capsule shell, + attach menu, engine settings popover.
@@ -12,6 +49,8 @@ import './ComposerCapsule.css'
 export function ComposerCapsule({
   value,
   onChange,
+  parts,
+  onPartsChange,
   onSubmit,
   placeholder,
   disabled = false,
@@ -25,10 +64,12 @@ export function ComposerCapsule({
   engineSettings = null,
   ariaLabel = 'Message',
 }) {
-  const { ref: textareaRef, syncHeight } = useAutoResizeTextarea(value, {
+  const structured = Array.isArray(parts) && typeof onPartsChange === 'function'
+  const { ref: textareaRef, syncHeight } = useAutoResizeTextarea(structured ? '' : value, {
     minRows: 1,
     maxRows: 6,
   })
+  const [unwrapNotice, setUnwrapNotice] = useState('')
 
   const [attachMenuOpen, setAttachMenuOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -68,6 +109,40 @@ export function ComposerCapsule({
       event.preventDefault()
       submit(event)
     }
+  }
+
+  const updateTextPart = (index, nextText) => {
+    if (!structured) return
+    onPartsChange(parts.map((part, i) => (i === index && part.type === 'text' ? { ...part, text: nextText } : part)))
+  }
+
+  const handleSegmentPaste = (event, index) => {
+    const pasted = event.clipboardData?.getData('text/plain') ?? ''
+    if (!shouldCreateLargePaste(pasted)) return
+    event.preventDefault()
+    const start = event.currentTarget.selectionStart ?? 0
+    const end = event.currentTarget.selectionEnd ?? start
+    setUnwrapNotice('')
+    onPartsChange(insertLargePasteAtCursor(parts, index, start, end, pasted))
+  }
+
+  const handleUnwrap = (index) => {
+    const result = unwrapLargePaste(parts, index)
+    if (!result.ok) {
+      setUnwrapNotice(result.reason)
+      return
+    }
+    setUnwrapNotice('')
+    onPartsChange(result.parts)
+  }
+
+  const handleLegacyPaste = (event) => {
+    const pasted = event.clipboardData?.getData('text/plain') ?? ''
+    if (!shouldCreateLargePaste(pasted) || typeof onPartsChange !== 'function') return
+    event.preventDefault()
+    const start = event.currentTarget.selectionStart ?? String(value ?? '').length
+    const end = event.currentTarget.selectionEnd ?? start
+    onPartsChange(insertLargePasteAtCursor([{ type: 'text', text: String(value ?? '') }], 0, start, end, pasted))
   }
 
   const toggleAttachMenu = (event) => {
@@ -228,19 +303,57 @@ export function ComposerCapsule({
             </div>
           ) : null}
         </div>
-        <textarea
-          ref={textareaRef}
-          className="composer-capsule__input"
-          value={value}
-          onChange={(event) => onChange?.(event.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          aria-label={ariaLabel}
-          disabled={disabled}
-          rows={1}
-          enterKeyHint="send"
-          onInput={syncHeight}
-        />
+        {structured ? (
+          <div className="composer-capsule__compose">
+            {parts.map((part, index) => {
+              if (part.type === 'large_paste') {
+                return (
+                  <div key={part.id || `paste-${index}`} className="composer-capsule__paste">
+                    <span className="composer-capsule__paste-meta">{formatPasteChipLabel(part)}</span>
+                    <button
+                      type="button"
+                      className="composer-capsule__paste-unwrap"
+                      disabled={disabled}
+                      onClick={() => handleUnwrap(index)}
+                    >
+                      Show in text field
+                    </button>
+                  </div>
+                )
+              }
+              const onlyEmptyText =
+                parts.length === 1 && part.type === 'text' && !String(part.text || '').trim()
+              return (
+                <ComposerTextSegment
+                  key={`text-${index}`}
+                  value={part.text || ''}
+                  onChange={(next) => updateTextPart(index, next)}
+                  onPaste={(event) => handleSegmentPaste(event, index)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={onlyEmptyText ? placeholder : ''}
+                  ariaLabel={ariaLabel}
+                  disabled={disabled}
+                />
+              )
+            })}
+            {unwrapNotice ? <p className="composer-capsule__paste-notice">{unwrapNotice}</p> : null}
+          </div>
+        ) : (
+          <textarea
+            ref={textareaRef}
+            className="composer-capsule__input"
+            value={value}
+            onChange={(event) => onChange?.(event.target.value)}
+            onPaste={handleLegacyPaste}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            aria-label={ariaLabel}
+            disabled={disabled}
+            rows={1}
+            enterKeyHint="send"
+            onInput={syncHeight}
+          />
+        )}
         <div className="composer-capsule__actions">
           <button
             type="submit"

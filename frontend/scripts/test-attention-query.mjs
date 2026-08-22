@@ -114,7 +114,8 @@ function assertBounded(query, label) {
 // 9–11. shared composer path (gpt/claude/gemini) — source lock
 {
   const app = readFileSync(join(root, 'src/App.jsx'), 'utf8')
-  assert(app.includes('message: text'), 'chat send uses full composer text')
+  assert(app.includes('message: encoded'), 'chat send uses encoded current-turn content')
+  assert(app.includes('focusSourceFromParts'), 'Focus query is instruction/stub, not the paste body')
   assert(app.includes('setAttentionFocusRequest'), 'focus request is separate')
   assert(app.includes('for await (const event of postChatStream'), 'single composer stream for all engines')
   assert(app.includes('providerId: activeSpeakingProviderId'), 'engine chip selects provider; query builder is shared')
