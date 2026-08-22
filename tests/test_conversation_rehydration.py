@@ -22,6 +22,7 @@ from services.message_format import (
     encode_chat_assistant,
     encode_council_expert,
     encode_council_synthesis,
+    encode_user_turn,
 )
 
 ORG = "00000000-0000-0000-0000-000000000001"
@@ -43,6 +44,27 @@ def _gate_a_customer():
 
     with patch_main_persistent_tenant(ORG):
         yield
+
+
+def test_encode_decode_user_turn_does_not_leak_envelope():
+    paste = "P" * 12_000
+    raw = encode_user_turn(
+        [
+            {"type": "text", "text": "Look: "},
+            {
+                "type": "large_paste",
+                "id": "p1",
+                "label": "Pasted text",
+                "text": paste,
+                "char_count": 12_000,
+            },
+        ]
+    )
+    out = decode_message("user", raw)
+    assert out["kind"] == "user_turn"
+    assert paste not in out["content"]
+    assert '{"ben":' not in out["content"]
+    assert out["parts"][1]["text"] == paste
 
 
 def test_encode_decode_chat_assistant():

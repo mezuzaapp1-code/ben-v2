@@ -15,7 +15,14 @@ from database.connection import get_db_session
 from database.models import Message
 from services.ben_log_service import capture_chat_exchange
 from services.chat_language import apply_language_context
-from services.message_format import encode_chat_assistant, gateway_to_provider_id
+from services.message_format import (
+    encode_chat_assistant,
+    expand_user_message_for_provider,
+    gateway_to_provider_id,
+    provider_expansion_too_large,
+    thread_title_from_user_message,
+    user_turn_focus_query_source,
+)
 from services.copilot_orchestrator import run_copilot_preamble
 from services.inference.gateway_meter import get_last_accounted_call
 from services.model_gateway import route_request, route_request_stream, validate_chat_model_override
@@ -170,8 +177,13 @@ async def stream_chat_response(
     stream_started = time.perf_counter()
     first_token_at: float | None = None
     last_token_at: float | None = None
+    if not expert_opinion and not project_setup_bootstrap:
+        oversize = provider_expansion_too_large(expand_user_message_for_provider(message))
+        if oversize:
+            yield _stream_ndjson({"type": "error", "message": oversize})
+            return
     org = uuid.UUID(tenant_id)
-    title = (message.strip()[:512] or "Chat")[:512]
+    title = thread_title_from_user_message(message)
     tid = await resolve_thread_id(org, thread_id, title=title)
 
     if is_project_setup_thread(tid):
@@ -260,8 +272,9 @@ async def stream_chat_response(
         stream_system = RAW_STREAM_SYSTEM
         persist_user_text = opinion_request
     else:
-        contextual_message = await build_chat_message_with_thread_context(org, tid, message)
-        effective_message = await inject_knowledge_few_shot(message, contextual_message)
+        live_user_text = expand_user_message_for_provider(message)
+        contextual_message = await build_chat_message_with_thread_context(org, tid, live_user_text)
+        effective_message = await inject_knowledge_few_shot(live_user_text, contextual_message)
         effective_message = apply_language_context(effective_message, preferred_language)
         stream_system = None
         persist_user_text = message
@@ -269,13 +282,15 @@ async def stream_chat_response(
         # in the active workspace are made available to the selected primary engine
         # identically, regardless of which provider is selected. A retrieval failure
         # must never break the chat and must not imply the file was available.
+        # Large Paste is chat content — never a retrieval query. Use instruction
+        # text or the bounded paste stub, never the envelope or full paste body.
         if project_id is not None:
             try:
                 wsf = await load_ready_files_context(
                     org,
                     project_id,
                     max_chars=WORKSPACE_FILES_CONTEXT_MAX_CHARS,
-                    user_query=message,
+                    user_query=user_turn_focus_query_source(message),
                 )
                 workspace_files_unavailable_count = int(wsf.unavailable_count or 0)
                 workspace_retrieval_mode = wsf.retrieval_mode
@@ -342,7 +357,9 @@ async def stream_chat_response(
 
     if project_id and not expert_opinion:
         try:
-            copilot_events = await run_copilot_preamble(message, org, project_id)
+            copilot_events = await run_copilot_preamble(
+                expand_user_message_for_provider(message), org, project_id
+            )
             for evt in copilot_events:
                 yield _stream_ndjson(evt)
         except Exception as e:
@@ -489,10 +506,14 @@ async def handle_chat(
 ) -> dict[str, Any]:
     _ = user_id
     org = uuid.UUID(tenant_id)
-    title = (message.strip()[:512] or "Chat")[:512]
+    title = thread_title_from_user_message(message)
     tid = await resolve_thread_id(org, thread_id, title=title)
 
-    contextual_message = await build_chat_message_with_thread_context(org, tid, message)
+    live_user_text = expand_user_message_for_provider(message)
+    oversize = provider_expansion_too_large(live_user_text)
+    if oversize:
+        raise ValueError(oversize)
+    contextual_message = await build_chat_message_with_thread_context(org, tid, live_user_text)
     effective_message = apply_language_context(contextual_message, preferred_language)
     raw = await route_request(
         effective_message,

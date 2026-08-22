@@ -22,14 +22,9 @@ CROSS_ENGINE_HANDOFF_SYSTEM = (
 
 
 def _turn_text(message: ChatHistoryRow) -> str | None:
-    if message.role == "user":
-        text = str(message.content or "").strip()
-        return text or None
-    if message.role == "assistant":
-        decoded = decode_message(message.role, message.content)
-        text = str(decoded.get("content") or "").strip()
-        return text or None
-    return None
+    decoded = decode_message(message.role, message.content)
+    text = str(decoded.get("content") or "").strip()
+    return text or None
 
 
 def build_rolling_context_prompt(

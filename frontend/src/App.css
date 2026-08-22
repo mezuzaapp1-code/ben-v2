@@ -491,6 +491,25 @@
   word-break: break-word;
 }
 
+.bubble-user-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.bubble-large-paste {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--ben-accent-blue) 30%, var(--ben-user-bubble-border));
+  background: color-mix(in srgb, var(--ben-accent-blue) 10%, transparent);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
 .meta {
   margin-top: 0.22rem;
   font-size: 0.7rem;

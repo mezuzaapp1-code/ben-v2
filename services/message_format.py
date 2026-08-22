@@ -6,6 +6,166 @@ from typing import Any
 
 _BEN_PREFIX = '{"ben":'
 
+# Large Paste V1 — conversation-scoped chat content (not WorkspaceFile).
+LARGE_PASTE_THRESHOLD = 10_000
+LARGE_PASTE_UNWRAP_CEILING = 25_000
+PROVIDER_EXPANDED_MAX_CHARS = 400_000
+USER_TURN_KIND = "user_turn"
+LARGE_PASTE_DEFAULT_LABEL = "Pasted text"
+
+
+def code_point_count(text: str) -> int:
+    """Unicode code points. Python 3 str is already code-point indexed."""
+    return len(text or "")
+
+
+def format_char_count(n: int) -> str:
+    return f"{int(n):,}"
+
+
+def format_large_paste_stub(char_count: int) -> str:
+    return f"[Large paste · {format_char_count(char_count)} characters]"
+
+
+def _sanitize_user_turn_parts(raw: Any) -> list[dict[str, Any]] | None:
+    if not isinstance(raw, list) or not raw:
+        return None
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            return None
+        part_type = item.get("type")
+        if part_type == "text":
+            text = item.get("text")
+            if not isinstance(text, str):
+                return None
+            out.append({"type": "text", "text": text})
+            continue
+        if part_type == "large_paste":
+            text = item.get("text")
+            if not isinstance(text, str):
+                return None
+            part_id = str(item.get("id") or "").strip()
+            if not part_id:
+                return None
+            label = str(item.get("label") or LARGE_PASTE_DEFAULT_LABEL).strip() or LARGE_PASTE_DEFAULT_LABEL
+            try:
+                stored_count = item.get("char_count")
+                char_count = int(stored_count) if stored_count is not None else code_point_count(text)
+            except (TypeError, ValueError):
+                return None
+            # Body is the source of truth; never silently shrink stored text.
+            char_count = code_point_count(text)
+            out.append(
+                {
+                    "type": "large_paste",
+                    "id": part_id,
+                    "label": label,
+                    "text": text,
+                    "char_count": char_count,
+                }
+            )
+            continue
+        return None
+    return out
+
+
+def parse_user_turn_parts(content: str) -> list[dict[str, Any]] | None:
+    """Return ordered parts only for a valid ben=1 user_turn envelope."""
+    if not isinstance(content, str) or not content.startswith(_BEN_PREFIX):
+        return None
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict) or data.get("ben") != 1 or data.get("kind") != USER_TURN_KIND:
+        return None
+    return _sanitize_user_turn_parts(data.get("parts"))
+
+
+def display_text_from_parts(parts: list[dict[str, Any]]) -> str:
+    chunks: list[str] = []
+    for part in parts:
+        if part.get("type") == "text":
+            chunks.append(str(part.get("text") or ""))
+        elif part.get("type") == "large_paste":
+            count = part.get("char_count")
+            if count is None:
+                count = code_point_count(str(part.get("text") or ""))
+            chunks.append(format_large_paste_stub(int(count)))
+    return "".join(chunks)
+
+
+def expand_parts_for_provider(parts: list[dict[str, Any]]) -> str:
+    return "".join(str(part.get("text") or "") for part in parts)
+
+
+def encode_user_turn(parts: list[dict[str, Any]]) -> str:
+    """Persist ordered parts. Text-only turns stay raw strings (legacy)."""
+    sanitized = _sanitize_user_turn_parts(parts)
+    if sanitized is None:
+        return ""
+    compact = [
+        part
+        for part in sanitized
+        if part.get("type") == "large_paste" or (part.get("type") == "text" and part.get("text") != "")
+    ]
+    if not compact:
+        return ""
+    if not any(part.get("type") == "large_paste" for part in compact):
+        return "".join(str(part.get("text") or "") for part in compact if part.get("type") == "text")
+    return json.dumps({"ben": 1, "kind": USER_TURN_KIND, "parts": compact}, ensure_ascii=False)
+
+
+def expand_user_message_for_provider(content: str) -> str:
+    """Current-turn expansion: full Large Paste bodies, exact part order."""
+    parts = parse_user_turn_parts(content)
+    if parts is None:
+        return content
+    return expand_parts_for_provider(parts)
+
+
+def user_turn_instruction_text(content: str) -> str:
+    """Usable inline instruction text only — never the paste body."""
+    parts = parse_user_turn_parts(content)
+    if parts is None:
+        return content
+    return "".join(str(part.get("text") or "") for part in parts if part.get("type") == "text")
+
+
+def user_turn_focus_query_source(content: str) -> str:
+    """Focus query source: instruction text, or a bounded paste-only stub."""
+    parts = parse_user_turn_parts(content)
+    if parts is None:
+        return content
+    instruction = "".join(str(part.get("text") or "") for part in parts if part.get("type") == "text").strip()
+    if instruction:
+        return instruction
+    stubs = [
+        format_large_paste_stub(int(part.get("char_count") or code_point_count(str(part.get("text") or ""))))
+        for part in parts
+        if part.get("type") == "large_paste"
+    ]
+    return " ".join(stubs)
+
+
+def provider_expansion_too_large(expanded: str) -> str | None:
+    n = code_point_count(expanded)
+    if n <= PROVIDER_EXPANDED_MAX_CHARS:
+        return None
+    return (
+        f"This message is {format_char_count(n)} characters. BEN will not send more than "
+        f"{format_char_count(PROVIDER_EXPANDED_MAX_CHARS)} characters in one request. "
+        "This is a BEN transport limit, not a guarantee that the selected model can fit the content. "
+        "The Large Paste was not truncated and remains recoverable."
+    )
+
+
+def thread_title_from_user_message(content: str) -> str:
+    decoded = decode_message("user", content)
+    display = str(decoded.get("content") or content).strip()
+    return (display[:512] or "Chat")[:512]
+
 from services.providers.speaking_registry import (
     gateway_to_provider_id as _registry_gateway_to_provider_id,
 )
@@ -219,7 +379,15 @@ def encode_adhoc_synthesis(
 def decode_message(role: str, content: str) -> dict[str, Any]:
     """Map DB row to API/UI message shape."""
     if role == "user":
-        return {"role": "user", "content": content}
+        parts = parse_user_turn_parts(content)
+        if parts is None:
+            return {"role": "user", "content": content}
+        return {
+            "role": "user",
+            "kind": USER_TURN_KIND,
+            "content": display_text_from_parts(parts),
+            "parts": parts,
+        }
 
     if content.startswith(_BEN_PREFIX):
         try:
