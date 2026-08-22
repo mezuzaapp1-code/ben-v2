@@ -50,6 +50,19 @@ assert(app.includes("providerId === 'grok'"), 'Grok model change wired like GPT/
 const panel = readFileSync(join(root, 'src/components/AdvancedEngineSettings.jsx'), 'utf8')
 assert(panel.includes('getSpeakingProviders()'), 'settings panel still maps registry providers')
 assert(panel.includes('onProviderModelChange(provider.id, modelId)'), 'per-provider model dropdown unchanged')
+assert(!panel.includes('primaryProviders'), 'no primary-provider special case')
+assert((panel.match(/providers\.map\(/g) || []).length >= 2, 'engines and model rows share the same providers list')
+
+const panelCss = readFileSync(join(root, 'src/components/AdvancedEngineSettings.css'), 'utf8')
+assert(!panelCss.includes('33.333%'), 'engine pills are not locked to a 3-column wrap')
+assert(/flex:\s*1 1 0/.test(panelCss), 'engine pills share one row equally')
+assert(ids.join(',') === 'gpt,claude,gemini,grok', 'ENGINE order is GPT Claude Gemini Grok')
+
+const selector = readFileSync(join(root, 'src/components/EngineSelector.jsx'), 'utf8')
+assert(selector.includes('getSpeakingProviders()'), 'EngineSelector is data-driven')
+assert(!selector.includes('primaryProviders'), 'EngineSelector has no primary-provider split')
+const selectorCss = readFileSync(join(root, 'src/components/EngineSelector.css'), 'utf8')
+assert(!selectorCss.includes('33.333%'), 'EngineSelector pills are not locked to a 3-column wrap')
 
 const adapter = readFileSync(join(root, '../services/providers/xai_provider.py'), 'utf8')
 assert(!adapter.includes('model = "grok-4.6"'), 'adapter does not hardcode the selected model')
