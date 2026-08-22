@@ -15,6 +15,10 @@ from services.providers.base_provider import (
     ProviderStreamEnd,
     tenant_header,
 )
+from services.providers.xai_error_diagnostics import (
+    ensure_xai_response_content,
+    raise_for_xai_status,
+)
 
 XAI_CHAT_COMPLETIONS_URL = "https://api.x.ai/v1/chat/completions"
 XAI_FLAGSHIP_MODEL = "grok-4.6"
@@ -61,7 +65,7 @@ class XAIProvider(BaseProvider):
             headers=self._headers(tenant_id),
             json=self._json_body(model, message, system, stream=False),
         )
-        r.raise_for_status()
+        raise_for_xai_status(r)
         d = r.json()
         usage = normalize_openai_usage(d.get("usage"))
         choice = (d.get("choices") or [{}])[0]
@@ -94,7 +98,9 @@ class XAIProvider(BaseProvider):
             headers=self._headers(tenant_id),
             json=self._json_body(model, message, system, stream=True),
         ) as response:
-            response.raise_for_status()
+            if int(getattr(response, "status_code", 0) or 0) >= 400:
+                await ensure_xai_response_content(response)
+            raise_for_xai_status(response)
             async for line in response.aiter_lines():
                 if not line or not line.startswith("data:"):
                     continue

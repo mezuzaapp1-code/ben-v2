@@ -45,6 +45,8 @@ def format_chat_provider_error(
     timeout_s: float,
 ) -> str:
     label = gateway_provider_label(gateway_provider)
+    if (gateway_provider or "").strip().lower() == "xai" and isinstance(exc, httpx.HTTPStatusError):
+        return f"Grok request failed (HTTP {exc.response.status_code})"
     category = classify_failure(exc)
     if category == FAILURE_TIMEOUT:
         secs = int(timeout_s) if timeout_s == int(timeout_s) else round(timeout_s, 1)

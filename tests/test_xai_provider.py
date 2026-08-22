@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -178,6 +180,46 @@ async def test_xai_non_stream_send_omits_search_and_keeps_chat_completions(monke
     _assert_no_search_or_tools(captured["json"])
     assert captured["auth_prefix"] == "Bearer"
     assert result.content == "OK"
+
+
+@pytest.mark.asyncio
+async def test_xai_http_400_logs_allowlist_and_keeps_request_shape(monkeypatch, caplog):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-key-not-a-secret")
+    captured: dict = {}
+    req = httpx.Request("POST", XAI_CHAT_COMPLETIONS_URL)
+    err_resp = httpx.Response(
+        400,
+        request=req,
+        headers={"cf-ray": "diag-ray", "x-request-id": "xai-req-1"},
+        content=b'{"code":"invalid-argument","error":"Argument not supported: stream_options"}',
+    )
+
+    class _FakeAsyncClient:
+        async def post(self, url, *, headers, json):
+            captured["json"] = json
+            return err_resp
+
+    with caplog.at_level(logging.WARNING, logger="ben.ops"):
+        with pytest.raises(httpx.HTTPStatusError) as ei:
+            await XAIProvider().send_message(
+                _FakeAsyncClient(),  # type: ignore[arg-type]
+                model=XAI_FLAGSHIP_MODEL,
+                message="Return only: BEN-GROK-46-OK",
+                tenant_id="t",
+            )
+    assert ei.value.response.status_code == 400
+    assert captured["json"]["model"] == "grok-4.6"
+    assert "search_parameters" not in captured["json"]
+    assert "tools" not in captured["json"]
+    rec = [r for r in caplog.records if getattr(r, "event", None) == "provider_http_error"]
+    assert rec
+    assert rec[-1].http_status == 400
+    assert rec[-1].error_code == "invalid-argument"
+    assert rec[-1].error_message == "Argument not supported: stream_options"
+    assert rec[-1].cf_ray == "diag-ray"
+    assert "Return only: BEN-GROK-46-OK" not in rec[-1].getMessage()
+    assert "xai-test-key-not-a-secret" not in rec[-1].getMessage()
+    assert "Authorization" not in rec[-1].getMessage()
 
 
 def test_normalize_openai_usage_reads_xai_shaped_fields():

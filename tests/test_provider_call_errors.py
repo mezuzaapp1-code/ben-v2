@@ -53,6 +53,11 @@ def test_gateway_provider_label():
     assert gateway_provider_label("xai") == "Grok"
 
 
+def test_xai_timeout_message_unchanged():
+    msg = format_chat_provider_error("xai", httpx.ReadTimeout(""), timeout_s=25)
+    assert msg == "Grok timed out after 25s"
+
+
 @pytest.mark.asyncio
 async def test_route_request_returns_provider_timeout_message(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
