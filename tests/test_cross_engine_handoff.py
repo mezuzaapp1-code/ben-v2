@@ -76,8 +76,9 @@ async def test_stream_chat_response_ignores_engine_names_in_message():
     # Provider dispatched to the model gateway is the button selection, untouched.
     assert seen["provider_id"] == "gemini"
     assert seen["model_override"] == "gemini-3.5-flash"
-    # Standard chat turn: no cross-engine handoff system prompt.
-    assert seen["system"] is None
+    # Standard chat turn: language system is shared; no cross-engine handoff prompt.
+    assert seen["system"]
+    assert "joining an ongoing" not in seen["system"]
 
     meta = events[0]
     assert meta["type"] == "meta"

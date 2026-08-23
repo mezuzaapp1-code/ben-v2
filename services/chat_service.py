@@ -14,7 +14,7 @@ from sqlalchemy import text
 from database.connection import get_db_session
 from database.models import Message
 from services.ben_log_service import capture_chat_exchange
-from services.chat_language import apply_language_context
+from services.chat_language import apply_language_context, assemble_chat_system
 from services.message_format import (
     encode_chat_assistant,
     expand_user_message_for_provider,
@@ -269,15 +269,15 @@ async def stream_chat_response(
         opinion_request = (message or "").strip() or DEFAULT_OPINION_REQUEST
         contextual_message = await build_rolling_stream_prompt(org, tid, opinion_request)
         effective_message = await inject_knowledge_few_shot(message, contextual_message)
-        effective_message = apply_language_context(effective_message, preferred_language)
-        stream_system = RAW_STREAM_SYSTEM
+        stream_system = assemble_chat_system(
+            message, preferred_language, base_system=RAW_STREAM_SYSTEM
+        )
         persist_user_text = opinion_request
     else:
         live_user_text = expand_user_message_for_provider(message)
         contextual_message = await build_chat_message_with_thread_context(org, tid, live_user_text)
         effective_message = await inject_knowledge_few_shot(live_user_text, contextual_message)
-        effective_message = apply_language_context(effective_message, preferred_language)
-        stream_system = None
+        stream_system = assemble_chat_system(message, preferred_language)
         persist_user_text = message
         # Workspace Files -> Chat Context bridge (standard chat only). Ready files
         # in the active workspace are made available to the selected primary engine
@@ -515,13 +515,13 @@ async def handle_chat(
     if oversize:
         raise ValueError(oversize)
     contextual_message = await build_chat_message_with_thread_context(org, tid, live_user_text)
-    effective_message = apply_language_context(contextual_message, preferred_language)
     raw = await route_request(
-        effective_message,
+        contextual_message,
         tenant_id,
         tier,
         provider_id=provider_id,
         model_override=model_override,
+        system=assemble_chat_system(message, preferred_language),
     )
     resp = raw.get("content", "")
     model_u = raw.get("model_used", "")

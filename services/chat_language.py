@@ -1,7 +1,9 @@
-"""Request-level chat response language preference (English instructions only)."""
+"""Request-level chat response language (shared system prompt, not per-provider)."""
 from __future__ import annotations
 
 import re
+
+from services.chat_prompt import GLOBAL_CHAT_SYSTEM
 
 ALLOWED_LANGUAGE_CODES = frozenset({"en", "he"})
 _LANGUAGE_NAMES = {"en": "English", "he": "Hebrew"}
@@ -9,14 +11,19 @@ _LANGUAGE_NAMES = {"en": "English", "he": "Hebrew"}
 DETECTION_MAX_CHARS = 8192
 MIN_LETTERS = 8
 DOMINANCE = 0.70
+MIN_HEBREW_LETTERS = 2
 
 _FENCED_CODE_RE = re.compile(r"```[\s\S]*?```", re.MULTILINE)
 _INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
 _URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 _PATH_RE = re.compile(r"\b[\w.-]+/[\w./-]+\b")
+_LARGE_PASTE_STUB_RE = re.compile(r"\[Large paste · [^\]]+\]")
+_BLOCKQUOTE_RE = re.compile(r"(?m)^>\s?.*$")
+_QUOTED_SPAN_RE = re.compile(r"[“”«»\"].{8,}?[“”«»\"]", re.DOTALL)
 
 _HEBREW_LETTER_RE = re.compile(r"[\u0590-\u05FF]")
 _LATIN_LETTER_RE = re.compile(r"[A-Za-z]")
+_USER_MESSAGE_RE = re.compile(r"<user_message>\s*([\s\S]*?)\s*</user_message>", re.I)
 
 # (substring, language code) — longer Hebrew phrases listed before "בעברית"
 _IN_MESSAGE_OVERRIDE_PATTERNS: tuple[tuple[str, str], ...] = (
@@ -27,6 +34,14 @@ _IN_MESSAGE_OVERRIDE_PATTERNS: tuple[tuple[str, str], ...] = (
     ("תענה בעברית", "he"),
     ("ענה בעברית", "he"),
     ("בעברית", "he"),
+)
+
+CURRENT_TURN_LANGUAGE_RULE = (
+    "Answer in the language of the user's current request. "
+    "Hebrew request → Hebrew response. English request → English response. "
+    "An explicit language request in this message overrides automatic matching. "
+    "Quoted text, pasted source, file excerpts, and prior conversation turns "
+    "must not change the reply language."
 )
 
 
@@ -55,9 +70,20 @@ def build_language_instruction(language_code: str) -> str:
     )
 
 
+def instruction_surface_for_language(message: str) -> str:
+    """Current-turn typed instruction only — never Large Paste/file/history."""
+    from services.message_format import user_turn_instruction_text
+
+    text = user_turn_instruction_text(message or "")
+    tagged = _USER_MESSAGE_RE.search(text)
+    if tagged:
+        return tagged.group(1)
+    return text
+
+
 def extract_in_message_language_override(message: str) -> str | None:
-    """Explicit language request in the user message; last match wins."""
-    text = (message or "")[:DETECTION_MAX_CHARS].casefold()
+    """Explicit language request in the current instruction; last match wins."""
+    text = instruction_surface_for_language(message)[:DETECTION_MAX_CHARS].casefold()
     if not text.strip():
         return None
     best_end = -1
@@ -86,12 +112,23 @@ def strip_code_regions_for_detection(message: str) -> str:
     return text
 
 
+def strip_non_instruction_for_detection(message: str) -> str:
+    """Score only current-turn instruction; ignore quotes, paste stubs, and code."""
+    sample = strip_code_regions_for_detection(instruction_surface_for_language(message))
+    sample = _LARGE_PASTE_STUB_RE.sub(" ", sample)
+    sample = _BLOCKQUOTE_RE.sub(" ", sample)
+    sample = _QUOTED_SPAN_RE.sub(" ", sample)
+    return sample
+
+
 def detect_language_code(message: str) -> str | None:
-    """Infer en/he from dominant natural-language script; None if unclear."""
-    sample = strip_code_regions_for_detection(message)
+    """Infer en/he from the current-turn instruction surface; None if unclear."""
+    sample = strip_non_instruction_for_detection(message)
     he_score = len(_HEBREW_LETTER_RE.findall(sample))
     en_score = len(_LATIN_LETTER_RE.findall(sample))
     total = he_score + en_score
+    if he_score >= MIN_HEBREW_LETTERS and en_score == 0:
+        return "he"
     if total < MIN_LETTERS:
         return None
     he_ratio = he_score / total
@@ -116,8 +153,23 @@ def resolve_response_language(
     return detect_language_code(message)
 
 
+def assemble_chat_system(
+    raw_user_message: str,
+    preferred_language: str | None,
+    *,
+    base_system: str | None = None,
+) -> str:
+    """Shared system prompt for every speaking provider. Language lives here."""
+    base = (base_system or GLOBAL_CHAT_SYSTEM).strip()
+    parts = [base, CURRENT_TURN_LANGUAGE_RULE]
+    code = resolve_response_language(raw_user_message, preferred_language)
+    if code:
+        parts.append(build_language_instruction(code))
+    return "\n\n".join(parts)
+
+
 def apply_language_context(raw_user_message: str, preferred_language: str | None) -> str:
-    """Wrap user text for provider gateway; persist raw_user_message separately."""
+    """Legacy user-payload wrap. Chat routes use assemble_chat_system instead."""
     code = resolve_response_language(raw_user_message, preferred_language)
     if not code:
         return raw_user_message

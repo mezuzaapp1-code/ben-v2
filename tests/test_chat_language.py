@@ -126,8 +126,9 @@ def test_english_prose_with_code_block_english():
     assert "Respond in English" in wrapped
 
 
-def test_short_hebrew_word_no_instruction():
-    assert apply_language_context("שלום", None) == "שלום"
+def test_short_hebrew_word_detects_hebrew():
+    assert detect_language_code("שלום") == "he"
+    assert "Respond in Hebrew" in apply_language_context("שלום", None)
 
 
 def test_explicit_english_override_in_hebrew_message():
@@ -206,6 +207,7 @@ async def test_handle_chat_wraps_gateway_persists_raw(monkeypatch):
 
     async def fake_route(message, tenant_id, tier, *, provider_id=None, model_override=None, system=None):
         captured["gateway_message"] = message
+        captured["system"] = system
         return {
             "content": "ok",
             "model_used": "gpt-4o-mini",
@@ -251,8 +253,9 @@ async def test_handle_chat_wraps_gateway_persists_raw(monkeypatch):
     await handle_chat(user_text, "u", TENANT, "free", provider_id="gpt", preferred_language="he")
 
     assert captured["user_content"] == user_text
-    assert "Language preference: Respond in Hebrew" in captured["gateway_message"]
-    assert user_text in captured["gateway_message"]
+    assert captured["gateway_message"] == user_text
+    assert "Language preference: Respond in Hebrew" in captured["system"]
+    assert user_text not in captured["system"]
 
 
 @pytest.mark.asyncio
@@ -263,6 +266,7 @@ async def test_handle_chat_auto_hebrew_persists_raw(monkeypatch):
 
     async def fake_route(message, tenant_id, tier, *, provider_id=None, model_override=None, system=None):
         captured["gateway_message"] = message
+        captured["system"] = system
         return {
             "content": "ok",
             "model_used": "gpt-4o-mini",
@@ -308,8 +312,9 @@ async def test_handle_chat_auto_hebrew_persists_raw(monkeypatch):
 
     assert captured["user_content"] == _HEBREW_PARAGRAPH
     assert "Language preference" not in captured["user_content"]
-    assert "Respond in Hebrew" in captured["gateway_message"]
-    assert _HEBREW_PARAGRAPH in captured["gateway_message"]
+    assert captured["gateway_message"] == _HEBREW_PARAGRAPH
+    assert "Respond in Hebrew" in captured["system"]
+    assert _HEBREW_PARAGRAPH not in captured["system"]
 
 
 @pytest.mark.asyncio
@@ -320,6 +325,7 @@ async def test_handle_chat_auto_english_gateway_only(monkeypatch):
 
     async def fake_route(message, tenant_id, tier, *, provider_id=None, model_override=None, system=None):
         captured["gateway_message"] = message
+        captured["system"] = system
         return {"content": "ok", "model_used": "m", "provider_used": "openai", "cost_usd": 0.0}
 
     async def fake_resolve(org, thread_id, *, title):
@@ -359,7 +365,8 @@ async def test_handle_chat_auto_english_gateway_only(monkeypatch):
     await handle_chat(_ENGLISH_PARAGRAPH, "u", TENANT, "free", provider_id="gpt")
 
     assert captured["user_content"] == _ENGLISH_PARAGRAPH
-    assert "Respond in English" in captured["gateway_message"]
+    assert captured["gateway_message"] == _ENGLISH_PARAGRAPH
+    assert "Respond in English" in captured["system"]
 
 
 @pytest.mark.asyncio
@@ -371,6 +378,7 @@ async def test_handle_chat_unclear_no_gateway_wrap(monkeypatch):
 
     async def fake_route(message, tenant_id, tier, *, provider_id=None, model_override=None, system=None):
         captured["gateway_message"] = message
+        captured["system"] = system
         return {"content": "ok", "model_used": "m", "provider_used": "openai", "cost_usd": 0.0}
 
     async def fake_resolve(org, thread_id, *, title):
