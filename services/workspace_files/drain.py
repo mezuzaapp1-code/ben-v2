@@ -54,9 +54,19 @@ _DETERMINISTIC_ERRORS = {"missing_bytes", "file_not_found"}
 _DIAG_KEYS = (
     "parser_id", "parser_version", "source_page_count", "pages_extracted",
     "pages_empty", "pages_needs_ocr", "pages_failed", "pages_skipped", "chunk_count",
-    "final_extraction_status", "final_index_status", "parse_ms", "chunk_ms",
-    "persist_ms", "total_ms",
+    "final_extraction_status", "final_index_status", "valid_source_without_text",
+    "parse_ms", "chunk_ms", "persist_ms", "total_ms",
 )
+
+
+def processing_completed_without_text(diag: dict[str, Any] | None) -> bool:
+    """True when the pipeline finished a valid source that has no usable text.
+
+    Job outcome is success (processed, no text). Not a source/storage failure.
+    """
+    if not diag or diag.get("error") is not None:
+        return False
+    return bool(diag.get("valid_source_without_text"))
 
 
 async def _execute_structured(org_id: uuid.UUID, workspace_id: uuid.UUID, file_id: uuid.UUID) -> dict[str, Any]:
@@ -136,9 +146,15 @@ async def _run_claimed_jobs(
                 await complete_job(jid, "succeeded")
                 summary["succeeded"] += 1
                 outcome = "succeeded"
+            elif err is None and processing_completed_without_text(diag):
+                # Valid stored source, no usable text (image-only / needs_ocr-only).
+                # Processing finished; this is not a source or job failure.
+                await complete_job(jid, "succeeded")
+                summary["succeeded"] += 1
+                outcome = "succeeded_no_text"
             elif err is None and status == "failed":
-                # Determinate: parsed to completion but no usable text (needs_ocr-only /
-                # empty / corrupt / unsupported). Terminal — must NOT retry.
+                # Determinate broken source (empty / corrupt / unsupported).
+                # Terminal — must NOT retry.
                 error_code = "no_usable_text"
                 await complete_job(jid, "failed", error_code=error_code,
                                    error_detail="extraction produced no usable text")

@@ -33,8 +33,10 @@ from services.workspace_files.document_parser import (
     resolve_parser,
 )
 from services.workspace_files.extraction_pipeline import (
+    _legacy_projection,
     derive_lifecycle,
     run_structured_extraction,
+    valid_source_without_text,
 )
 
 try:
@@ -215,6 +217,47 @@ def test_derive_lifecycle_failed_no_text():
     assert status == "failed"
 
 
+def test_valid_source_without_text_needs_ocr_only():
+    image = _doc([("", True, None)])
+    assert valid_source_without_text(image) is True
+    mixed = _doc([("", True, None), ("", False, None)])
+    assert valid_source_without_text(mixed) is True
+    empty_only = _doc([("", False, None)])
+    assert valid_source_without_text(empty_only) is False
+    extracted = _doc([("hello", False, None), ("", True, None)])
+    assert valid_source_without_text(extracted) is False
+    failed = _doc([(None, False, "extract_error:boom")])
+    assert valid_source_without_text(failed) is False
+    zero = _assemble_document(
+        [], source_page_count=0, parser_id="t", parser_version="0", max_pages=1,
+    )
+    assert valid_source_without_text(zero) is False
+
+
+def test_legacy_projection_needs_ocr_only_is_ready_empty_text():
+    doc = _doc([("", True, None)])
+    status, text, code, message = _legacy_projection(doc, "failed")
+    assert status == "ready"
+    assert text == ""
+    assert code is None
+    assert message is None
+
+
+def test_legacy_projection_broken_source_stays_failed():
+    empty = _doc([("", False, None)])
+    status, text, code, _message = _legacy_projection(empty, "failed")
+    assert status == "failed"
+    assert text is None
+    assert code == "extraction_failed"
+    corrupt = _assemble_document(
+        [], source_page_count=0, parser_id="t", parser_version="0", max_pages=1,
+        warnings=("pdf_open_failed:PdfReadError",),
+    )
+    status, text, code, _message = _legacy_projection(corrupt, "failed")
+    assert status == "failed"
+    assert code == "extraction_failed"
+
+
 def test_no_backfill_upload_path_does_not_invoke_pipeline():
     """Case 18: the upload critical path must not auto-run Gate 2 extraction."""
     import pathlib
@@ -366,9 +409,8 @@ async def test_pipeline_partial_when_resource_limited(monkeypatch, fresh_engine)
 
 
 @pytest.mark.asyncio
-async def test_pipeline_failed_when_no_usable_text_image_only(fresh_engine):
-    """Cases 3,8,16: image-only file -> needs_ocr page, file extraction failed,
-    not_indexed, truthful lifecycle, zero chunks."""
+async def test_pipeline_image_only_is_ready_source_without_text(fresh_engine):
+    """Image-only file: page stays needs_ocr, source is ready, no fabricated text."""
     conn = await _open()
     org = uuid.uuid4()
     ws = await _mk_workspace(conn, org)
@@ -377,10 +419,15 @@ async def test_pipeline_failed_when_no_usable_text_image_only(fresh_engine):
     )
     try:
         diag = await run_structured_extraction(org, ws, fid)
+        assert diag["valid_source_without_text"] is True
         assert diag["final_extraction_status"] == "failed"
         assert diag["final_index_status"] == "not_indexed"
         f = await conn.fetchrow(
-            "SELECT extraction_status, index_status, indexed_at FROM ben.workspace_files WHERE id=$1", fid)
+            "SELECT status, extracted_text, failure_code, extraction_status, "
+            "index_status, indexed_at FROM ben.workspace_files WHERE id=$1", fid)
+        assert f["status"] == "ready"
+        assert f["extracted_text"] == ""
+        assert f["failure_code"] is None
         assert f["extraction_status"] == "failed" and f["index_status"] == "not_indexed"
         assert f["indexed_at"] is None
         page = await conn.fetchrow(

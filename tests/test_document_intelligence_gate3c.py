@@ -63,7 +63,8 @@ async def _upload(org, ws, name, ct, data):
 
 async def _file(conn, fid):
     return await conn.fetchrow(
-        "SELECT status, extracted_text, extraction_status, index_status, page_count FROM ben.workspace_files WHERE id=$1", fid)
+        "SELECT status, extracted_text, failure_code, extraction_status, index_status, page_count "
+        "FROM ben.workspace_files WHERE id=$1", fid)
 
 
 async def _job(conn, fid):
@@ -165,23 +166,31 @@ async def test_partial_lifecycle_resource_limited(fresh_engine, monkeypatch):
         await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws); await conn.close(); _cleanup_storage(org, ws)
 
 
-# ---- 7,8,18: no-usable-text / needs_ocr-only is truthful + terminal (no retry storm) ----
+# ---- 7,8,18: needs_ocr-only is a valid stored source; job succeeds; no retry storm ----
 @pytest.mark.asyncio
-async def test_needs_ocr_only_is_failed_and_terminal(fresh_engine):
+async def test_needs_ocr_only_is_ready_source_and_job_succeeds(fresh_engine):
     conn = await _open(); org = uuid.uuid4(); ws = await _mk_workspace(conn, org)
     try:
-        p = await _upload(org, ws, "scan.png", "image/png", b"\x89PNG\r\n\x1a\n binary image")
-        fid = uuid.UUID(p["id"])
-        await drain_document_processing_jobs(worker_id="t", limit=10)
-        f = await _file(conn, fid)
-        assert f["extraction_status"] == "failed" and f["index_status"] == "not_indexed"
-        assert f["status"] == "failed" and f["extracted_text"] is None  # never fabricate text
-        assert await _chunks(conn, fid) == 0
-        job = await _job(conn, fid)
-        assert job["status"] == "failed" and job["attempts"] == 1  # terminal, not retried
-        # needs_ocr page is represented truthfully.
-        assert await conn.fetchval(
-            "SELECT count(*) FROM ben.workspace_file_pages WHERE file_id=$1 AND extraction_status='needs_ocr'", fid) == 1
+        uploads = [
+            await _upload(org, ws, "scan.png", "image/png", b"\x89PNG\r\n\x1a\n binary image"),
+            await _upload(org, ws, "photo.jpg", "image/jpeg", bytes.fromhex("ffd8ffe000104a46494600010100000100010000ffd9")),
+        ]
+        summary = await drain_document_processing_jobs(worker_id="t", limit=10)
+        assert summary["succeeded"] >= 2
+        for p in uploads:
+            fid = uuid.UUID(p["id"])
+            f = await _file(conn, fid)
+            assert f["status"] == "ready"
+            assert f["extracted_text"] == ""
+            assert f["failure_code"] is None
+            assert f["extraction_status"] == "failed" and f["index_status"] == "not_indexed"
+            assert await _chunks(conn, fid) == 0
+            job = await _job(conn, fid)
+            assert job["status"] == "succeeded" and job["attempts"] == 1
+            assert await conn.fetchval(
+                "SELECT count(*) FROM ben.workspace_file_pages WHERE file_id=$1 AND extraction_status='needs_ocr'", fid) == 1
+        ctx = await file_service.load_ready_files_context(org, ws, max_chars=100000)
+        assert ctx.count == 0 and ctx.used_files == () and ctx.block == ""
     finally:
         await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws); await conn.close(); _cleanup_storage(org, ws)
 

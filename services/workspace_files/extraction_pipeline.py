@@ -47,6 +47,22 @@ from services.workspace_files.extract import MAX_EXTRACT_CHARS
 INDEXING_VERSION = 1
 
 
+def valid_source_without_text(doc: StructuredDocument) -> bool:
+    """True for a parsed, non-broken source that has no usable text.
+
+    Image-only / needs_ocr-only pages are a valid stored source. That is not the
+    same as a parse/storage failure (zero pages, PAGE_FAILED, or extracted text).
+    Empty-only documents are not this case.
+    """
+    if not doc.pages:
+        return False
+    if any(p.status == PAGE_FAILED for p in doc.pages):
+        return False
+    if any(p.status == PAGE_EXTRACTED and (p.char_count or 0) > 0 for p in doc.pages):
+        return False
+    return any(p.status == PAGE_NEEDS_OCR for p in doc.pages)
+
+
 def _legacy_projection(
     doc: StructuredDocument, extraction_status: str
 ) -> tuple[str, str | None, str | None, str | None]:
@@ -58,6 +74,10 @@ def _legacy_projection(
     authoritative; these legacy fields are a projection only.
 
     Returns (status, extracted_text, failure_code, failure_message).
+
+    Source lifecycle (``status``) is independent of text extraction. A valid
+    image / needs_ocr-only source is ``ready`` with empty text. Broken sources
+    stay ``failed``.
     """
     if extraction_status in ("complete", "partial"):
         parts = [p.text for p in doc.pages if p.status == PAGE_EXTRACTED and p.text]
@@ -66,7 +86,10 @@ def _legacy_projection(
             text = text[:MAX_EXTRACT_CHARS]
         # complete/partial always carry usable text (see derive_lifecycle).
         return "ready", (text or None), None, None
-    # failed: no usable text — never claim ready, never fabricate text.
+    if valid_source_without_text(doc):
+        # Stored source is fine. No text extractor / OCR ran. Do not fabricate
+        # text and do not mark the file as a source failure.
+        return "ready", "", None, None
     return "failed", None, "extraction_failed", "No usable text extracted from document."
 
 
@@ -250,6 +273,7 @@ async def run_structured_extraction(
             "truncated": truncated,
             "final_extraction_status": extraction_status,
             "final_index_status": index_status,
+            "valid_source_without_text": valid_source_without_text(doc),
             "parse_ms": parse_ms, "chunk_ms": chunk_ms, "persist_ms": persist_ms,
             "total_ms": round((time.perf_counter() - t_start) * 1000.0, 1),
         })
@@ -281,7 +305,7 @@ def _safe(d: dict[str, Any]) -> dict[str, Any]:
         "file_id", "parser_id", "parser_version", "extraction_version", "chunking_version",
         "indexing_version", "source_page_count", "pages_extracted", "pages_empty",
         "pages_needs_ocr", "pages_failed", "pages_skipped", "chunk_count", "truncated",
-        "final_extraction_status", "final_index_status", "parse_ms", "chunk_ms",
-        "persist_ms", "total_ms", "error",
+        "final_extraction_status", "final_index_status", "valid_source_without_text",
+        "parse_ms", "chunk_ms", "persist_ms", "total_ms", "error",
     }
     return {k: v for k, v in d.items() if k in keep}
