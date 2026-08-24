@@ -105,7 +105,7 @@ def test_chat_invalid_provider_id_400(client):
 def test_chat_passes_provider_id_to_handler(client):
     captured: dict = {}
 
-    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, model_override=None, preferred_language=None):
+    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, model_override=None, preferred_language=None, **_k):
         captured["provider_id"] = provider_id
         return {"thread_id": str(uuid.uuid4()), "response": "ok", "model_used": "m", "cost_usd": 0.0}
 
@@ -118,7 +118,7 @@ def test_chat_passes_provider_id_to_handler(client):
 def test_chat_omitted_provider_id_defaults_none(client):
     captured: dict = {}
 
-    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, model_override=None, preferred_language=None):
+    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, model_override=None, preferred_language=None, **_k):
         captured["provider_id"] = provider_id
         return {"thread_id": str(uuid.uuid4()), "response": "ok", "model_used": "m", "cost_usd": 0.0}
 

@@ -108,6 +108,7 @@ def test_chat_api_returns_provider_fields(client):
         provider_id=None,
         model_override=None,
         preferred_language=None,
+        **_k,
     ):
         return {
             "thread_id": str(uuid.uuid4()),

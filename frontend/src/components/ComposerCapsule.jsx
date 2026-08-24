@@ -5,9 +5,11 @@ import { getSpeakingProviders } from '../providers/providerRegistry.js'
 import { isProviderGloballyActive } from '../lib/globalFeatureCatalog.js'
 import {
   formatPasteChipLabel,
+  formatFileRefChipLabel,
   insertLargePasteAtCursor,
   shouldCreateLargePaste,
   unwrapLargePaste,
+  removeComposerPart,
 } from '../lib/largePaste.js'
 import { EngineSettingsPanel } from './AdvancedEngineSettings.jsx'
 import './ComposerCapsule.css'
@@ -317,6 +319,22 @@ export function ComposerCapsule({
                       onClick={() => handleUnwrap(index)}
                     >
                       Show in text field
+                    </button>
+                  </div>
+                )
+              }
+              if (part.type === 'file_ref') {
+                return (
+                  <div key={part.file_id || `file-${index}`} className="composer-capsule__file">
+                    <span className="composer-capsule__file-meta">{formatFileRefChipLabel(part)}</span>
+                    <button
+                      type="button"
+                      className="composer-capsule__file-remove"
+                      disabled={disabled}
+                      aria-label={`Remove ${formatFileRefChipLabel(part)}`}
+                      onClick={() => onPartsChange(removeComposerPart(parts, index))}
+                    >
+                      Remove
                     </button>
                   </div>
                 )

@@ -3,6 +3,7 @@
  * Run: node frontend/scripts/test-ben-errors.mjs
  */
 import {
+  CAPABILITY_DENIED,
   CLERK_ORG_REQUIRED,
   COUNCIL_PERSISTENCE_FAILED,
   humanizeBenHttpError,
@@ -66,5 +67,16 @@ assert(
   parseBenErrorResponse(422, { detail: 'Invalid project_id' })?.message === 'Invalid project_id',
   'string 422 detail preserved'
 )
+
+const visionDenied = {
+  detail: {
+    code: CAPABILITY_DENIED,
+    message: 'The selected model does not support image analysis (vision.analyze). Choose a vision-capable model and try again.',
+  },
+}
+const visionParsed = parseBenErrorResponse(409, visionDenied)
+assert(visionParsed?.code === CAPABILITY_DENIED, 'capability_denied code')
+assert(humanizeBenHttpError(409, visionDenied).includes('vision.analyze'), 'vision deny message')
+assert(!humanizeBenHttpError(409, visionDenied).includes('{'), 'no raw JSON in vision deny')
 
 console.log('PASS benErrors humanization')

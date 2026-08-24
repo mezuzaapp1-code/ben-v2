@@ -115,6 +115,7 @@ def test_chat_passes_thread_id_to_handler():
         provider_id=None,
         model_override=None,
         preferred_language=None,
+        **_k,
     ):
         captured["thread_id"] = thread_id
         return {"thread_id": THREAD_A, "response": "ok", "model_used": "m", "cost_usd": 0.0}

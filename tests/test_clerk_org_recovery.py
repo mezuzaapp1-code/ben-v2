@@ -127,6 +127,7 @@ async def test_signed_with_org_chat_uses_jwt_org(monkeypatch):
         provider_id=None,
         model_override=None,
         preferred_language=None,
+        **_k,
     ):
         captured["tenant_id"] = tenant_id
         return {"thread_id": ORG_A, "response": "ok", "model_used": "m", "cost_usd": 0.0}

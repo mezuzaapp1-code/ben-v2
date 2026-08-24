@@ -15,6 +15,7 @@ from services.providers.base_provider import (
     ProviderStreamEnd,
     tenant_header,
 )
+from services.providers.vision_input import ProviderUserPart, openai_user_content
 
 # May 2026 frontier defaults (enforced when callers omit explicit model env overrides).
 OPENAI_CHAT_FAST_MODEL = "gpt-5.5-instant"
@@ -26,10 +27,19 @@ class OpenAIProvider(BaseProvider):
     def provider_name(self) -> str:
         return "openai"
 
-    def _messages(self, message: str, system: str | None) -> list[dict[str, str]]:
+    def _messages(
+        self,
+        message: str,
+        system: str | None,
+        *,
+        user_content: list[ProviderUserPart] | None = None,
+    ) -> list[dict]:
         sys_text = (system or GLOBAL_CHAT_SYSTEM).strip()
-        out: list[dict[str, str]] = [{"role": "system", "content": sys_text}]
-        out.append({"role": "user", "content": message})
+        out: list[dict] = [{"role": "system", "content": sys_text}]
+        if user_content:
+            out.append({"role": "user", "content": openai_user_content(user_content)})
+        else:
+            out.append({"role": "user", "content": message})
         return out
 
     async def send_message(
@@ -40,12 +50,13 @@ class OpenAIProvider(BaseProvider):
         message: str,
         tenant_id: str,
         system: str | None = None,
+        user_content: list[ProviderUserPart] | None = None,
     ) -> ProviderSendResult:
         api_key = os.getenv("OPENAI_API_KEY", "").strip()
         r = await cx.post(
             "https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", **tenant_header(tenant_id)},
-            json={"model": model, "messages": self._messages(message, system)},
+            json={"model": model, "messages": self._messages(message, system, user_content=user_content)},
         )
         r.raise_for_status()
         d = r.json()
@@ -70,6 +81,7 @@ class OpenAIProvider(BaseProvider):
         message: str,
         tenant_id: str,
         system: str | None = None,
+        user_content: list[ProviderUserPart] | None = None,
     ) -> AsyncIterator[str | ProviderStreamEnd]:
         api_key = os.getenv("OPENAI_API_KEY", "").strip()
         usage = usage_missing()
@@ -81,7 +93,7 @@ class OpenAIProvider(BaseProvider):
             headers={"Authorization": f"Bearer {api_key}", **tenant_header(tenant_id)},
             json={
                 "model": model,
-                "messages": self._messages(message, system),
+                "messages": self._messages(message, system, user_content=user_content),
                 "stream": True,
                 "stream_options": {"include_usage": True},
             },

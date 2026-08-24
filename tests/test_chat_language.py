@@ -177,6 +177,7 @@ def test_chat_passes_preferred_language_to_handler(client):
         provider_id=None,
         model_override=None,
         preferred_language=None,
+        **_k,
     ):
         captured["message"] = message
         captured["preferred_language"] = preferred_language

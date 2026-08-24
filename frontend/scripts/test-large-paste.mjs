@@ -11,6 +11,7 @@ import {
   LARGE_PASTE_PROVIDER_MAX_CHARS,
   LARGE_PASTE_THRESHOLD,
   LARGE_PASTE_UNWRAP_CEILING,
+  appendFileRefPart,
   canSendComposerParts,
   composerPartsFromMessage,
   decodeUserTurnContent,
@@ -20,7 +21,9 @@ import {
   focusSourceFromParts,
   formatLargePasteStub,
   formatPasteChipLabel,
+  hasFileRef,
   insertLargePasteAtCursor,
+  isVisionImageFile,
   providerExpansionError,
   shouldCreateLargePaste,
   unwrapLargePaste,
@@ -193,6 +196,32 @@ assert(LARGE_PASTE_PROVIDER_MAX_CHARS === 400000, 'provider refuse 400000')
   assert(!largePaste.includes('workspace'), 'large paste lib does not mention workspace')
   assert(!composer.includes('handleWorkspaceFileAttach'), 'paste path is not Attach File')
   assert(app.includes('handleWorkspaceFileAttach'), 'explicit upload path remains')
+  assert(app.includes('appendFileRefPart'), 'image upload adds current-turn file_ref')
+  assert(app.includes('hasStructuredUserTurn'), 'send keeps file_ref parts')
+  assert(composer.includes('file_ref'), 'composer renders image chip')
+}
+
+{
+  assert(isVisionImageFile({ type: 'image/png', name: 'a.png' }) === true, 'png is vision')
+  assert(isVisionImageFile({ type: 'text/plain', name: 'note.txt' }) === false, 'txt is not vision')
+  const parts = appendFileRefPart([{ type: 'text', text: 'מה הצבע?' }], {
+    file_id: '33333333-3333-4333-8333-333333333333',
+    name: 'square.png',
+  })
+  assert(canSendComposerParts(parts) === true, 'text+image can send')
+  assert(
+    canSendComposerParts(appendFileRefPart([{ type: 'text', text: '' }], {
+      file_id: '33333333-3333-4333-8333-333333333333',
+      name: 'square.png',
+    })) === true,
+    'image-only can send',
+  )
+  const encoded = encodeUserTurn(parts)
+  const payload = JSON.parse(encoded)
+  assert(payload.kind === 'user_turn', 'file_ref uses envelope')
+  assert(payload.parts.some((part) => part.type === 'file_ref'), 'envelope has file_ref')
+  assert(!JSON.stringify(payload).includes('storage_key'), 'no storage_key in envelope')
+  assert(hasFileRef(parts) === true, 'hasFileRef')
 }
 
 console.log('PASS large paste v1 composer + encode/decode + focus isolation')

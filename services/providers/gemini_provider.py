@@ -16,6 +16,7 @@ from services.providers.base_provider import (
     ProviderStreamEnd,
     tenant_header,
 )
+from services.providers.vision_input import ProviderUserPart, gemini_user_parts
 
 # May 2026 frontier default (enforced when callers omit explicit model env overrides).
 GEMINI_FAST_MODEL = "gemini-3.5-flash"
@@ -26,8 +27,15 @@ class GeminiProvider(BaseProvider):
     def provider_name(self) -> str:
         return "google"
 
-    def _payload(self, message: str, system: str | None) -> dict[str, Any]:
-        payload: dict[str, Any] = {"contents": [{"parts": [{"text": message}]}]}
+    def _payload(
+        self,
+        message: str,
+        system: str | None,
+        *,
+        user_content: list[ProviderUserPart] | None = None,
+    ) -> dict[str, Any]:
+        parts = gemini_user_parts(user_content) if user_content else [{"text": message}]
+        payload: dict[str, Any] = {"contents": [{"parts": parts}]}
         sys_text = (system or GLOBAL_CHAT_SYSTEM).strip()
         if sys_text:
             payload["systemInstruction"] = {"parts": [{"text": sys_text}]}
@@ -41,6 +49,7 @@ class GeminiProvider(BaseProvider):
         message: str,
         tenant_id: str,
         system: str | None = None,
+        user_content: list[ProviderUserPart] | None = None,
     ) -> ProviderSendResult:
         api_key = os.getenv("GOOGLE_API_KEY", "").strip()
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -48,7 +57,7 @@ class GeminiProvider(BaseProvider):
             url,
             params={"key": api_key},
             headers=tenant_header(tenant_id),
-            json=self._payload(message, system),
+            json=self._payload(message, system, user_content=user_content),
         )
         r.raise_for_status()
         d = r.json()
@@ -75,6 +84,7 @@ class GeminiProvider(BaseProvider):
         message: str,
         tenant_id: str,
         system: str | None = None,
+        user_content: list[ProviderUserPart] | None = None,
     ) -> AsyncIterator[str | ProviderStreamEnd]:
         api_key = os.getenv("GOOGLE_API_KEY", "").strip()
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent"
@@ -85,7 +95,7 @@ class GeminiProvider(BaseProvider):
             url,
             params={"key": api_key, "alt": "sse"},
             headers=tenant_header(tenant_id),
-            json=self._payload(message, system),
+            json=self._payload(message, system, user_content=user_content),
         ) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():

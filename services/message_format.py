@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any
 
 _BEN_PREFIX = '{"ben":'
@@ -25,6 +26,11 @@ def format_char_count(n: int) -> str:
 
 def format_large_paste_stub(char_count: int) -> str:
     return f"[Large paste · {format_char_count(char_count)} characters]"
+
+
+def format_file_ref_stub(name: str | None = None) -> str:
+    label = " ".join(str(name or "image").split()).replace('"', "'")[:256] or "image"
+    return f"[Attached image · {label}]"
 
 
 def _sanitize_user_turn_parts(raw: Any) -> list[dict[str, Any]] | None:
@@ -66,6 +72,15 @@ def _sanitize_user_turn_parts(raw: Any) -> list[dict[str, Any]] | None:
                 }
             )
             continue
+        if part_type == "file_ref":
+            raw_id = str(item.get("file_id") or "").strip()
+            try:
+                file_id = str(uuid.UUID(raw_id))
+            except (TypeError, ValueError):
+                continue
+            name = " ".join(str(item.get("name") or "image").split()).replace('"', "'")[:256] or "image"
+            out.append({"type": "file_ref", "file_id": file_id, "name": name})
+            continue
         return None
     return out
 
@@ -83,6 +98,13 @@ def parse_user_turn_parts(content: str) -> list[dict[str, Any]] | None:
     return _sanitize_user_turn_parts(data.get("parts"))
 
 
+def user_turn_has_file_refs(content: str) -> bool:
+    parts = parse_user_turn_parts(content)
+    if not parts:
+        return False
+    return any(part.get("type") == "file_ref" for part in parts)
+
+
 def display_text_from_parts(parts: list[dict[str, Any]]) -> str:
     chunks: list[str] = []
     for part in parts:
@@ -93,11 +115,18 @@ def display_text_from_parts(parts: list[dict[str, Any]]) -> str:
             if count is None:
                 count = code_point_count(str(part.get("text") or ""))
             chunks.append(format_large_paste_stub(int(count)))
+        elif part.get("type") == "file_ref":
+            chunks.append(format_file_ref_stub(str(part.get("name") or "image")))
     return "".join(chunks)
 
 
 def expand_parts_for_provider(parts: list[dict[str, Any]]) -> str:
-    return "".join(str(part.get("text") or "") for part in parts)
+    """Text/large_paste bodies only. Image bytes are never inlined as text."""
+    return "".join(
+        str(part.get("text") or "")
+        for part in parts
+        if part.get("type") in {"text", "large_paste"}
+    )
 
 
 def encode_user_turn(parts: list[dict[str, Any]]) -> str:
@@ -108,11 +137,12 @@ def encode_user_turn(parts: list[dict[str, Any]]) -> str:
     compact = [
         part
         for part in sanitized
-        if part.get("type") == "large_paste" or (part.get("type") == "text" and part.get("text") != "")
+        if part.get("type") in {"large_paste", "file_ref"}
+        or (part.get("type") == "text" and part.get("text") != "")
     ]
     if not compact:
         return ""
-    if not any(part.get("type") == "large_paste" for part in compact):
+    if not any(part.get("type") in {"large_paste", "file_ref"} for part in compact):
         return "".join(str(part.get("text") or "") for part in compact if part.get("type") == "text")
     return json.dumps({"ben": 1, "kind": USER_TURN_KIND, "parts": compact}, ensure_ascii=False)
 

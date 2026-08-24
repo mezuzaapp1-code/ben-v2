@@ -119,6 +119,7 @@ import {
   rollbackOwnedSend,
 } from './lib/chatStreamOwnership.js'
 import {
+  appendFileRefPart,
   canSendComposerParts,
   cloneParts,
   composerPartsFromMessage,
@@ -128,8 +129,9 @@ import {
   expandPartsForProvider,
   focusSourceFromParts,
   formatPasteChipLabel,
-  hasLargePaste,
+  hasStructuredUserTurn,
   instructionTextFromParts,
+  isVisionImageFile,
   providerExpansionError,
   USER_TURN_KIND,
 } from './lib/largePaste.js'
@@ -1211,8 +1213,8 @@ function App() {
       const userMsg = {
         role: 'user',
         content: display,
-        kind: hasLargePaste(snapshot) ? USER_TURN_KIND : undefined,
-        parts: hasLargePaste(snapshot) ? snapshot : undefined,
+        kind: hasStructuredUserTurn(snapshot) ? USER_TURN_KIND : undefined,
+        parts: hasStructuredUserTurn(snapshot) ? snapshot : undefined,
         _sendNonce: sendNonce,
         client_request_id: clientRequestId,
       }
@@ -1871,6 +1873,14 @@ function App() {
             cost_usd: 0,
           },
         ])
+        if (!failed && result?.id && isVisionImageFile({ type: result?.media_type || file.type, name: result?.display_name || file.name })) {
+          setComposerParts((prev) =>
+            appendFileRefPart(prev, {
+              file_id: result.id,
+              name: result?.display_name || file.name,
+            })
+          )
+        }
       } catch (e) {
         const parsed = parseBenErrorResponse(e.status, e.data)
         appendThreadMessages(tid, [

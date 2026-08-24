@@ -26,7 +26,24 @@ from services.message_format import (
 )
 from services.copilot_orchestrator import run_copilot_preamble
 from services.inference.gateway_meter import get_last_accounted_call
-from services.model_gateway import route_request, route_request_stream, validate_chat_model_override
+from services.model_gateway import (
+    route_request,
+    route_request_stream,
+    selected_chat_attempt,
+    validate_chat_model_override,
+)
+from services.execution_plan import (
+    VISION_CAPABILITY_DENIED_MESSAGE,
+    log_execution_plan_resolved,
+    resolve_execution_plan,
+)
+from services.providers.vision_input import VISION_ANALYZE, UserTextPart
+from services.vision.current_turn import (
+    VisionTurnError,
+    build_provider_user_content,
+    load_current_turn_vision_images,
+    user_turn_file_ref_ids,
+)
 from services.ops.failure_classification import classify_failure
 from services.ops.runtime_diagnostics import attach_workspace_to_request_diagnostics
 from services.ops.structured_log import log_info, log_warning
@@ -58,6 +75,55 @@ WORKSPACE_FILES_CONTEXT_MAX_CHARS = int(
 
 def _stream_ndjson(payload: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False) + "\n"
+
+
+async def _current_turn_vision_user_content(
+    message: str,
+    *,
+    org: uuid.UUID,
+    project_id: uuid.UUID | None,
+    tenant_id: str,
+    tier: str,
+    provider_id: str | None,
+    model_override: str | None,
+    expert_opinion: bool,
+):
+    file_ids = user_turn_file_ref_ids(message)
+    if not file_ids:
+        return None
+    if expert_opinion:
+        raise VisionTurnError("Vision is not available in Add Opinion mode.")
+    gateway, model = selected_chat_attempt(
+        tier, provider_id=provider_id, model_override=model_override
+    )
+    workspace_ctx = resolve_workspace_context_for_org(
+        tenant_id,
+        project_id=str(project_id) if project_id else None,
+    )
+    plan = resolve_execution_plan(
+        workspace_ctx,
+        VISION_ANALYZE,
+        requested_resource=model,
+        selected_model=model,
+        gateway_provider=gateway,
+    )
+    log_execution_plan_resolved(plan)
+    if plan.enforced and not plan.allowed:
+        raise VisionTurnError(plan.deny_reason or VISION_CAPABILITY_DENIED_MESSAGE)
+    images = await load_current_turn_vision_images(
+        org_id=org,
+        workspace_id=project_id,
+        file_ids=file_ids,
+    )
+    log_info(
+        "current-turn vision images loaded",
+        subsystem="chat",
+        operation="vision_analyze",
+        outcome="ok",
+        vision_image_count=len(images),
+        vision_media_types=[image.media_type for image in images],
+    )
+    return build_provider_user_content(message, images)
 
 
 def _estimate_output_tokens(text: str) -> int:
@@ -241,6 +307,22 @@ async def stream_chat_response(
     # (Add Opinion / Compare / Winning Answer), not natural-language routing.
     resolved_provider_id = (provider_id or "").strip().lower() or None
 
+    vision_user_content = None
+    try:
+        vision_user_content = await _current_turn_vision_user_content(
+            message,
+            org=org,
+            project_id=project_id,
+            tenant_id=tenant_id,
+            tier=tier,
+            provider_id=provider_id,
+            model_override=model_override,
+            expert_opinion=expert_opinion,
+        )
+    except VisionTurnError as e:
+        yield _stream_ndjson({"type": "error", "message": e.message})
+        return
+
     # Workspace Files -> Chat Context diagnostics (see standard-chat branch).
     workspace_files_injected = False
     workspace_files_count = 0
@@ -279,13 +361,24 @@ async def stream_chat_response(
         effective_message = await inject_knowledge_few_shot(live_user_text, contextual_message)
         stream_system = assemble_chat_system(message, preferred_language)
         persist_user_text = message
-        # Workspace Files -> Chat Context bridge (standard chat only). Ready files
-        # in the active workspace are made available to the selected primary engine
-        # identically, regardless of which provider is selected. A retrieval failure
-        # must never break the chat and must not imply the file was available.
+        if vision_user_content:
+            # Keep sanitized thread history on the vision user turn. Adapters
+            # send user_content instead of effective_message, so history would
+            # otherwise disappear. decode_message already stubbed file_refs.
+            history_prefix = ""
+            if live_user_text and contextual_message.endswith(live_user_text):
+                history_prefix = contextual_message[: -len(live_user_text)].strip()
+            elif not live_user_text:
+                history_prefix = (contextual_message or "").strip()
+            if history_prefix:
+                vision_user_content = [UserTextPart(history_prefix), *list(vision_user_content)]
+        # Workspace Files -> Chat Context bridge (standard chat only). Current-turn
+        # Vision must not wait for or inject Gate 3D / 4A retrieval; the attached
+        # image is already authorized on this turn. Ready-file injection stays on
+        # the text path. A retrieval failure must never break chat.
         # Large Paste is chat content — never a retrieval query. Use instruction
         # text or the bounded paste stub, never the envelope or full paste body.
-        if project_id is not None:
+        if project_id is not None and vision_user_content is None:
             try:
                 wsf = await load_ready_files_context(
                     org,
@@ -380,6 +473,7 @@ async def stream_chat_response(
             provider_id=provider_id,
             model_override=model_override,
             system=stream_system,
+            **({"user_content": vision_user_content} if vision_user_content else {}),
         ):
             if model:
                 model_u = model
@@ -504,6 +598,7 @@ async def handle_chat(
     provider_id: str | None = None,
     model_override: str | None = None,
     preferred_language: str | None = None,
+    project_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     _ = user_id
     org = uuid.UUID(tenant_id)
@@ -514,6 +609,19 @@ async def handle_chat(
     oversize = provider_expansion_too_large(live_user_text)
     if oversize:
         raise ValueError(oversize)
+    try:
+        vision_user_content = await _current_turn_vision_user_content(
+            message,
+            org=org,
+            project_id=project_id,
+            tenant_id=tenant_id,
+            tier=tier,
+            provider_id=provider_id,
+            model_override=model_override,
+            expert_opinion=False,
+        )
+    except VisionTurnError as e:
+        raise ValueError(e.message) from e
     contextual_message = await build_chat_message_with_thread_context(org, tid, live_user_text)
     raw = await route_request(
         contextual_message,
@@ -522,6 +630,7 @@ async def handle_chat(
         provider_id=provider_id,
         model_override=model_override,
         system=assemble_chat_system(message, preferred_language),
+        **({"user_content": vision_user_content} if vision_user_content else {}),
     )
     resp = raw.get("content", "")
     model_u = raw.get("model_used", "")

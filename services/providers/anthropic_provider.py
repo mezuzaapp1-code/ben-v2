@@ -21,6 +21,7 @@ from services.providers.base_provider import (
     ProviderStreamEnd,
     tenant_header,
 )
+from services.providers.vision_input import ProviderUserPart, anthropic_user_content
 from services.providers.call_diagnostics import estimate_request_tokens, log_chat_provider_call
 
 # May 2026 frontier defaults (enforced when callers omit explicit model env overrides).
@@ -53,11 +54,22 @@ class AnthropicProvider(BaseProvider):
     def provider_name(self) -> str:
         return "anthropic"
 
-    def _body(self, model: str, message: str, system: str | None, *, stream: bool) -> dict[str, Any]:
+    def _body(
+        self,
+        model: str,
+        message: str,
+        system: str | None,
+        *,
+        stream: bool,
+        user_content: list[ProviderUserPart] | None = None,
+    ) -> dict[str, Any]:
+        content: str | list[dict[str, Any]] = (
+            anthropic_user_content(user_content) if user_content else message
+        )
         body: dict[str, Any] = {
             "model": model,
             "max_tokens": _chat_max_tokens(),
-            "messages": [{"role": "user", "content": message}],
+            "messages": [{"role": "user", "content": content}],
         }
         sys_text = (system or GLOBAL_CHAT_SYSTEM).strip()
         if sys_text:
@@ -74,6 +86,7 @@ class AnthropicProvider(BaseProvider):
         message: str,
         tenant_id: str,
         system: str | None = None,
+        user_content: list[ProviderUserPart] | None = None,
     ) -> ProviderSendResult:
         api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
         max_tokens = _chat_max_tokens()
@@ -90,7 +103,7 @@ class AnthropicProvider(BaseProvider):
                     "content-type": "application/json",
                     **tenant_header(tenant_id),
                 },
-                json=self._body(model, message, system, stream=False),
+                json=self._body(model, message, system, stream=False, user_content=user_content),
             ) as response:
                 ttfb_ms = int((time.perf_counter() - t0) * 1000.0)
                 response.raise_for_status()
@@ -152,6 +165,7 @@ class AnthropicProvider(BaseProvider):
         message: str,
         tenant_id: str,
         system: str | None = None,
+        user_content: list[ProviderUserPart] | None = None,
     ) -> AsyncIterator[str | ProviderStreamEnd]:
         api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
         usage = usage_missing()
@@ -166,7 +180,7 @@ class AnthropicProvider(BaseProvider):
                 "content-type": "application/json",
                 **tenant_header(tenant_id),
             },
-            json=self._body(model, message, system, stream=True),
+            json=self._body(model, message, system, stream=True, user_content=user_content),
         ) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():

@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from services.ops.structured_log import log_info
+from services.providers.model_registry import model_has_capability
+from services.providers.vision_input import VISION_ANALYZE
 from services.workspace_resolver import WorkspaceContext
 
 # Chat path must not import Switchboard capability gates or activation stores.
@@ -13,6 +15,12 @@ from services.workspace_resolver import WorkspaceContext
 ActivationSource = str
 
 _CHAT_CAPABILITY_KEYS = frozenset({"standard_chat", "standard-chat"})
+_VISION_CAPABILITY_KEYS = frozenset({VISION_ANALYZE, "vision_analyze", "vision-analyze"})
+
+VISION_CAPABILITY_DENIED_MESSAGE = (
+    "The selected model does not support image analysis (vision.analyze). "
+    "Choose a vision-capable model and try again."
+)
 
 
 def _normalize_capability_key(raw: str) -> str:
@@ -22,6 +30,11 @@ def _normalize_capability_key(raw: str) -> str:
 def _is_chat_capability(capability_key: str) -> bool:
     token = str(capability_key or "").strip().lower()
     return token in _CHAT_CAPABILITY_KEYS or _normalize_capability_key(token) == "standard_chat"
+
+
+def _is_vision_capability(capability_key: str) -> bool:
+    token = str(capability_key or "").strip().lower()
+    return token in _VISION_CAPABILITY_KEYS or token.replace("-", "_") == "vision_analyze"
 
 
 def _normalize_resource_token(raw: str | None) -> str | None:
@@ -40,6 +53,8 @@ def _provider_id_from_resource(resource: str | None) -> str | None:
         return "gemini"
     if lower.startswith("gpt"):
         return "gpt"
+    if lower.startswith("grok"):
+        return "grok"
     return None
 
 
@@ -52,6 +67,8 @@ def _resolve_connector_id(resource: str | None) -> str | None:
         return "google_adapter"
     if provider_id == "gpt":
         return "openai_adapter"
+    if provider_id == "grok":
+        return "xai_adapter"
     return None
 
 
@@ -74,6 +91,9 @@ class ExecutionPlan:
     org_policy_allowed: bool | None = None
     workspace_intent_enabled: bool | None = None
     enforcement_owner: str = "execution_plan"
+    selected_model: str | None = None
+    gateway_provider: str | None = None
+    deny_reason: str | None = None
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
@@ -144,6 +164,8 @@ class ExecutionPlanResolver:
         capability_key: str,
         *,
         requested_resource: str | None = None,
+        selected_model: str | None = None,
+        gateway_provider: str | None = None,
     ) -> ExecutionPlan:
         cap = str(capability_key or "").strip()
         if not cap:
@@ -152,6 +174,43 @@ class ExecutionPlanResolver:
         requested = _normalize_resource_token(requested_resource)
         resolved = requested
         connector = _resolve_connector_id(requested)
+        model = _normalize_resource_token(selected_model) or requested
+        gateway = (gateway_provider or "").strip().lower() or None
+
+        if _is_vision_capability(cap):
+            allowed = bool(
+                gateway
+                and model
+                and model_has_capability(gateway, model, VISION_ANALYZE)
+            )
+            deny_reason = None if allowed else VISION_CAPABILITY_DENIED_MESSAGE
+            return ExecutionPlan(
+                org_id=workspace_context.org_id,
+                workspace_id=workspace_context.workspace_id,
+                workspace_type=workspace_context.workspace_type,
+                capability_key=VISION_ANALYZE,
+                requested_resource=requested,
+                resolved_resource=resolved,
+                connector_id=connector,
+                activation_source="capability_registry",
+                enforced=True,
+                allowed=allowed,
+                selected_model=model,
+                gateway_provider=gateway,
+                deny_reason=deny_reason,
+                diagnostics={
+                    "phase": "vision_analyze",
+                    "provider_id": _provider_id_from_resource(requested or model),
+                    "capability_present": allowed,
+                    "switchboard_enforced": False,
+                },
+                **_ownership_contract_kwargs(
+                    workspace_context,
+                    capability_key=VISION_ANALYZE,
+                    requested_resource=requested,
+                    org_policy_allowed=allowed,
+                ),
+            )
 
         if not _is_chat_capability(cap):
             return ExecutionPlan(
@@ -211,12 +270,16 @@ def resolve_execution_plan(
     capability_key: str,
     *,
     requested_resource: str | None = None,
+    selected_model: str | None = None,
+    gateway_provider: str | None = None,
 ) -> ExecutionPlan:
     """Resolve an execution plan for the given workspace and capability."""
     return _default_resolver.resolve_plan(
         workspace_context,
         capability_key,
         requested_resource=requested_resource,
+        selected_model=selected_model,
+        gateway_provider=gateway_provider,
     )
 
 
@@ -237,6 +300,9 @@ def execution_plan_to_log_payload(plan: ExecutionPlan) -> dict[str, Any]:
         "org_policy_allowed": plan.org_policy_allowed,
         "workspace_intent_enabled": plan.workspace_intent_enabled,
         "enforcement_owner": plan.enforcement_owner,
+        "selected_model": plan.selected_model,
+        "gateway_provider": plan.gateway_provider,
+        "deny_reason": plan.deny_reason,
     }
 
 

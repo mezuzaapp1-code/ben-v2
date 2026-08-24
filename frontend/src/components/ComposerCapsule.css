@@ -118,6 +118,47 @@
   color: var(--ben-text-muted);
 }
 
+.composer-capsule__file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.55rem;
+  max-width: 100%;
+  padding: 0.28rem 0.55rem;
+  border-radius: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--ben-accent-blue) 28%, var(--ben-border-strong));
+  background: color-mix(in srgb, var(--ben-accent-blue) 8%, var(--ben-bg-chip));
+  color: var(--ben-text-bright);
+}
+
+.composer-capsule__file-meta {
+  min-width: 0;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-capsule__file-remove {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ben-accent-blue);
+  font-size: 0.72rem;
+  font-weight: 650;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+
+.composer-capsule__file-remove:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .composer-capsule__shell {
   display: flex;
   align-items: flex-end;
