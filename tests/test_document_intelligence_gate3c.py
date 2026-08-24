@@ -93,6 +93,7 @@ async def fresh_engine():
 @pytest.fixture(autouse=True)
 def _enable_async(monkeypatch):
     monkeypatch.setenv("BEN_DOC_PROCESSING_ENABLED", "on")  # exercise the async path
+    monkeypatch.delenv("BEN_DOC_UPLOAD_WAKE_ENABLED", raising=False)
 
 
 _TEXT_PDF = ["Structured alpha page one long text " * 20, "Structured beta page two text " * 20]

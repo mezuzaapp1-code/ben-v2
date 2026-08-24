@@ -165,6 +165,7 @@ async def fresh_engine():
 @pytest.fixture(autouse=True)
 def _enable_async(monkeypatch):
     monkeypatch.setenv("BEN_DOC_PROCESSING_ENABLED", "on")
+    monkeypatch.delenv("BEN_DOC_UPLOAD_WAKE_ENABLED", raising=False)
     monkeypatch.delenv("BEN_DOC_RUNNER_ENABLED", raising=False)
     monkeypatch.delenv("BEN_DOC_RUNNER_FILE_IDS", raising=False)
     monkeypatch.delenv("BEN_DOC_RUNNER_WORKSPACE_IDS", raising=False)
@@ -212,6 +213,7 @@ def test_gate4a_production_flags_not_enabled_in_this_change():
     env = pathlib.Path(".env.example").read_text()
     assert "BEN_WORKSPACE_CHUNK_RETRIEVAL=off" in env
     assert "BEN_DOC_RUNNER_ENABLED=off" in env
+    assert "BEN_DOC_UPLOAD_WAKE_ENABLED=off" in env
     mig = pathlib.Path("database/migrations/versions/027_runner_eligible_jobs.py").read_text()
     assert "BEN_WORKSPACE_CHUNK_RETRIEVAL" not in mig
 

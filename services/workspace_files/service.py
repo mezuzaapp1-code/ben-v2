@@ -14,6 +14,7 @@ from sqlalchemy import desc, or_, select, text
 from database.connection import get_db_session
 from database.models import DocumentProcessingJob, Project, WorkspaceFile
 from services.ops.request_context import attach_request_id
+from services.ops.structured_log import log_warning
 from services.workspace_files import storage
 from services.workspace_files.lifecycle import derive_processing_stage, job_status_by_file_id
 from services.workspace_files.chunk_retriever import (
@@ -50,6 +51,7 @@ from services.workspace_files.job_queue import (
     JOB_TYPE_FILE_EXTRACTION,
     enqueue_document_processing_job,
 )
+from services.workspace_files.upload_wake import schedule_upload_wake
 from services.workspace_files.types import (
     MAX_UPLOAD_BYTES,
     REJECTED_EXTENSIONS,
@@ -250,7 +252,20 @@ async def upload_file(
         payload = _payload(row, job_status="queued" if async_enabled else None)
 
     if async_enabled:
-        # Durable async path: return 'queued'; a drain will process it to READY.
+        # Durable async path: return 'queued' without waiting for extraction.
+        # Best-effort scoped wake (fail-closed OFF) may claim THIS file after commit.
+        # Cron remains the recovery path. Never await drain here.
+        try:
+            schedule_upload_wake(file_uuid)
+        except Exception as exc:  # noqa: BLE001 — wake must never fail upload
+            log_warning(
+                "upload wake schedule leaked",
+                subsystem="doc_processing",
+                operation="upload_wake",
+                outcome="error",
+                file_id=str(file_uuid),
+                error_class=type(exc).__name__,
+            )
         return attach_request_id(payload)
 
     # OFF (default): preserve the existing synchronous processing path.
