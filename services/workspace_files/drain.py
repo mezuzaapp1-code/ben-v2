@@ -21,6 +21,11 @@ from services.ops.failure_classification import classify_failure
 from services.ops.structured_log import log_info, log_warning
 from services.workspace_files.ingest_eligibility import file_is_ingest_protected
 from services.workspace_files.extraction_pipeline import run_structured_extraction
+from services.workspace_files.processing_timing import (
+    emit_terminal_timing,
+    stamp_claimed_jobs,
+    utcnow,
+)
 from services.workspace_files.job_queue import (
     DEFAULT_LEASE_SECONDS,
     DEFAULT_MAX_ATTEMPTS,
@@ -87,6 +92,22 @@ def default_worker_id() -> str:
     return os.getenv("BEN_WORKER_ID") or f"web-{uuid.uuid4().hex[:8]}"
 
 
+async def _emit_terminal_timing_safe(**kwargs: Any) -> None:
+    """Observability must never fail a processing drain."""
+    try:
+        await emit_terminal_timing(**kwargs)
+    except Exception as exc:  # noqa: BLE001
+        log_warning(
+            "document processing timing emit failed",
+            subsystem=_SUBSYSTEM,
+            operation="document_processing_timing",
+            outcome="error",
+            job_id=str(kwargs.get("job_id") or ""),
+            file_id=str(kwargs.get("file_id") or ""),
+            error_class=type(exc).__name__,
+        )
+
+
 async def _retry_or_fail(
     job_id: uuid.UUID, attempts: int, code: str, detail: str, *, max_attempts: int
 ) -> str:
@@ -107,6 +128,7 @@ async def _run_claimed_jobs(
     max_attempts: int,
 ) -> None:
     """Execute already-claimed jobs. Does not claim or reap."""
+    stamp_claimed_jobs(claimed)
     for job in claimed:
         jid = uuid.UUID(job["job_id"])
         org = uuid.UUID(job["org_id"])
@@ -121,25 +143,46 @@ async def _run_claimed_jobs(
         if executor is None:
             await complete_job(jid, "failed", error_code="unknown_job_type", error_detail=jtype)
             summary["failed"] += 1
+            now = utcnow()
+            await _emit_terminal_timing_safe(
+                org_id=org,
+                workspace_id=ws,
+                file_id=fid,
+                job_id=jid,
+                job_status="failed",
+                attempts=attempts,
+                claimed_at=job.get("_timing_claimed_at"),
+                processing_started_at=now,
+                processing_finished_at=now,
+                job_completed_at=now,
+            )
             log_warning("drain unknown job_type", subsystem=_SUBSYSTEM, operation="drain_job",
                         outcome="error", job_id=str(jid), job_type=jtype, worker_id=worker_id)
             continue
 
         diag: dict[str, Any] | None = None
         error_code: str | None = None
+        processing_started_at = utcnow()
+        processing_finished_at = None
+        job_completed_at = None
         try:
             diag = await asyncio.wait_for(executor(org, ws, fid), timeout=per_job_timeout_s)
         except asyncio.TimeoutError:
+            processing_finished_at = utcnow()
             error_code = "timeout"
             outcome = await _retry_or_fail(jid, attempts, error_code,
                                            f"per-job timeout {per_job_timeout_s}s", max_attempts=max_attempts)
+            job_completed_at = utcnow()
             summary["requeued" if outcome == "requeued" else "failed"] += 1
         except Exception as e:  # noqa: BLE001  (transient infra around the pipeline)
+            processing_finished_at = utcnow()
             error_code = classify_failure(e)
             outcome = await _retry_or_fail(jid, attempts, error_code,
                                            type(e).__name__, max_attempts=max_attempts)
+            job_completed_at = utcnow()
             summary["requeued" if outcome == "requeued" else "failed"] += 1
         else:
+            processing_finished_at = utcnow()
             err = diag.get("error")
             status = diag.get("final_extraction_status")
             if err is None and status in ("complete", "partial"):
@@ -171,6 +214,27 @@ async def _run_claimed_jobs(
                 outcome = await _retry_or_fail(jid, attempts, error_code,
                                                "pipeline error", max_attempts=max_attempts)
                 summary["requeued" if outcome == "requeued" else "failed"] += 1
+            job_completed_at = utcnow()
+
+        terminal_status = {
+            "succeeded": "succeeded",
+            "succeeded_no_text": "succeeded",
+            "failed": "failed",
+            "failed_determinate": "failed",
+        }.get(str(outcome))
+        if terminal_status:
+            await _emit_terminal_timing_safe(
+                org_id=org,
+                workspace_id=ws,
+                file_id=fid,
+                job_id=jid,
+                job_status=terminal_status,
+                attempts=attempts,
+                claimed_at=job.get("_timing_claimed_at"),
+                processing_started_at=processing_started_at,
+                processing_finished_at=processing_finished_at,
+                job_completed_at=job_completed_at,
+            )
 
         fields = {k: diag.get(k) for k in _DIAG_KEYS} if diag else {}
         log_info(
