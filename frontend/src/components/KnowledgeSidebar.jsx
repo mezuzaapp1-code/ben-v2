@@ -4,7 +4,7 @@ import { fetchActiveAttention, fetchProjectKnowledgeFiles } from '../api/knowled
 import { FileLifecycleStatus } from './FileLifecycleStatus.jsx'
 import { useWorkspaceFileInventory, workspaceFileInventory } from '../hooks/useWorkspaceFileInventory.jsx'
 import { createActiveFocusController } from '../lib/activeFocusSession.js'
-import { deriveFileStage, formatByteSize, processingPercent } from '../lib/fileStatus.js'
+import { deriveFileStage, formatByteSize, processingPercent, visualFileStage } from '../lib/fileStatus.js'
 import './KnowledgeSidebar.css'
 
 const HEAD_SECTIONS = [
@@ -289,7 +289,7 @@ export function KnowledgeSidebar({
                     {file.display_name || file.original_filename || file.name}
                   </span>
                   <FileLifecycleStatus
-                    className={`knowledge-sidebar__file-status knowledge-sidebar__file-status--${deriveFileStage(file, { upload: file.upload })}`}
+                    className={`knowledge-sidebar__file-status knowledge-sidebar__file-status--${visualFileStage(deriveFileStage(file, { upload: file.upload }))}`}
                     file={file}
                     upload={file.upload}
                   />

@@ -11,11 +11,16 @@ export const FILE_STAGES = {
   failed: 'failed',
 }
 
+export const PROCESSING_LABEL = 'Processing…'
+export const STILL_PROCESSING_LABEL = 'Still processing…'
+/** Neutral copy after this elapsed time. Does not change backend stages. */
+export const STILL_PROCESSING_AFTER_MS = 30_000
+
 export const FILE_STAGE_LABELS = {
   uploading: 'Uploading',
-  queued: 'Queued',
-  extracting: 'Extracting',
-  indexing: 'Indexing',
+  queued: PROCESSING_LABEL,
+  extracting: PROCESSING_LABEL,
+  indexing: PROCESSING_LABEL,
   ready: 'Ready',
   failed: 'Failed',
 }
@@ -87,15 +92,57 @@ export function deriveFileStage(file, { upload } = {}) {
   return FILE_STAGES.queued
 }
 
-export function fileStageLabel(stage, file, upload) {
+export function isTransientProcessingStage(stage) {
+  const s = normalizeFileStatus(stage)
+  return s === FILE_STAGES.queued || s === FILE_STAGES.extracting || s === FILE_STAGES.indexing
+}
+
+/** CSS/display bucket. Never expose queued/extracting/indexing as user-facing names. */
+export function visualFileStage(stage) {
+  const s = normalizeFileStatus(stage)
+  if (isTransientProcessingStage(s)) return 'processing'
+  return s || 'processing'
+}
+
+function parseClockMs(value) {
+  if (value == null || value === '') return null
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value < 1e11) return null
+    return value
+  }
+  const parsed = Date.parse(String(value))
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+export function processingStartedMs(file, upload) {
+  return (
+    parseClockMs(upload?.startedAt) ??
+    parseClockMs(file?.updated_at) ??
+    parseClockMs(file?.created_at)
+  )
+}
+
+export function isStillProcessing(file, upload, now = Date.now()) {
+  const started = processingStartedMs(file, upload)
+  if (started == null) return false
+  return now - started >= STILL_PROCESSING_AFTER_MS
+}
+
+export function fileStageLabel(stage, file, upload, now = Date.now()) {
   const s = normalizeFileStatus(stage)
   if (s === FILE_STAGES.uploading) {
     return formatUploadProgressLabel(upload) || FILE_STAGE_LABELS.uploading
   }
-  if (s === FILE_STAGES.extracting) {
-    const pages = pageProgress(file)
-    if (pages) return `Processing page ${pages.x} of ${pages.y}`
-    return FILE_STAGE_LABELS.extracting
+  if (s === FILE_STAGES.ready || s === FILE_STAGES.failed) {
+    return FILE_STAGE_LABELS[s]
+  }
+  if (isTransientProcessingStage(s)) {
+    if (isStillProcessing(file, upload, now)) return STILL_PROCESSING_LABEL
+    if (s === FILE_STAGES.extracting) {
+      const pages = pageProgress(file)
+      if (pages) return `Processing page ${pages.x} of ${pages.y}`
+    }
+    return PROCESSING_LABEL
   }
   if (FILE_STAGE_LABELS[s]) return FILE_STAGE_LABELS[s]
   return stage || '—'
@@ -257,9 +304,9 @@ export function unavailableChatNote(count) {
   const n = Number(count)
   if (!Number.isFinite(n) || n <= 0) return ''
   if (n === 1) {
-    return '1 file in this workspace was not available to this answer (queued or still processing).'
+    return '1 file in this workspace was not available to this answer (still processing).'
   }
-  return `${n} files in this workspace were not available to this answer (queued or still processing).`
+  return `${n} files in this workspace were not available to this answer (still processing).`
 }
 
 /**

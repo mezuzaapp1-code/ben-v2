@@ -3,19 +3,26 @@ import {
   deriveFileStage,
   fileStageLabel,
   formatUploadBytes,
+  isTransientProcessingStage,
   processingPercent,
+  visualFileStage,
 } from '../lib/fileStatus.js'
 import { useWorkspaceFileInventory } from '../hooks/useWorkspaceFileInventory.jsx'
 import './FileLifecycleStatus.css'
 
 export function FileLifecycleStatus({ file = null, upload = null, className = '' }) {
   const stage = deriveFileStage(file, { upload })
+  const visual = visualFileStage(stage)
   const label = fileStageLabel(stage, file, upload)
   const bytes = stage === 'uploading' ? formatUploadBytes(upload) : ''
   const percent = processingPercent(file, upload)
+  const showSpinner = (isTransientProcessingStage(stage) || stage === 'uploading') && percent == null
   return (
-    <span className={`file-lifecycle file-lifecycle--${stage} ${className}`.trim()}>
-      <span className="file-lifecycle__label">{label}</span>
+    <span className={`file-lifecycle file-lifecycle--${visual} ${className}`.trim()}>
+      <span className="file-lifecycle__row">
+        {showSpinner ? <span className="file-lifecycle__spinner" aria-hidden="true" /> : null}
+        <span className="file-lifecycle__label">{label}</span>
+      </span>
       {bytes ? <span className="file-lifecycle__bytes">{bytes}</span> : null}
       {percent != null ? (
         <span className="file-lifecycle__track" aria-hidden="true">

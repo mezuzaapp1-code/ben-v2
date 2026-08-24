@@ -44,7 +44,9 @@ assert(overlay.includes('visibleItems.map') || overlay.includes('items.map'), 'r
 
 // 5. Processing and failed states render
 assert(overlay.includes("['processing', 'Processing']") || overlay.includes('processing'), 'processing view')
+assert(!overlay.includes('Queued'), 'library does not expose Queued')
 assert(overlay.includes("['failed', 'Failed']") || overlay.includes('failed'), 'failed view')
+assert(overlay.includes("stage === 'failed'") && overlay.includes('Retry'), 'Retry only on Failed')
 assert(overlay.includes('filterLibraryItems'), 'library uses shared presentation filter')
 assert(overlay.includes('fileLibraryEmptyMessage'), 'library uses truthful empty copy')
 assert(overlay.includes('files-status--failed') || overlay.includes("files-status--${"), 'status classes')

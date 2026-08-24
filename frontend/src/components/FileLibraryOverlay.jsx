@@ -12,6 +12,7 @@ import {
   deriveFileStage,
   formatByteSize,
   processingPercent,
+  visualFileStage,
 } from '../lib/fileStatus.js'
 import {
   FILE_LIBRARY_REOPEN_RESETS_TO_ALL,
@@ -371,6 +372,7 @@ export function FileLibraryOverlay({
                 {!loading && emptyCopy ? <div className="files-empty">{emptyCopy}</div> : null}
                 {visibleItems.map((item) => {
                   const stage = deriveFileStage(item, { upload: item.upload })
+                  const visual = visualFileStage(stage)
                   const localOnly = Boolean(item.upload?.localId && !item.upload?.fileId && String(item.id || '').startsWith('upload-'))
                   return (
                   <article key={item.id} className="files-row">
@@ -392,7 +394,7 @@ export function FileLibraryOverlay({
                       ) : null}
                     </div>
                     <div className="files-row__side">
-                      <span className={`files-status files-status--${stage}`}>
+                      <span className={`files-status files-status--${visual}`}>
                         <FileLifecycleStatus file={item} upload={item.upload} />
                       </span>
                       <div className="files-row__actions">

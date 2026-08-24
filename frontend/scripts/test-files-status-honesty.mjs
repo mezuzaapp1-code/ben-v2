@@ -8,13 +8,18 @@ import { fileURLToPath } from 'node:url'
 
 import {
   FILE_STATUS_LABELS,
+  PROCESSING_LABEL,
+  STILL_PROCESSING_AFTER_MS,
+  STILL_PROCESSING_LABEL,
   createBoundedStatusPoller,
   deriveFileStage,
   fileStatusLabel,
   fileStageLabel,
   isNonTerminalFile,
   isNonTerminalFileStatus,
+  isStillProcessing,
   isTerminalFileStatus,
+  isTransientProcessingStage,
   mergeFileInventory,
   pageProgress,
   processingPercent,
@@ -23,6 +28,7 @@ import {
   unavailableChatNote,
   usedFilesFromDoneEvent,
   isStandardChatAssistant,
+  visualFileStage,
 } from '../src/lib/fileStatus.js'
 import { createWorkspaceFileInventory, normalizeProgress } from '../src/lib/workspaceFileInventory.js'
 
@@ -40,18 +46,42 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-// 1. queued displays as Queued (not available to chat)
-assert(fileStatusLabel('queued') === 'Queued', 'queued label')
-assert(fileStatusLabel('uploaded') === FILE_STATUS_LABELS.queued, 'uploaded maps to queued copy')
+// 1. queued/uploaded stay non-terminal internally, but users see Processing…
+assert(fileStatusLabel('queued') === PROCESSING_LABEL, 'queued label is Processing…')
+assert(fileStatusLabel('uploaded') === PROCESSING_LABEL, 'uploaded maps to Processing…')
+assert(FILE_STATUS_LABELS.queued === PROCESSING_LABEL, 'legacy queued copy is Processing…')
+assert(!String(fileStatusLabel('queued')).includes('Queued'), 'Queued is not user-facing')
 assert(isNonTerminalFileStatus('queued') === true, 'queued is non-terminal')
+assert(isTransientProcessingStage('queued') === true, 'queued is transient processing')
+assert(visualFileStage('queued') === 'processing', 'queued visual bucket is processing')
 
-// 2. processing/extracting displays as Extracting
-assert(fileStatusLabel('processing') === 'Queued', 'processing without a running job is queued')
+// 2. extracting/indexing stay distinct internally; users still see Processing…
+assert(fileStatusLabel('processing') === PROCESSING_LABEL, 'processing without a running job is Processing…')
 assert(
-  fileStageLabel(deriveFileStage({ status: 'queued', extraction_status: 'extracting', job_status: 'running' })) === 'Extracting',
-  'extracting label'
+  fileStageLabel(deriveFileStage({ status: 'queued', extraction_status: 'extracting', job_status: 'running' })) === PROCESSING_LABEL,
+  'extracting label is Processing…'
+)
+assert(
+  fileStageLabel(deriveFileStage({ status: 'queued', extraction_status: 'complete', index_status: 'indexing', job_status: 'running' })) === PROCESSING_LABEL,
+  'indexing label is Processing…'
 )
 assert(isNonTerminalFileStatus('processing') === true, 'processing is non-terminal')
+assert(visualFileStage('extracting') === 'processing', 'extracting visual bucket is processing')
+assert(visualFileStage('indexing') === 'processing', 'indexing visual bucket is processing')
+assert(visualFileStage('ready') === 'ready', 'ready visual stays ready')
+assert(visualFileStage('failed') === 'failed', 'failed visual stays failed')
+
+{
+  const recent = { created_at: new Date().toISOString(), status: 'queued', job_status: 'queued' }
+  const old = { created_at: new Date(Date.now() - STILL_PROCESSING_AFTER_MS - 1000).toISOString(), status: 'queued', job_status: 'queued' }
+  assert(isStillProcessing(recent) === false, 'fresh upload is not still-processing')
+  assert(fileStageLabel(deriveFileStage(recent), recent) === PROCESSING_LABEL, 'fresh processing copy')
+  assert(isStillProcessing(old) === true, 'long-running processing is still-processing')
+  assert(fileStageLabel(deriveFileStage(old), old) === STILL_PROCESSING_LABEL, 'long-running copy')
+  assert(!STILL_PROCESSING_LABEL.includes('Queued'), 'still-processing does not expose queue')
+  assert(fileStageLabel('ready', old) === 'Ready', 'Ready is never replaced by still-processing')
+  assert(fileStageLabel('failed', old) === 'Failed', 'Failed is never replaced by still-processing')
+}
 
 // 3. ready displays as Ready
 assert(fileStatusLabel('ready') === 'Ready', 'ready label')
@@ -66,9 +96,16 @@ const overlay = readFileSync(join(root, 'src/components/FileLibraryOverlay.jsx')
 const sidebar = readFileSync(join(root, 'src/components/KnowledgeSidebar.jsx'), 'utf8')
 const app = readFileSync(join(root, 'src/App.jsx'), 'utf8')
 
+assert(!overlay.includes("'Queued'") && !overlay.includes('"Queued"') && !overlay.includes('>Queued<'), 'library copy has no Queued')
+assert(overlay.includes("stage === 'failed'") && overlay.includes('Retry'), 'Retry remains Failed-only')
 assert(overlay.includes('FileLifecycleStatus'), 'library uses honesty labels')
+assert(overlay.includes('visualFileStage'), 'library uses visual processing bucket')
 assert(sidebar.includes('FileLifecycleStatus'), 'sidebar uses honesty labels')
+assert(sidebar.includes('visualFileStage'), 'sidebar uses visual processing bucket')
 assert(app.includes('FileLifecycleBubble'), 'composer uses honesty labels')
+const lifecycle = readFileSync(join(root, 'src/components/FileLifecycleStatus.jsx'), 'utf8')
+assert(lifecycle.includes('file-lifecycle__spinner'), 'transient processing keeps a spinner')
+assert(lifecycle.includes('visualFileStage'), 'lifecycle CSS does not use queued as the visible class')
 assert(!app.includes("result?.status || 'ready'"), 'composer does not invent READY')
 assert(app.includes("result?.status || 'uploaded'"), 'composer falls back to uploaded, not ready')
 assert(overlay.includes('workspaceFileInventory'), 'library uses shared inventory')

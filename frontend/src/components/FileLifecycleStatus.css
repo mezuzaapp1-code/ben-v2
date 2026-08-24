@@ -8,6 +8,12 @@
   color: var(--ben-text-muted, rgba(255, 255, 255, 0.7));
 }
 
+.file-lifecycle__row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .file-lifecycle__label {
   font-weight: 650;
 }
@@ -33,6 +39,23 @@
   transition: width 0.15s ease;
 }
 
+.file-lifecycle__spinner {
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 2px solid rgba(253, 230, 138, 0.25);
+  border-top-color: #fde68a;
+  border-radius: 50%;
+  animation: file-lifecycle-spin 0.7s linear infinite;
+  flex: 0 0 auto;
+}
+
+@keyframes file-lifecycle-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.file-lifecycle--processing .file-lifecycle__label,
 .file-lifecycle--queued .file-lifecycle__label,
 .file-lifecycle--extracting .file-lifecycle__label,
 .file-lifecycle--indexing .file-lifecycle__label,
@@ -60,9 +83,11 @@
 }
 
 .files-status--uploading,
+.files-status--processing,
 .files-status--extracting,
 .files-status--indexing,
 .knowledge-sidebar__file-status--uploading,
+.knowledge-sidebar__file-status--processing,
 .knowledge-sidebar__file-status--extracting,
 .knowledge-sidebar__file-status--indexing {
   color: #fde68a;
