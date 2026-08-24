@@ -47,10 +47,18 @@ HEBREW_PROMPT = (
 )
 PROVIDERS = ("gpt", "claude", "gemini", "grok")
 
-# Filename contains none of these. A model that only echoes the filename fails.
-_RED_TOKENS = ("אדום", "אדומה", "אדומים", "red", "crimson", "scarlet", "magenta")
-_BLUE_TOKENS = ("כחול", "כחולה", "כחולים", "blue", "navy", "azure", "indigo")
+# Exact visual facts encoded in the PNG (top red, bottom blue). Extra color
+# synonyms are not accepted — PASS must name these families, not a vibe.
+_RED_TOKENS = ("אדום", "אדומה", "אדומים", "red")
+_BLUE_TOKENS = ("כחול", "כחולה", "כחולים", "blue")
 _FILENAME_LEAK_TOKENS = ("canary-file-alpha", "canary_file_alpha", "alpha.png")
+CANARY_TOP_RGB = (220, 24, 24)
+CANARY_BOTTOM_RGB = (24, 48, 210)
+AUTHZ_HOLD_REASON = (
+    "no_foreign_tenant_file: a file_id the smoke user is unauthorized to access "
+    "cannot be obtained without using another tenant's data; same-user second "
+    "workspace is not unauthorized access"
+)
 _DENY_SNIPPETS = (
     "not available in the current workspace",
     "image reference is not valid",
@@ -94,6 +102,23 @@ class CanaryFailClosed(RuntimeError):
     """Missing evidence — never skip, never mock."""
 
 
+class RedactedSecret:
+    """Hides credential/token values from repr/str/tracebacks."""
+
+    __slots__ = ("_value",)
+
+    def __init__(self, value: str):
+        object.__setattr__(self, "_value", value)
+
+    def get(self) -> str:
+        return object.__getattribute__(self, "_value")
+
+    def __repr__(self) -> str:
+        return "<redacted>"
+
+    __str__ = __repr__
+
+
 def require_clerk_test_credentials() -> tuple[str, str]:
     email = os.environ.get(CREDENTIAL_EMAIL_ENV, "").strip()
     password = os.environ.get(CREDENTIAL_PASSWORD_ENV, "").strip()
@@ -111,7 +136,7 @@ def build_canary_png_bytes(width: int = 32, height: int = 32) -> bytes:
     rows: list[bytes] = []
     split = height // 2
     for y in range(height):
-        pixel = (220, 24, 24) if y < split else (24, 48, 210)
+        pixel = CANARY_TOP_RGB if y < split else CANARY_BOTTOM_RGB
         rows.append(b"\x00" + bytes(pixel * width))
     raw = b"".join(rows)
 
@@ -125,6 +150,57 @@ def build_canary_png_bytes(width: int = 32, height: int = 32) -> bytes:
         + chunk(b"IDAT", zlib.compress(raw, 9))
         + chunk(b"IEND", b"")
     )
+
+
+def inspect_canary_png(data: bytes) -> dict[str, Any]:
+    """Decode the canary PNG and verify encoded red/blue halves."""
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise CanaryFailClosed("canary_png_signature")
+    pos = 8
+    width = height = None
+    idat = b""
+    while pos + 8 <= len(data):
+        length = struct.unpack(">I", data[pos : pos + 4])[0]
+        tag = data[pos + 4 : pos + 8]
+        body = data[pos + 8 : pos + 8 + length]
+        pos += 12 + length
+        if tag == b"IHDR":
+            width, height, bit_depth, color_type = struct.unpack(">IIBB", body[:10])
+            if bit_depth != 8 or color_type != 2:
+                raise CanaryFailClosed("canary_png_not_rgb8")
+        elif tag == b"IDAT":
+            idat += body
+        elif tag == b"IEND":
+            break
+    if not width or not height or not idat:
+        raise CanaryFailClosed("canary_png_incomplete")
+    raw = zlib.decompress(idat)
+    row_bytes = 1 + width * 3
+    if len(raw) != row_bytes * height:
+        raise CanaryFailClosed("canary_png_size_mismatch")
+    split = height // 2
+    top: list[tuple[int, int, int]] = []
+    bottom: list[tuple[int, int, int]] = []
+    for y in range(height):
+        row = raw[y * row_bytes : (y + 1) * row_bytes]
+        if row[0] != 0:
+            raise CanaryFailClosed("canary_png_filter")
+        pixels = [(row[i], row[i + 1], row[i + 2]) for i in range(1, row_bytes, 3)]
+        (top if y < split else bottom).extend(pixels)
+    if not top or not bottom:
+        raise CanaryFailClosed("canary_png_halves_empty")
+    if any(px != CANARY_TOP_RGB for px in top):
+        raise CanaryFailClosed("canary_png_top_not_red")
+    if any(px != CANARY_BOTTOM_RGB for px in bottom):
+        raise CanaryFailClosed("canary_png_bottom_not_blue")
+    return {
+        "width": width,
+        "height": height,
+        "top_rgb": CANARY_TOP_RGB,
+        "bottom_rgb": CANARY_BOTTOM_RGB,
+        "top_is_red": True,
+        "bottom_is_blue": True,
+    }
 
 
 def encode_vision_turn(file_id: str, prompt: str = HEBREW_PROMPT, name: str = CANARY_FILENAME) -> str:
@@ -146,14 +222,21 @@ def _normalize_haystack(text: str) -> str:
     return str(text or "").strip().lower()
 
 
+def _has_visual_token(hay: str, token: str) -> bool:
+    token_l = token.lower()
+    if re.fullmatch(r"[a-z]+", token_l):
+        return re.search(rf"(?<![a-z]){re.escape(token_l)}(?![a-z])", hay) is not None
+    return token_l in hay
+
+
 def score_response_language(text: str) -> str | None:
     return detect_language_code(text or "")
 
 
 def score_image_understanding(text: str, *, filename: str = CANARY_FILENAME) -> dict[str, Any]:
     hay = _normalize_haystack(text)
-    has_red = any(tok.lower() in hay for tok in _RED_TOKENS)
-    has_blue = any(tok.lower() in hay for tok in _BLUE_TOKENS)
+    has_red = any(_has_visual_token(hay, tok) for tok in _RED_TOKENS)
+    has_blue = any(_has_visual_token(hay, tok) for tok in _BLUE_TOKENS)
     filename_leak = any(tok.lower() in hay for tok in _FILENAME_LEAK_TOKENS)
     if filename and filename.lower() in hay:
         filename_leak = True
@@ -163,7 +246,21 @@ def score_image_understanding(text: str, *, filename: str = CANARY_FILENAME) -> 
         "mentions_red": has_red,
         "mentions_blue": has_blue,
         "filename_echo": filename_leak,
-        "pixels_not_filename": understands and not (filename_leak and not (has_red and has_blue)),
+        "pixels_not_filename": understands,
+    }
+
+
+def same_principal_workspace_is_not_foreign() -> bool:
+    """Same smoke user + second workspace is not an unauthorized file_id."""
+    return True
+
+
+def authorization_negative_hold() -> dict[str, Any]:
+    """Do not weaken this gate with a same-user workspace or a random UUID."""
+    return {
+        "status": "HOLD",
+        "success": False,
+        "reason": AUTHZ_HOLD_REASON,
     }
 
 
@@ -344,7 +441,7 @@ def confirm_authenticated_ui(page) -> None:
         raise CanaryFailClosed("sign_in_still_visible")
 
 
-def capture_clerk_session_token(page) -> str:
+def capture_clerk_session_token(page) -> RedactedSecret:
     token = page.evaluate(
         """async () => {
             const clerk = window.Clerk;
@@ -355,7 +452,7 @@ def capture_clerk_session_token(page) -> str:
     )
     if not isinstance(token, str) or len(token) < 20:
         raise CanaryFailClosed("clerk_session_token_missing")
-    return token
+    return RedactedSecret(token)
 
 
 def _auth_headers(token: str, extra: dict[str, str] | None = None) -> dict[str, str]:
@@ -473,58 +570,24 @@ def run_provider_turn(
         error=error,
         trace_id=trace,
         execution_id=str((done or {}).get("execution_id") or "") or None,
-        preview=_preview_text(text or error or ""),
+        preview=_preview_text(str(redact_secrets(text or error or ""))),
     )
-
-
-def run_authorization_negative(
-    client,
-    token: str,
-    *,
-    permitted_file_id: str,
-    foreign_project_id: str,
-) -> dict[str, Any]:
-    """Same authenticated user, real file_id, workspace that does not own it."""
-    message = encode_vision_turn(permitted_file_id)
-    client_request_id = f"f1a-vision-authz-{uuid.uuid4()}"
-    status, events, header_trace, http_error = post_chat_stream(
-        client,
-        token,
-        message=message,
-        provider_id="gpt",
-        project_id=foreign_project_id,
-        client_request_id=client_request_id,
-    )
-    text, stream_error, done = collect_stream_text(events)
-    error = http_error or stream_error
-    deny = is_authorization_deny(http_status=status, error_message=error, response_text=text)
-    vision = score_image_understanding(text)
-    disclosed = bool(vision["understands_image"] or vision["mentions_red"] or vision["mentions_blue"])
-    passed = deny and not disclosed and done is None
-    return {
-        "success": passed,
-        "http_status": status,
-        "denied": deny,
-        "disclosed_image": disclosed,
-        "error": error,
-        "trace_id": header_trace or client_request_id,
-        "preview": _preview_text(text or error or ""),
-    }
 
 
 def execute_canary() -> int:
     email, password = require_clerk_test_credentials()
     png = build_canary_png_bytes()
+    inspect_canary_png(png)
     failures: list[str] = []
 
     try:
         from playwright.sync_api import sync_playwright
-    except ImportError as exc:
-        raise CanaryFailClosed("playwright_not_installed") from exc
+    except ImportError:
+        raise CanaryFailClosed("playwright_not_installed") from None
 
     import httpx
 
-    token: str | None = None
+    session = None
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
@@ -534,12 +597,13 @@ def execute_canary() -> int:
                 raise CanaryFailClosed("sign_in_button_not_visible")
             sign_in_clerk_modal(page, email, password)
             confirm_authenticated_ui(page)
-            token = capture_clerk_session_token(page)
+            session = capture_clerk_session_token(page)
         finally:
             browser.close()
 
-    if not token:
+    if session is None:
         raise CanaryFailClosed("clerk_session_token_missing")
+    token = session.get()
 
     with httpx.Client(timeout=60.0, follow_redirects=True) as client:
         status, _projects_body, _ = api_json(client, "GET", "/api/projects", token)
@@ -559,19 +623,6 @@ def execute_canary() -> int:
         if status not in {200, 201} or not project_id:
             raise CanaryFailClosed(f"project_create_failed_http_{status}")
 
-        status, foreign, _ = api_json(
-            client,
-            "POST",
-            "/api/projects",
-            token,
-            json={"name": f"F1a Vision Foreign {stamp}"},
-        )
-        foreign_project_id = str((foreign or {}).get("id") or "").strip()
-        if status not in {200, 201} or not foreign_project_id:
-            raise CanaryFailClosed(f"foreign_project_create_failed_http_{status}")
-        if foreign_project_id == project_id:
-            raise CanaryFailClosed("foreign_workspace_not_distinct")
-
         upload_url = urljoin(API_BASE + "/", f"api/workspaces/{project_id}/files")
         upload = client.post(
             upload_url,
@@ -581,15 +632,15 @@ def execute_canary() -> int:
         )
         try:
             upload_body = upload.json()
-        except Exception as exc:
-            raise CanaryFailClosed("upload_response_not_json") from exc
+        except Exception:
+            raise CanaryFailClosed("upload_response_not_json") from None
         file_id = str((upload_body or {}).get("id") or "").strip()
         if upload.status_code not in {200, 201} or not file_id:
             raise CanaryFailClosed(f"upload_failed_http_{upload.status_code}")
         try:
             uuid.UUID(file_id)
-        except ValueError as exc:
-            raise CanaryFailClosed("upload_file_id_invalid") from exc
+        except ValueError:
+            raise CanaryFailClosed("upload_file_id_invalid") from None
         safe_print(
             "upload",
             {
@@ -614,23 +665,30 @@ def execute_canary() -> int:
             if not result.success:
                 failures.append(f"provider_{provider}")
 
-        authz = run_authorization_negative(
-            client,
-            token,
-            permitted_file_id=file_id,
-            foreign_project_id=foreign_project_id,
-        )
-        safe_print("authorization_negative", authz)
-        if not authz.get("success"):
-            failures.append("authorization_negative")
+        try:
+            deleted = client.delete(
+                urljoin(API_BASE + "/", f"api/workspaces/{project_id}/files/{file_id}"),
+                headers=_auth_headers(token),
+                timeout=30.0,
+            )
+            print(f"cleanup_file=best_effort_http_{deleted.status_code}")
+        except Exception:
+            print("cleanup_file=best_effort_failed")
+        print("cleanup_project=none_no_delete_api")
+        print("cleanup_threads=none_left_as_smoke_artifacts")
 
-    token = None  # drop from this frame
+        authz = authorization_negative_hold()
+        safe_print("authorization_negative", authz)
+
+    session = None
+    token = None
     if failures:
         print("FAILURES:", ",".join(failures))
         print("f1a_vision_canary=FAIL")
         return 1
-    print("f1a_vision_canary=PASS")
-    return 0
+    print("f1a_vision_canary=HOLD")
+    print("hold_reason=authorization_negative_requires_foreign_tenant_file")
+    return 2
 
 
 def main() -> int:
@@ -638,6 +696,10 @@ def main() -> int:
         return execute_canary()
     except CanaryFailClosed as exc:
         print(f"FAIL fail_closed={exc}")
+        print("f1a_vision_canary=FAIL")
+        return 1
+    except Exception as exc:
+        print(f"FAIL fail_closed=unhandled_{type(exc).__name__}")
         print("f1a_vision_canary=FAIL")
         return 1
 

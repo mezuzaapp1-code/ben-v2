@@ -1,6 +1,7 @@
 """Focused tests for scripts/prod_smoke_f1a_vision.py — no production execution."""
 from __future__ import annotations
 
+import base64
 import sys
 import uuid
 from pathlib import Path
@@ -23,6 +24,16 @@ def test_canary_png_is_png_and_nonempty():
     assert data.startswith(b"\x89PNG\r\n\x1a\n")
     assert len(data) > 80
     assert data.endswith(b"IEND\xaeB`\x82")
+
+
+def test_canary_png_halves_are_red_and_blue():
+    facts = f1a.inspect_canary_png(f1a.build_canary_png_bytes())
+    assert facts["top_rgb"] == (220, 24, 24)
+    assert facts["bottom_rgb"] == (24, 48, 210)
+    assert facts["top_is_red"] is True
+    assert facts["bottom_is_blue"] is True
+    assert facts["width"] == 32
+    assert facts["height"] == 32
 
 
 def test_filename_has_no_color_words():
@@ -60,6 +71,9 @@ def test_image_understanding_requires_both_colors():
 
     red_only = f1a.score_image_understanding("רק אדום")
     assert red_only["understands_image"] is False
+
+    synonym_only = f1a.score_image_understanding("The image is magenta and indigo.")
+    assert synonym_only["understands_image"] is False
 
 
 def test_response_language_hebrew_vs_english():
@@ -162,3 +176,116 @@ def test_execute_canary_not_invoked_by_import():
     assert f1a.FRONTEND_URL.startswith("http")
     assert callable(f1a.main)
     assert callable(f1a.execute_canary)
+
+
+def test_authorization_negative_is_hold_not_same_user_workspace():
+    assert f1a.same_principal_workspace_is_not_foreign() is True
+    hold = f1a.authorization_negative_hold()
+    assert hold["status"] == "HOLD"
+    assert hold["success"] is False
+    assert "foreign" in hold["reason"]
+    src = SCRIPT.read_text(encoding="utf-8")
+    assert "run_authorization_negative" not in src
+    assert "F1a Vision Foreign" not in src
+    assert "f1a_vision_canary=HOLD" in src
+    assert "f1a_vision_canary=PASS" not in src
+
+
+def test_redacted_secret_hides_value():
+    secret = f1a.RedactedSecret("eyJhbGciOiJIUzI1NiJ9.aaa.bbb")
+    assert "eyJ" not in repr(secret)
+    assert "eyJ" not in str(secret)
+    assert secret.get().startswith("eyJ")
+
+
+def test_main_unhandled_exception_does_not_print_secret(monkeypatch, capsys):
+    def boom():
+        raise RuntimeError("Bearer eyJhbGciOiJIUzI1NiJ9.aaa.bbb")
+
+    monkeypatch.setattr(f1a, "execute_canary", boom)
+    rc = f1a.main()
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "eyJ" not in out
+    assert "Bearer" not in out
+    assert "unhandled_RuntimeError" in out
+    assert "f1a_vision_canary=FAIL" in out
+
+
+def test_same_image_and_hebrew_prompt_for_all_providers():
+    src = SCRIPT.read_text(encoding="utf-8")
+    assert "PROVIDERS = (\"gpt\", \"claude\", \"gemini\", \"grok\")" in src
+    assert "for provider in PROVIDERS:" in src
+    assert "message = encode_vision_turn(file_id)" in src
+    assert "prompt: str = HEBREW_PROMPT" in src
+    assert src.count("encode_vision_turn(") >= 2
+    from services.model_gateway import _attempts
+
+    for provider in f1a.PROVIDERS:
+        attempts = _attempts("free", provider_id=provider)
+        assert len(attempts) == 1
+
+
+def test_file_ref_is_not_an_image_payload_without_bytes():
+    from services.providers.vision_input import (
+        VisionImage,
+        anthropic_user_content,
+        gemini_user_parts,
+        openai_user_content,
+    )
+    from services.vision.current_turn import build_provider_user_content
+
+    file_id = str(uuid.uuid4())
+    encoded = f1a.encode_vision_turn(file_id)
+    png = f1a.build_canary_png_bytes()
+    b64 = base64.b64encode(png).decode("ascii")
+    assert b64 not in encoded
+    assert "data:image" not in encoded
+
+    empty_parts = build_provider_user_content(encoded, [])
+    gpt_empty = openai_user_content(empty_parts)
+    claude_empty = anthropic_user_content(empty_parts)
+    gemini_empty = gemini_user_parts(empty_parts)
+    assert gpt_empty == f1a.HEBREW_PROMPT or (
+        isinstance(gpt_empty, list) and not any("image_url" in block for block in gpt_empty)
+    )
+    assert claude_empty == f1a.HEBREW_PROMPT or (
+        isinstance(claude_empty, list) and not any(block.get("type") == "image" for block in claude_empty)
+    )
+    assert not any("inlineData" in part for part in gemini_empty)
+
+    image = VisionImage(file_id=file_id, media_type="image/png", data=png)
+    parts = build_provider_user_content(encoded, [image])
+    gpt = openai_user_content(parts)
+    claude = anthropic_user_content(parts)
+    gemini = gemini_user_parts(parts)
+    assert isinstance(gpt, list)
+    assert any(block.get("type") == "image_url" for block in gpt)
+    assert b64 in str(gpt)
+    assert isinstance(claude, list)
+    assert any(block.get("type") == "image" for block in claude)
+    assert any(block.get("source", {}).get("data") == b64 for block in claude)
+    assert any(part.get("inlineData", {}).get("data") == b64 for part in gemini)
+
+
+def test_provider_adapters_construct_image_payloads():
+    root = ROOT / "services" / "providers"
+    vision = (root / "vision_input.py").read_text(encoding="utf-8")
+    assert "image_url" in vision
+    assert "data:{self.media_type};base64" in vision
+    assert '"type": "image"' in vision
+    assert "inlineData" in vision
+    openai = (root / "openai_provider.py").read_text(encoding="utf-8")
+    anthropic = (root / "anthropic_provider.py").read_text(encoding="utf-8")
+    gemini = (root / "gemini_provider.py").read_text(encoding="utf-8")
+    xai = (root / "xai_provider.py").read_text(encoding="utf-8")
+    assert "openai_user_content" in openai
+    assert "anthropic_user_content" in anthropic
+    assert "gemini_user_parts" in gemini
+    assert "openai_user_content" in xai
+    chat = (ROOT / "services" / "chat_service.py").read_text(encoding="utf-8")
+    assert "load_current_turn_vision_images" in chat
+    assert 'user_content": vision_user_content' in chat or "user_content=vision_user_content" in chat
+    gateway = (ROOT / "services" / "model_gateway.py").read_text(encoding="utf-8")
+    assert "if user_content:" in gateway
+    assert "attempts = attempts[:1]" in gateway
