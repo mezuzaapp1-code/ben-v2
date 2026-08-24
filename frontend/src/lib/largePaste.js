@@ -28,6 +28,24 @@ export function formatLargePasteStub(charCount) {
   return `[Large paste · ${formatCharCount(charCount)} characters]`
 }
 
+export function formatFileRefStub(name) {
+  const label = String(name || 'image').replace(/\s+/g, ' ').trim() || 'image'
+  return `[Attached image · ${label}]`
+}
+
+export function formatFileRefChipLabel(part) {
+  return String(part?.name || 'Image')
+}
+
+const VISION_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'])
+const VISION_IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i
+
+export function isVisionImageFile(file) {
+  const type = String(file?.type || file?.media_type || '').toLowerCase()
+  if (VISION_IMAGE_TYPES.has(type)) return true
+  return VISION_IMAGE_EXT.test(String(file?.name || file?.display_name || ''))
+}
+
 export function formatPasteChipLabel(part) {
   const label = String(part?.label || LARGE_PASTE_DEFAULT_LABEL)
   const count = part?.char_count ?? codePointCount(part?.text || '')
@@ -77,6 +95,16 @@ export function normalizeComposerParts(parts) {
         text,
         char_count: codePointCount(text),
       })
+      continue
+    }
+    if (part.type === 'file_ref') {
+      const fileId = String(part.file_id || '').trim()
+      if (!fileId) continue
+      out.push({
+        type: 'file_ref',
+        file_id: fileId,
+        name: String(part.name || 'image').trim() || 'image',
+      })
     }
   }
   if (out.length === 0) return emptyComposerParts()
@@ -89,9 +117,18 @@ export function hasLargePaste(parts) {
   return (parts || []).some((part) => part?.type === 'large_paste')
 }
 
+export function hasFileRef(parts) {
+  return (parts || []).some((part) => part?.type === 'file_ref' && part.file_id)
+}
+
+export function hasStructuredUserTurn(parts) {
+  return hasLargePaste(parts) || hasFileRef(parts)
+}
+
 export function canSendComposerParts(parts) {
   return (parts || []).some((part) => {
     if (part?.type === 'large_paste') return Boolean(part.text)
+    if (part?.type === 'file_ref') return Boolean(part.file_id)
     if (part?.type === 'text') return Boolean(String(part.text || '').trim())
     return false
   })
@@ -112,18 +149,23 @@ export function displayTextFromParts(parts) {
         const count = part.char_count ?? codePointCount(part.text || '')
         return formatLargePasteStub(count)
       }
+      if (part?.type === 'file_ref') return formatFileRefStub(part.name)
       return ''
     })
     .join('')
 }
 
 export function expandPartsForProvider(parts) {
-  return (parts || []).map((part) => String(part?.text || '')).join('')
+  return (parts || [])
+    .filter((part) => part?.type === 'text' || part?.type === 'large_paste')
+    .map((part) => String(part?.text || ''))
+    .join('')
 }
 
 export function compactPartsForEncode(parts) {
   return (parts || []).filter((part) => {
     if (part?.type === 'large_paste') return Boolean(part.text)
+    if (part?.type === 'file_ref') return Boolean(part.file_id)
     if (part?.type === 'text') return part.text !== ''
     return false
   })
@@ -132,6 +174,9 @@ export function compactPartsForEncode(parts) {
 export function encodeUserTurn(parts) {
   const compact = compactPartsForEncode(normalizeComposerParts(parts)).map((part) => {
     if (part.type === 'text') return { type: 'text', text: part.text }
+    if (part.type === 'file_ref') {
+      return { type: 'file_ref', file_id: part.file_id, name: part.name || 'image' }
+    }
     return {
       type: 'large_paste',
       id: part.id,
@@ -141,7 +186,7 @@ export function encodeUserTurn(parts) {
     }
   })
   if (compact.length === 0) return ''
-  if (!compact.some((part) => part.type === 'large_paste')) {
+  if (!compact.some((part) => part.type === 'large_paste' || part.type === 'file_ref')) {
     return compact.filter((part) => part.type === 'text').map((part) => part.text).join('')
   }
   return JSON.stringify({ ben: 1, kind: USER_TURN_KIND, parts: compact })
@@ -168,6 +213,16 @@ function sanitizeDecodedParts(raw) {
         label: String(item.label || LARGE_PASTE_DEFAULT_LABEL).trim() || LARGE_PASTE_DEFAULT_LABEL,
         text,
         char_count: codePointCount(text),
+      })
+      continue
+    }
+    if (item.type === 'file_ref') {
+      const fileId = String(item.file_id || '').trim()
+      if (!fileId) return null
+      out.push({
+        type: 'file_ref',
+        file_id: fileId,
+        name: String(item.name || 'image').trim() || 'image',
       })
       continue
     }
@@ -281,6 +336,31 @@ export function unwrapLargePaste(parts, pasteIndex) {
     }
   }
   return { ok: true, parts: normalizeComposerParts(merged), reason: '' }
+}
+
+export function appendFileRefPart(parts, { file_id, name }) {
+  const fileId = String(file_id || '').trim()
+  if (!fileId) return normalizeComposerParts(parts)
+  const normalized = normalizeComposerParts(parts)
+  const last = normalized[normalized.length - 1]
+  const insertAt = last && last.type === 'text' ? normalized.length - 1 : normalized.length
+  const next = [
+    ...normalized.slice(0, insertAt),
+    { type: 'file_ref', file_id: fileId, name: String(name || 'image').trim() || 'image' },
+    ...normalized.slice(insertAt),
+  ]
+  return normalizeComposerParts(next)
+}
+
+export function removeComposerPart(parts, index) {
+  const normalized = normalizeComposerParts(parts)
+  const idx = Number(index)
+  if (!Number.isInteger(idx) || idx < 0 || idx >= normalized.length) return normalized
+  if (normalized[idx]?.type === 'text' && normalized.filter((part) => part.type === 'text').length <= 1) {
+    return normalized
+  }
+  const next = normalized.filter((_, i) => i !== idx)
+  return normalizeComposerParts(next)
 }
 
 export function providerExpansionError(expanded) {

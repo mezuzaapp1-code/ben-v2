@@ -11,6 +11,7 @@ from services.providers.anthropic_provider import ANTHROPIC_FAST_MODEL, ANTHROPI
 from services.providers.gemini_provider import GEMINI_FAST_MODEL
 from services.providers.openai_provider import OPENAI_CHAT_FAST_MODEL, OPENAI_REASONING_MODEL
 from services.providers.xai_provider import XAI_FAST_MODEL, XAI_FLAGSHIP_MODEL
+from services.providers.vision_input import VISION_ANALYZE
 
 _REGISTRY_PATH = Path(__file__).resolve().parents[2] / "shared" / "frontier_models.json"
 
@@ -34,6 +35,26 @@ _DEFAULT_API_ENV: dict[tuple[str, str], tuple[str, ...]] = {
     ("anthropic", ANTHROPIC_FAST_MODEL): ("ANTHROPIC_MODEL",),
     ("google", GEMINI_FAST_MODEL): ("GEMINI_MODEL", "GOOGLE_MODEL"),
 }
+
+# When env overrides are unset, dispatch to known-good provider API ids.
+# Canonical exposed models that accept image input. o1 / o1-mini / o3-mini do not.
+_DEFAULT_VISION_MODELS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("openai", OPENAI_CHAT_FAST_MODEL),
+        ("openai", OPENAI_REASONING_MODEL),
+        ("openai", "gpt-4o"),
+        ("openai", "gpt-4o-mini"),
+        ("anthropic", ANTHROPIC_FLAGSHIP_MODEL),
+        ("anthropic", ANTHROPIC_FAST_MODEL),
+        ("anthropic", "claude-sonnet-4-6"),
+        ("anthropic", "claude-3-5-sonnet-20241022"),
+        ("google", GEMINI_FAST_MODEL),
+        ("google", "gemini-2.5-flash"),
+        ("google", "gemini-1.5-flash"),
+        ("xai", XAI_FLAGSHIP_MODEL),
+        ("xai", XAI_FAST_MODEL),
+    }
+)
 
 # When env overrides are unset, dispatch to known-good provider API ids.
 _DEFAULT_API_FALLBACK: dict[tuple[str, str], str] = {
@@ -82,6 +103,32 @@ def allowed_models() -> frozenset[tuple[str, str]]:
                     if mid:
                         out.add((gateway, mid))
     return frozenset(out)
+
+
+def model_capabilities(provider: str, model: str) -> frozenset[str]:
+    """Declarative capabilities for an exact exposed (provider, canonical_model) pair."""
+    prov = (provider or "").strip().lower()
+    mid = (model or "").strip()
+    if not prov or not mid:
+        return frozenset()
+    data = _load_registry()
+    caps = data.get("capabilities")
+    if isinstance(caps, dict):
+        raw = caps.get(f"{prov}:{mid}")
+        if isinstance(raw, list):
+            return frozenset(str(item).strip() for item in raw if str(item).strip())
+        if raw is None and (prov, mid) not in _DEFAULT_VISION_MODELS:
+            return frozenset()
+    if (prov, mid) in _DEFAULT_VISION_MODELS:
+        return frozenset({VISION_ANALYZE})
+    return frozenset()
+
+
+def model_has_capability(provider: str, model: str, capability: str) -> bool:
+    cap = str(capability or "").strip()
+    if not cap:
+        return False
+    return cap in model_capabilities(provider, model)
 
 
 def is_registered_model(provider: str, model: str) -> bool:

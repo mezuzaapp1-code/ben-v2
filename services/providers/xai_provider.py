@@ -15,6 +15,7 @@ from services.providers.base_provider import (
     ProviderStreamEnd,
     tenant_header,
 )
+from services.providers.vision_input import ProviderUserPart, openai_user_content
 from services.providers.xai_error_diagnostics import (
     ensure_xai_response_content,
     raise_for_xai_status,
@@ -33,14 +34,33 @@ class XAIProvider(BaseProvider):
     def provider_name(self) -> str:
         return "xai"
 
-    def _messages(self, message: str, system: str | None) -> list[dict[str, str]]:
+    def _messages(
+        self,
+        message: str,
+        system: str | None,
+        *,
+        user_content: list[ProviderUserPart] | None = None,
+    ) -> list[dict]:
         sys_text = (system or GLOBAL_CHAT_SYSTEM).strip()
+        if user_content:
+            return [
+                {"role": "system", "content": sys_text},
+                {"role": "user", "content": openai_user_content(user_content)},
+            ]
         return [{"role": "system", "content": sys_text}, {"role": "user", "content": message}]
 
-    def _json_body(self, model: str, message: str, system: str | None, *, stream: bool) -> dict:
+    def _json_body(
+        self,
+        model: str,
+        message: str,
+        system: str | None,
+        *,
+        stream: bool,
+        user_content: list[ProviderUserPart] | None = None,
+    ) -> dict:
         body: dict = {
             "model": model,
-            "messages": self._messages(message, system),
+            "messages": self._messages(message, system, user_content=user_content),
         }
         if stream:
             body["stream"] = True
@@ -59,11 +79,12 @@ class XAIProvider(BaseProvider):
         message: str,
         tenant_id: str,
         system: str | None = None,
+        user_content: list[ProviderUserPart] | None = None,
     ) -> ProviderSendResult:
         r = await cx.post(
             XAI_CHAT_COMPLETIONS_URL,
             headers=self._headers(tenant_id),
-            json=self._json_body(model, message, system, stream=False),
+            json=self._json_body(model, message, system, stream=False, user_content=user_content),
         )
         raise_for_xai_status(r)
         d = r.json()
@@ -88,6 +109,7 @@ class XAIProvider(BaseProvider):
         message: str,
         tenant_id: str,
         system: str | None = None,
+        user_content: list[ProviderUserPart] | None = None,
     ) -> AsyncIterator[str | ProviderStreamEnd]:
         usage = usage_missing()
         provider_request_id: str | None = None
@@ -96,7 +118,7 @@ class XAIProvider(BaseProvider):
             "POST",
             XAI_CHAT_COMPLETIONS_URL,
             headers=self._headers(tenant_id),
-            json=self._json_body(model, message, system, stream=True),
+            json=self._json_body(model, message, system, stream=True, user_content=user_content),
         ) as response:
             if int(getattr(response, "status_code", 0) or 0) >= 400:
                 await ensure_xai_response_content(response)

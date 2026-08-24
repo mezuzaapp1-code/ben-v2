@@ -1,5 +1,6 @@
 /** Parse BEN API errors into user-safe messages (no raw JSON). */
 
+export const CAPABILITY_DENIED = 'capability_denied'
 export const CLERK_ORG_REQUIRED = 'clerk_org_required'
 
 export const COUNCIL_BUSY = 'council_busy'
@@ -63,6 +64,17 @@ export function parseBenErrorResponse(status, data) {
       hint,
       recoverable: detail.recoverable !== false,
       retry_after_s: detail.retry_after_s,
+    }
+  }
+  if (typeof detail === 'object' && detail !== null && detail.code === CAPABILITY_DENIED) {
+    return {
+      code: CAPABILITY_DENIED,
+      message: String(
+        detail.message
+          || 'The selected model does not support image analysis. Choose a vision-capable model and try again.'
+      ),
+      hint: null,
+      recoverable: true,
     }
   }
   if (typeof detail === 'object' && detail !== null && detail.code === CLERK_ORG_REQUIRED) {

@@ -5,6 +5,7 @@ import json
 import sys
 import uuid
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -142,6 +143,7 @@ def _patch_stream_pipeline(monkeypatch, captured):
     monkeypatch.setattr("services.chat_service.route_request_stream", fake_stream)
     monkeypatch.setattr("services.chat_service.persist_chat_exchange_sqlite", capture_sqlite)
     monkeypatch.setattr("services.chat_service._schedule_chat_persist", lambda *_a, **_k: None)
+    monkeypatch.setattr("services.chat_service.run_copilot_preamble", AsyncMock(return_value=[]))
 
 
 @pytest.mark.asyncio

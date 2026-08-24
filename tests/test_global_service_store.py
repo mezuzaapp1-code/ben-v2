@@ -245,7 +245,7 @@ def test_chat_allows_inactive_engine(global_env):
     """Phase 1 — empty Switchboard must not 403 chat."""
     client = TestClient(main.app)
 
-    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, model_override=None, preferred_language=None):
+    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, model_override=None, preferred_language=None, **_k):
         return {
             "thread_id": str(uuid.uuid4()),
             "response": "ok",
@@ -272,7 +272,7 @@ def test_chat_allows_active_engine(global_env):
         source_metadata={"catalog_key": "engine-claude"},
     )
 
-    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, model_override=None, preferred_language=None):
+    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, model_override=None, preferred_language=None, **_k):
         return {
             "thread_id": str(uuid.uuid4()),
             "response": "ok",

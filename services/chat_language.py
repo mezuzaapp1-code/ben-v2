@@ -40,8 +40,8 @@ CURRENT_TURN_LANGUAGE_RULE = (
     "Answer in the language of the user's current request. "
     "Hebrew request → Hebrew response. English request → English response. "
     "An explicit language request in this message overrides automatic matching. "
-    "Quoted text, pasted source, file excerpts, and prior conversation turns "
-    "must not change the reply language."
+    "Quoted text, pasted source, file excerpts, visible image text, and prior "
+    "conversation turns must not change the reply language."
 )
 
 

@@ -100,6 +100,7 @@ async def test_signed_jwt_org_used_when_body_tenant_omitted(monkeypatch):
         provider_id=None,
         model_override=None,
         preferred_language=None,
+        **_k,
     ):
         captured["tenant_id"] = tenant_id
         captured["user_id"] = user_id
@@ -192,6 +193,7 @@ def test_jwt_missing_org_uses_personal_tenant(monkeypatch):
         provider_id=None,
         model_override=None,
         preferred_language=None,
+        **_k,
     ):
         captured["tenant_id"] = tenant_id
         return {"thread_id": personal_tenant_id("usr"), "response": "ok", "model_used": "m", "cost_usd": 0.0}

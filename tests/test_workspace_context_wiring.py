@@ -100,7 +100,7 @@ def test_chat_resolves_workspace_when_thread_has_project_slug(client, workspace_
     )
     expected_workspace_id = derive_workspace_id_from_slug(TENANT, "alpha-site")
 
-    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, model_override=None, preferred_language=None):
+    async def fake_chat(message, user_id, tenant_id, tier, *, thread_id=None, provider_id=None, model_override=None, preferred_language=None, **_k):
         return {
             "thread_id": str(thread_id or THREAD_ID),
             "response": "ok",

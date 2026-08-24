@@ -37,6 +37,7 @@ from services.chat_service import handle_chat, stream_chat_response
 from services.model_gateway import (
     normalize_chat_provider_id,
     normalize_model_override,
+    selected_chat_attempt,
     validate_chat_model_override,
 )
 
@@ -88,6 +89,8 @@ from services.thread_service import (
 )
 from services.workspace_resolver import CLIENT_WORKSPACE_ID_HEADER, resolve_workspace_context
 from services.execution_plan import resolve_execution_plan
+from services.message_format import user_turn_has_file_refs
+from services.providers.vision_input import VISION_ANALYZE
 from services.inference.execution_context import begin_execution_context
 from routers.beta_session import router as beta_session_router
 from database.knowledge_store import init_knowledge_store
@@ -293,11 +296,15 @@ def _attach_request_execution_plan(
     *,
     capability_key: str,
     requested_resource: str | None = None,
+    selected_model: str | None = None,
+    gateway_provider: str | None = None,
 ):
     plan = resolve_execution_plan(
         workspace_ctx,
         capability_key,
         requested_resource=requested_resource,
+        selected_model=selected_model,
+        gateway_provider=gateway_provider,
     )
     attach_execution_plan_to_request_diagnostics(plan)
     # Pass 1: boarding-pass ExecutionContext for gateway accounting (measure-only).
@@ -311,13 +318,43 @@ def _attach_request_execution_plan(
     return plan
 
 
-def _enforce_chat_execution_plan(plan) -> None:
-    """Phase 1: Switchboard compute activation must not kill chat.
+def _attach_chat_execution_plan(
+    workspace_ctx,
+    *,
+    message: str,
+    tier: str,
+    provider_id: str | None,
+    model_override: str | None,
+):
+    if user_turn_has_file_refs(message):
+        gateway, model = selected_chat_attempt(
+            tier, provider_id=provider_id, model_override=model_override
+        )
+        return _attach_request_execution_plan(
+            workspace_ctx,
+            capability_key=VISION_ANALYZE,
+            requested_resource=model,
+            selected_model=model,
+            gateway_provider=gateway,
+        )
+    return _attach_request_execution_plan(
+        workspace_ctx,
+        capability_key="standard_chat",
+        requested_resource=model_override or provider_id,
+    )
 
-    ExecutionPlan is still attached for diagnostics/telemetry. Inactive
-    org_switchboard state is informational only on /chat and /chat/stream.
-    """
-    return
+
+def _enforce_chat_execution_plan(plan) -> None:
+    """Vision.analyze is enforced. Standard chat remains observability-only."""
+    if getattr(plan, "enforced", False) and not getattr(plan, "allowed", True):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "capability_denied",
+                "message": getattr(plan, "deny_reason", None)
+                or "The selected model does not support this capability.",
+            },
+        )
 
 
 
@@ -332,6 +369,7 @@ def _fail_request_from_http(exc: HTTPException, *, route: str) -> None:
         "retry_later",
         "duplicate_request",
         "idempotency_rejected",
+        "capability_denied",
     ):
         fail_request_diagnostics(outcome="rejected", category=str(code), route=route)
     else:
@@ -493,6 +531,13 @@ async def chat(request: Request, body: ChatBody):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    chat_project_id = None
+    if body.project_id:
+        try:
+            chat_project_id = uuid.UUID(str(body.project_id).strip())
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid project_id") from exc
+
     locale = locale_for_request(request, body.message)
 
     client_rid = resolve_client_request_id(
@@ -507,10 +552,12 @@ async def chat(request: Request, body: ChatBody):
         thread_id=tid,
         project_id=body.project_id,
     )
-    plan = _attach_request_execution_plan(
+    plan = _attach_chat_execution_plan(
         workspace_ctx,
-        capability_key="standard_chat",
-        requested_resource=chat_model_override or chat_provider_id,
+        message=body.message,
+        tier=body.tier,
+        provider_id=chat_provider_id,
+        model_override=chat_model_override,
     )
     _enforce_chat_execution_plan(plan)
 
@@ -552,6 +599,7 @@ async def chat(request: Request, body: ChatBody):
                 model_override=chat_model_override,
 
                 preferred_language=chat_preferred_language,
+                project_id=chat_project_id,
 
             )
 
@@ -619,10 +667,12 @@ async def chat_stream(request: Request, body: ChatBody):
         thread_id=tid,
         project_id=body.project_id,
     )
-    plan = _attach_request_execution_plan(
+    plan = _attach_chat_execution_plan(
         workspace_ctx,
-        capability_key="standard_chat",
-        requested_resource=resolved_model_override or resolved_provider_id,
+        message=body.message,
+        tier=body.tier,
+        provider_id=resolved_provider_id,
+        model_override=resolved_model_override,
     )
     _enforce_chat_execution_plan(plan)
     await _capture_chat_feedback_if_beta(request, body.message, route="/chat/stream")

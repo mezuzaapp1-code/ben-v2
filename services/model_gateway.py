@@ -147,6 +147,19 @@ def validate_chat_model_override(provider_id: str | None, model_override: str | 
     resolve_dispatch_model(gateway, model_override)
 
 
+def selected_chat_attempt(
+    tier: str,
+    *,
+    provider_id: str | None = None,
+    model_override: str | None = None,
+) -> tuple[str, str]:
+    """Canonical (gateway, model) that chat will dispatch first."""
+    attempts = _attempts(tier, provider_id=provider_id, model_override=model_override)
+    if not attempts:
+        raise ValueError("No chat provider available")
+    return attempts[0]
+
+
 def _model_for_gateway_provider(gateway_prov: str, tier: str) -> str:
     t = (tier or "free").lower()
     if gateway_prov == "openai":
@@ -251,6 +264,7 @@ async def route_request(
     provider_id: str | None = None,
     model_override: str | None = None,
     system: str | None = None,
+    user_content=None,
 ) -> dict[str, Any]:
     t0 = time.perf_counter()
     timeout_s = _chat_http_timeout_s(provider_id=provider_id)
@@ -258,6 +272,8 @@ async def route_request(
     last_prov: str = ""
     last_accounted: dict[str, Any] | None = None
     attempts = _attempts(tier, provider_id=provider_id, model_override=model_override)
+    if user_content:
+        attempts = attempts[:1]
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s, connect=5.0)) as cx:
         for prov, model in attempts:
             key_env = gateway_provider_api_key_env(prov)
@@ -316,12 +332,14 @@ async def route_request(
                 }
             try:
                 adapter = get_gateway_provider(prov)
+                send_kwargs = {"user_content": user_content} if user_content else {}
                 send_result = await adapter.send_message(
                     cx,
                     model=api_model,
                     message=message,
                     tenant_id=tenant_id,
                     system=system or GLOBAL_CHAT_SYSTEM,
+                    **send_kwargs,
                 )
                 content = send_result.content
                 tok = send_result.total_tokens
@@ -447,6 +465,7 @@ async def route_request_stream(
     provider_id: str | None = None,
     model_override: str | None = None,
     system: str | None = None,
+    user_content=None,
 ) -> AsyncIterator[tuple[str, str, str]]:
     """Stream raw model tokens: yields (text_chunk, model, provider).
 
@@ -455,6 +474,8 @@ async def route_request_stream(
     """
     timeout_s = _chat_http_timeout_s(provider_id=provider_id)
     attempts = _attempts(tier, provider_id=provider_id, model_override=model_override)
+    if user_content:
+        attempts = attempts[:1]
     last: BaseException | None = None
     last_prov = ""
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s, connect=5.0)) as cx:
@@ -504,12 +525,14 @@ async def route_request_stream(
             attempt_accounted = False
             try:
                 adapter = get_gateway_provider(prov)
+                stream_kwargs = {"user_content": user_content} if user_content else {}
                 async for item in adapter.stream_message(
                     cx,
                     model=api_model,
                     message=message,
                     tenant_id=tenant_id,
                     system=system or GLOBAL_CHAT_SYSTEM,
+                    **stream_kwargs,
                 ):
                     if isinstance(item, ProviderStreamEnd):
                         stream_end = item

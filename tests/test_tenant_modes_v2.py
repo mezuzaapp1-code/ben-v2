@@ -87,6 +87,7 @@ def test_jwt_no_org_chat_personal_200(monkeypatch):
         provider_id=None,
         model_override=None,
         preferred_language=None,
+        **_k,
     ):
         captured["tenant_id"] = tenant_id
         captured["user_id"] = user_id
