@@ -304,7 +304,7 @@ async def test_g_async_path_reaches_enqueue_after_durable_write(durable_root, mo
         enqueued["job"] = True
 
     monkeypatch.setattr(file_service, "enqueue_document_processing_job", capture_enqueue)
-    monkeypatch.setattr(file_service, "_payload", lambda row: {"id": str(row.id), "status": row.status})
+    monkeypatch.setattr(file_service, "_payload", lambda row, job_status=None: {"id": str(row.id), "status": row.status})
     monkeypatch.setattr(file_service, "attach_request_id", lambda payload: payload)
 
     payload = await file_service.upload_file(

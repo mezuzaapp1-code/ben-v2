@@ -94,6 +94,7 @@ async def fresh_engine():
 @pytest.fixture(autouse=True)
 def _enable_async(monkeypatch):
     monkeypatch.setenv("BEN_DOC_PROCESSING_ENABLED", "on")
+    monkeypatch.delenv("BEN_DOC_UPLOAD_WAKE_ENABLED", raising=False)
 
 
 async def _upload(org, ws, name, ct, data):

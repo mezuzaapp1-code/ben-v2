@@ -100,6 +100,7 @@ def _enable_async(monkeypatch):
     These tests exercise the async path, so enable it by default; the explicit
     OFF test overrides this within its own body."""
     monkeypatch.setenv("BEN_DOC_PROCESSING_ENABLED", "on")
+    monkeypatch.delenv("BEN_DOC_UPLOAD_WAKE_ENABLED", raising=False)
 
 
 async def _upload(org, ws, name, ct, data):
