@@ -86,6 +86,7 @@ assert(
 
 const appSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../src/App.jsx'), 'utf8')
 assert(appSrc.includes('shouldShowClerkSignIn'), 'App shows Clerk sign-in helper')
+assert(appSrc.includes('AccountChrome'), 'App mounts persistent account chrome')
 assert(appSrc.includes('persistentHeaders'), 'App uses stable persistent header builder')
 assert(appSrc.includes('buildAppHeadersRef'), 'App keeps latest getToken behind a ref')
 assert(appSrc.includes('ClerkSignInBanner'), 'App has main-shell Sign in banner')

@@ -12,6 +12,7 @@
     "test:files": "node scripts/test-files-ui.mjs",
     "test:files-status": "node scripts/test-files-status-honesty.mjs",
     "test:auth": "node scripts/test-clerk-persistent-access.mjs",
+    "test:account-chrome": "node scripts/test-account-chrome.mjs",
     "test:auth-headers": "node scripts/test-auth-header-stability.mjs",
     "test:files-lifecycle-ux": "node scripts/test-files-lifecycle-ux-truth.mjs",
     "test:project-library": "node scripts/test-project-library.mjs",
