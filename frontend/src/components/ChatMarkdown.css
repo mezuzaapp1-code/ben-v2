@@ -132,34 +132,33 @@
   border-top: 1px solid var(--ben-border-strong, #333);
 }
 
-/* RTL: bullets and numbers on the right, text aligned right */
-.chat-markdown--rtl {
+.chat-markdown__block--rtl {
   direction: rtl;
   text-align: right;
+  unicode-bidi: isolate;
 }
 
-.chat-markdown--rtl ul,
-.chat-markdown--rtl ol {
-  padding-inline-start: 0;
-  padding-inline-end: 1.35rem;
-  list-style-position: outside;
-}
-
-.chat-markdown--rtl li {
-  text-align: right;
-}
-
-.chat-markdown--rtl blockquote {
-  border-inline-start: none;
-  border-inline-end: 3px solid var(--ben-border-strong, #333);
-}
-
-.chat-markdown--ltr {
+.chat-markdown__block--ltr {
   direction: ltr;
+  text-align: left;
+  unicode-bidi: isolate;
+}
+
+.chat-markdown__isolate,
+.chat-markdown pre,
+.chat-markdown table,
+.chat-markdown a {
+  direction: ltr;
+  unicode-bidi: isolate;
   text-align: left;
 }
 
-.chat-markdown--ltr ul,
-.chat-markdown--ltr ol {
-  list-style-position: outside;
+.chat-markdown__table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.chat-markdown li.chat-markdown__block--rtl,
+.chat-markdown li.chat-markdown__block--ltr {
+  unicode-bidi: isolate;
 }

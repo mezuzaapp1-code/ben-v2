@@ -1,6 +1,8 @@
 .expert-opinion-menu {
   position: relative;
   display: inline-flex;
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 .expert-opinion-menu__trigger {

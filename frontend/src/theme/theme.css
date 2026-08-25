@@ -3,6 +3,9 @@
 [data-theme='dark'] {
   color-scheme: dark;
   --ben-transition: 0.22s ease;
+  /* Single conversation column. Language must never change these. */
+  --conversation-max-width: 48rem;
+  --conversation-gutter: 1.5rem;
 
   --ben-bg: #121212;
   --ben-bg-elevated: #0c0c0c;
