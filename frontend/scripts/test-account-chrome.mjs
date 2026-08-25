@@ -155,6 +155,29 @@ assert(publicAccountLabel({}) === 'Signed in', 'generic signed-in label without 
 }
 
 const chromeSrc = readFileSync(join(root, 'src/components/AccountChrome.jsx'), 'utf8')
+const signedInFn = chromeSrc.split('function SignedInChrome')[1]?.split('function AccountChromeInner')[0] || ''
+const innerFn = chromeSrc.split('function AccountChromeInner')[1] || ''
+assert(signedInFn.includes('useUser()'), 'identity is read live from Clerk useUser')
+assert(!/useState\([^)]*email|useState\([^)]*name/i.test(signedInFn), 'identity is not cached in local state')
+assert(!innerFn.includes('useUser'), 'signed-out/loading chrome cannot see previous useUser')
+assert(
+  innerFn.includes('ACCOUNT_CHROME_STATES.signed_in') && innerFn.includes('<SignedInChrome />'),
+  'identity chrome mounts only while signed_in'
+)
+assert(
+  innerFn.includes('ACCOUNT_CHROME_STATES.signed_out') &&
+    !innerFn
+      .split('ACCOUNT_CHROME_STATES.signed_out')[1]
+      .split('ACCOUNT_CHROME_STATES.unavailable')[0]
+      .includes('account-chrome__identity'),
+  'signed-out branch has no identity label'
+)
+assert(
+  resolveAccountChromeState({ clerkEnabled: true, isLoaded: true, isSignedIn: false }) !==
+    ACCOUNT_CHROME_STATES.signed_in,
+  'session loss/sign-out cannot remain signed_in'
+)
+
 assert(chromeSrc.includes('Checking account…'), 'loading copy is Checking account…')
 assert(chromeSrc.includes('Sign in unavailable'), 'unavailable copy is explicit')
 assert(chromeSrc.includes('<SignInButton mode="modal">'), 'signed-out uses Clerk modal')
@@ -173,15 +196,29 @@ assert(chromeSrc.includes('window.location.reload'), 'unavailable is recoverable
 
 const cssSrc = readFileSync(join(root, 'src/components/AccountChrome.css'), 'utf8')
 assert(cssSrc.includes('text-overflow: ellipsis'), 'identity truncates')
-assert(cssSrc.includes('max-width: 5.75rem'), 'mobile identity max-width is tight')
+assert(cssSrc.includes('flex-wrap: wrap'), 'narrow signed-in chrome wraps instead of overflowing')
+assert(cssSrc.includes('max-width: 7.25rem') || cssSrc.includes('max-width: 5.75rem'), 'mobile identity max-width is tight')
+assert(cssSrc.includes('max-width: 100%'), 'chrome cannot exceed top-bar slot')
 
 const appSrc = readFileSync(join(root, 'src/App.jsx'), 'utf8')
 assert(appSrc.includes('shellAuth={HAS_CLERK_UI ? <AccountChrome /> : null}'), 'top bar always has chrome when Clerk is configured')
 assert(appSrc.includes('authControls={HAS_CLERK_UI ? <ClerkAuthControls /> : null}'), 'Settings auth remains secondary')
+assert(appSrc.includes('<OrganizationSwitcher hidePersonal />'), 'Settings org switcher remains')
 assert(appSrc.includes('showClerkSignIn ? <ClerkSignInBanner /> : null'), 'signed-out banner remains')
 assert(appSrc.includes("if (!isLoaded)"), 'Settings does not flash Sign in while Clerk loads')
 assert(!appSrc.includes("path: '/sign-in'") && !appSrc.includes('"/sign-in"'), 'App does not add a /sign-in route')
 assert(!appSrc.includes('"/login"'), 'App does not add a /login route')
+assert(appSrc.includes('usePlatformActiveFeatures(persistentReady ? persistentHeaders : null)'), 'platform features do not fetch while unresolved')
+assert(appSrc.includes('if (!persistentReady || !tenantAtStart)'), 'projects fetch is gated on persistentReady')
+assert(appSrc.includes('if (!persistentReady) {\n        setHydrating(false)'), 'thread hydrate does not fetch while unresolved')
+assert(
+  appSrc.includes('buildHeaders: persistentReady ? persistentHeaders : null'),
+  'file inventory is unconfigured while unresolved'
+)
+assert(appSrc.includes('if (loading || !persistentReady) return false'), 'composer/chat cannot send while unresolved')
+
+const topBarCss = readFileSync(join(root, 'src/components/AppTopBar.css'), 'utf8')
+assert(topBarCss.includes('max-width: calc(100vw - 6.5rem)'), 'shell auth slot is viewport-bounded')
 
 const readySrc = readFileSync(join(root, 'src/auth/clerkPersistentAccess.js'), 'utf8')
 const readyFn = readySrc.split('export function isClerkPersistentSessionReady')[1].split('export function')[0]

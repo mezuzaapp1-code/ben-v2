@@ -51,6 +51,7 @@
 .app-topbar__shell-auth {
   justify-self: end;
   min-width: 0;
+  max-width: calc(100vw - 6.5rem);
 }
 
 .app-topbar__shell-auth .auth-controls {
