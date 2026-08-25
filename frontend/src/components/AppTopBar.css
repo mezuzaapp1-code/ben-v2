@@ -1,7 +1,7 @@
 .app-topbar {
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: 2.75rem 1fr 2.75rem;
+  grid-template-columns: 2.75rem minmax(0, 1fr) 2.75rem;
   align-items: center;
   gap: 0.35rem;
   min-height: 3rem;
@@ -45,11 +45,12 @@
 }
 
 .app-topbar--with-shell-auth {
-  grid-template-columns: 2.75rem 1fr auto 2.75rem;
+  grid-template-columns: 2.75rem minmax(0, 1fr) minmax(0, auto) 2.75rem;
 }
 
 .app-topbar__shell-auth {
   justify-self: end;
+  min-width: 0;
 }
 
 .app-topbar__shell-auth .auth-controls {
@@ -63,7 +64,7 @@
 }
 
 .app-topbar__brand {
-  justify-self: center;
+  justify-self: start;
   font-size: 0.78rem;
   font-weight: 650;
   letter-spacing: 0.16em;

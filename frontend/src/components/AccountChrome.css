@@ -1,0 +1,85 @@
+.account-chrome {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  min-width: 0;
+  max-width: min(100%, 22rem);
+}
+
+.account-chrome--loading,
+.account-chrome--unavailable {
+  max-width: min(100%, 16rem);
+}
+
+.account-chrome__status {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid var(--ben-border-strong, #333);
+  border-radius: 999px;
+  background: var(--ben-bg-elevated, #141414);
+  color: var(--ben-text-secondary, #aaa);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-chrome__status[aria-busy='true'] {
+  color: var(--ben-text-muted, #888);
+}
+
+.account-chrome__unavailable {
+  border-color: #6a3a3a;
+  color: #e8b4b4;
+  background: #1a1010;
+}
+
+.account-chrome__identity {
+  min-width: 0;
+  max-width: 10.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ben-text-bright, #eee);
+}
+
+.account-chrome__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.account-chrome .auth-btn {
+  width: auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.72rem;
+}
+
+.account-chrome__reload {
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .account-chrome {
+    max-width: min(100%, 13.5rem);
+  }
+
+  .account-chrome__identity {
+    max-width: 5.75rem;
+  }
+
+  .account-chrome .auth-btn {
+    padding: 0.28rem 0.42rem;
+  }
+}

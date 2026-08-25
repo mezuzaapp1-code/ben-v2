@@ -39,6 +39,7 @@ import {
   isClerkPersistentSessionReady,
   shouldShowClerkSignIn,
 } from './auth/clerkPersistentAccess.js'
+import { AccountChrome } from './components/AccountChrome.jsx'
 import { useBetaSession } from './auth/BetaSessionContext.jsx'
 import {
   DRAFT_PREFIX,
@@ -277,8 +278,17 @@ function OrgRecoveryBanner({ banner, onDismiss }) {
 }
 
 function ClerkAuthControlsInner({ variant = 'settings' }) {
-  const { isSignedIn } = useAuth()
+  const { isLoaded, isSignedIn } = useAuth()
   if (variant === 'shell' && isSignedIn) return null
+  if (!isLoaded) {
+    return (
+      <div className={`auth-controls${variant === 'shell' ? ' auth-controls--shell' : ''}`}>
+        <p className="account-chrome__status" aria-busy="true">
+          Checking account…
+        </p>
+      </div>
+    )
+  }
   return (
     <div className={`auth-controls${variant === 'shell' ? ' auth-controls--shell' : ''}`}>
       {isSignedIn ? (
@@ -2495,9 +2505,7 @@ function App() {
         onSettingsClose={closeSettings}
         settingsPanelRef={settingsPanelRef}
         authControls={HAS_CLERK_UI ? <ClerkAuthControls /> : null}
-        shellAuth={
-          showClerkSignIn ? <ClerkAuthControls variant="shell" /> : null
-        }
+        shellAuth={HAS_CLERK_UI ? <AccountChrome /> : null}
       />
 
       <div className="app-layout">
