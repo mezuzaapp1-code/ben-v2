@@ -2629,23 +2629,11 @@ function App() {
                 ? getSpeakingProviderById(m.provider_id)?.accent
                 : undefined
             const messageDir = getMessageTextDirection(messageTextForDirection(m))
-            const messageDirClass = messageDir === 'rtl' ? 'bubble-wrap--rtl' : 'bubble-wrap--ltr'
             return (
             <div
               key={i}
-              dir={messageDir}
-              className={`bubble-wrap ${m.role} ${messageDirClass}${m.kind === 'council_synthesis' || m.kind === 'adhoc_synthesis' ? ' synthesis-wrap' : ''}${m.kind === 'action_card' ? ' action-card-wrap' : ''}`}
+              className={`bubble-wrap ${m.role}${m.kind === 'council_synthesis' || m.kind === 'adhoc_synthesis' ? ' synthesis-wrap' : ''}${m.kind === 'action_card' ? ' action-card-wrap' : ''}`}
             >
-              <div
-                className="bubble-stack"
-                style={{
-                  maxWidth: m.kind === 'action_card' ? 'min(440px, 94%)' : 'min(72ch, 92%)',
-                  width: 'fit-content',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: messageDir === 'rtl' ? 'flex-end' : 'flex-start',
-                }}
-              >
               {m.kind === 'action_card' ? (
                 <ActionCard
                   cardType={m.card_type}
@@ -2658,8 +2646,8 @@ function App() {
                   onCertCapture={handleCertCapture}
                 />
               ) : m.kind === 'receipt_upload' ? (
-                <div className="bubble user receipt-upload-bubble" dir={messageDir}>
-                  <div className="bubble-text">{m.content}</div>
+                <div className="bubble user receipt-upload-bubble">
+                  <div className="bubble-text" dir={messageDir}>{m.content}</div>
                   {m.preview_url ? (
                     <div className="receipt-upload-preview">
                       <img src={m.preview_url} alt="Uploaded invoice" loading="lazy" />
@@ -2669,7 +2657,7 @@ function App() {
               ) : m.kind === 'file_upload' || m.kind === 'file_library' ? (
                 <FileLifecycleBubble message={m} />
               ) : m.kind === 'council_synthesis' || m.kind === 'adhoc_synthesis' ? (
-                <div className="bubble synthesis assistant" dir={messageDir}>
+                <div className="bubble synthesis assistant">
                   <ChatMarkdown content={synthesisBubbleContent(m)} />
                   {m.synthesis ? (
                     <SynthesisReasoningExtras
@@ -2697,12 +2685,11 @@ function App() {
               ) : (
                 <div
                   className={`bubble ${m.role}${m.kind === 'council_error' ? ' council-error' : ''}${m.kind === 'api_error' ? ' api-error' : ''}${m.kind === 'adhoc_expert' ? ' adhoc-expert' : ''}`}
-                  dir={messageDir}
                   style={
                     providerAccent
                       ? {
-                          borderInlineStart: `3px solid ${providerAccent}`,
-                          paddingInlineStart: '0.65rem',
+                          borderLeft: `3px solid ${providerAccent}`,
+                          paddingLeft: '0.65rem',
                         }
                       : undefined
                   }
@@ -2715,7 +2702,7 @@ function App() {
                             {formatPasteChipLabel(part)}
                           </div>
                         ) : part.text ? (
-                          <div key={`text-${partIndex}`} className="bubble-text">
+                          <div key={`text-${partIndex}`} className="bubble-text" dir={getMessageTextDirection(part.text)}>
                             {part.text}
                           </div>
                         ) : null
@@ -2724,7 +2711,7 @@ function App() {
                   ) : shouldRenderAssistantMarkdown(m) ? (
                     <ChatMarkdown content={m.content} />
                   ) : (
-                    <div className="bubble-text">{m.content}</div>
+                    <div className="bubble-text" dir={messageDir}>{m.content}</div>
                   )}
                   {isStandardChatAssistant(m) && m.used_files?.length ? (
                     <div className="used-files">
@@ -2771,7 +2758,6 @@ function App() {
                   }
                 />
               ) : null}
-              </div>
             </div>
             )
           })}

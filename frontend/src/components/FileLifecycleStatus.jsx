@@ -7,6 +7,7 @@ import {
   processingPercent,
   visualFileStage,
 } from '../lib/fileStatus.js'
+import { getMessageTextDirection } from '../lib/markdownDirection.js'
 import { useWorkspaceFileInventory } from '../hooks/useWorkspaceFileInventory.jsx'
 import './FileLifecycleStatus.css'
 
@@ -68,7 +69,9 @@ export function FileLifecycleBubble({ message }) {
   const stage = deriveFileStage(file, { upload })
   return (
     <div className={`bubble ${message?.role || 'user'} file-lifecycle-bubble`}>
-      <div className="bubble-text file-lifecycle-bubble__name">{name}</div>
+      <div className="bubble-text file-lifecycle-bubble__name" dir={getMessageTextDirection(name)}>
+        {name}
+      </div>
       {live || message?.kind === 'file_library' ? (
         <FileLifecycleStatus file={file} upload={upload} />
       ) : (
