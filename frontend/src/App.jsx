@@ -108,7 +108,9 @@ import { DEFAULT_PROVIDER_MODELS, coerceRegisteredModel, getTier1Model } from '.
 import { getMessageTextDirection } from './lib/markdownDirection.js'
 import { singleDeleteConfirmMessage } from './lib/uiStrings.js'
 import {
+  buildFileUploadResultPatch,
   isStandardChatAssistant,
+  patchFileUploadRow,
   unavailableChatNote,
   usedFilesFromDoneEvent,
 } from './lib/fileStatus.js'
@@ -1741,6 +1743,14 @@ function App() {
     )
   }, [])
 
+  const updateFileUploadRow = useCallback((tid, localId, patch) => {
+    setThreads((prev) =>
+      prev.map((t) =>
+        t.id === tid ? { ...t, messages: patchFileUploadRow(t.messages, localId, patch), loaded: true } : t
+      )
+    )
+  }, [])
+
   const handleExpertOpinion = useCallback(
     async ({ anchorIndex, anchorMessageId, providerId, opinionMode }) => {
       if (loading || anchorMessageId == null || anchorIndex == null) return
@@ -1870,26 +1880,11 @@ function App() {
         })
         const status = result?.status || 'uploaded'
         const failed = status === 'failed'
-        appendThreadMessages(tid, [
-          {
-            role: 'assistant',
-            kind: failed ? 'api_error' : 'file_library',
-            content: failed
-              ? `Upload failed: ${result?.failure_message || result?.failure_code || 'processing error'}`
-              : `Saved to Workspace Files: ${result?.display_name || file.name}`,
-            file_id: result?.id,
-            file_name: result?.display_name || file.name,
-            file_status: status,
-            processing_stage: result?.processing_stage,
-            job_status: result?.job_status,
-            extraction_status: result?.extraction_status,
-            index_status: result?.index_status,
-            failure_message: result?.failure_message,
-            workspace_id: result?.workspace_id || activeProjectId,
-            model_used: '',
-            cost_usd: 0,
-          },
-        ])
+        updateFileUploadRow(
+          tid,
+          localId,
+          buildFileUploadResultPatch(result, { fileName: file.name, workspaceId: activeProjectId })
+        )
         if (!failed && result?.id && isVisionImageFile({ type: result?.media_type || file.type, name: result?.display_name || file.name })) {
           setComposerParts((prev) =>
             appendFileRefPart(prev, {
@@ -1900,15 +1895,15 @@ function App() {
         }
       } catch (e) {
         const parsed = parseBenErrorResponse(e.status, e.data)
-        appendThreadMessages(tid, [
-          {
-            role: 'assistant',
-            kind: 'api_error',
-            content: parsed?.message || e.message || 'File upload failed.',
-            model_used: '',
-            cost_usd: 0,
-          },
-        ])
+        updateFileUploadRow(
+          tid,
+          localId,
+          buildFileUploadResultPatch(null, {
+            fileName: file.name,
+            workspaceId: activeProjectId,
+            errorMessage: parsed?.message || e.message || 'File upload failed.',
+          })
+        )
       } finally {
         setFileUploading(false)
       }
@@ -1923,6 +1918,7 @@ function App() {
       newThread,
       persistentReady,
       threads,
+      updateFileUploadRow,
     ]
   )
 

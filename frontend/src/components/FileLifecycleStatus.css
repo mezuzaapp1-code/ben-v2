@@ -79,7 +79,9 @@
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.45rem 0.75rem;
+  gap: 0.35rem 0.65rem;
+  width: 100%;
+  padding: 0.15rem 0;
 }
 
 .file-lifecycle-bubble__name {
