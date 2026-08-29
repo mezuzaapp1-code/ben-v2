@@ -8,6 +8,7 @@ import {
   selectAllLabel,
 } from '../lib/uiStrings.js'
 import { filterThreadsForWorkspace } from '../lib/threadWorkspace.js'
+import { publicConversationTitle } from '../lib/largePaste.js'
 import { useUiLocale } from '../hooks/useUiLocale.js'
 import './NavDrawer.css'
 
@@ -138,6 +139,7 @@ export function NavDrawerHistory({
       <ul className="thread-list">
         {visibleThreads.map((t) => {
           const checked = selectedThreadIds.includes(t.id)
+          const threadTitle = publicConversationTitle(t.title)
           return (
             <li
               key={t.id}
@@ -151,7 +153,7 @@ export function NavDrawerHistory({
                   disabled={disabled || bulkDeleting}
                   onChange={(e) => toggleThreadSelection(t.id, e.target.checked)}
                   onClick={(e) => e.stopPropagation()}
-                  aria-label={t.title}
+                  aria-label={threadTitle}
                 />
               </label>
               <button
@@ -160,7 +162,7 @@ export function NavDrawerHistory({
                 onClick={() => onSelectThread?.(t.id)}
                 disabled={bulkDeleting}
               >
-                {t.title}
+                {threadTitle}
               </button>
             </li>
           )

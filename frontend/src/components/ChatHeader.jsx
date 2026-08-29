@@ -7,6 +7,7 @@ import {
   promoteToProjectLabel,
 } from '../lib/uiStrings.js'
 import { useUiLocale } from '../hooks/useUiLocale.js'
+import { publicConversationTitle } from '../lib/largePaste.js'
 import { PromoteProjectModal } from './PromoteProjectModal.jsx'
 import './ChatHeader.css'
 
@@ -26,7 +27,7 @@ export function ChatHeader({
 
   if (!visible) return null
 
-  const displayTitle = (title || 'Conversation').trim() || 'Conversation'
+  const displayTitle = publicConversationTitle(title)
 
   return (
     <>

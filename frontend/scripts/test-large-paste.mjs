@@ -23,8 +23,10 @@ import {
   formatPasteChipLabel,
   hasFileRef,
   insertLargePasteAtCursor,
+  instructionTextFromParts,
   isVisionImageFile,
   providerExpansionError,
+  publicConversationTitle,
   shouldCreateLargePaste,
   unwrapLargePaste,
   visibleUserTurnText,
@@ -258,6 +260,43 @@ assert(LARGE_PASTE_PROVIDER_MAX_CHARS === 400000, 'provider refuse 400000')
   assert(app.includes('visibleUserTurnText(m)'), 'conversation uses visible user-turn text')
   assert(app.includes('content={m.role === \'user\' ? visibleUserTurnText(m) : m.content}'), 'Copy uses visible user-turn text')
   assert(!app.includes('bubble-large-paste'), 'App no longer renders a sent paste chip')
+  assert(
+    app.includes("instructionTextFromParts(snapshot).trim().slice(0, 48) || 'Conversation'"),
+    'new thread titles come from instruction text',
+  )
+  assert(!/title:\s*display\.slice/.test(app), 'new thread titles are not derived from display stubs')
+}
+
+{
+  const paste = 'BODY'.repeat(4000)
+  const pasteOnly = [{ type: 'large_paste', id: 'only', text: paste, char_count: paste.length }]
+  const withInstruction = [
+    { type: 'text', text: 'Summarize the contract risks' },
+    { type: 'large_paste', id: 'p', text: paste, char_count: paste.length },
+  ]
+  const pasteOnlyTitle = instructionTextFromParts(pasteOnly).trim().slice(0, 48) || 'Conversation'
+  const instructionTitle = instructionTextFromParts(withInstruction).trim().slice(0, 48) || 'Conversation'
+  assert(pasteOnlyTitle === 'Conversation', 'paste-only turn titles Conversation')
+  assert(instructionTitle === 'Summarize the contract risks', 'instruction + paste titles from instruction')
+  assert(!instructionTitle.includes('Large paste'), 'new title never uses the stub')
+  assert(publicConversationTitle(formatLargePasteStub(17292)) === 'Conversation', 'historical stub title is sanitized')
+  assert(
+    publicConversationTitle(`Review this.${formatLargePasteStub(17292)}`) === 'Review this.',
+    'historical mixed title keeps instruction',
+  )
+  assert(publicConversationTitle('Normal question about retrieval') === 'Normal question about retrieval', 'normal title unchanged')
+  assert(publicConversationTitle('  ') === 'Conversation', 'blank title falls back')
+  assert(publicConversationTitle(`[Large paste · 17,292 charact`) === 'Conversation', 'sliced historical stub is sanitized')
+}
+
+{
+  const header = readFileSync(join(root, 'src/components/ChatHeader.jsx'), 'utf8')
+  const nav = readFileSync(join(root, 'src/components/NavDrawer.jsx'), 'utf8')
+  const headerCss = readFileSync(join(root, 'src/components/ChatHeader.css'), 'utf8')
+  assert(header.includes('publicConversationTitle(title)'), 'header sanitizes conversation title')
+  assert(nav.includes('publicConversationTitle(t.title)'), 'history sanitizes thread titles')
+  assert(/position:\s*sticky/.test(headerCss), 'chat-header sticky behavior unchanged')
+  assert(header.includes('className="chat-header"'), 'header chrome class unchanged')
 }
 
 console.log('PASS large paste v1 composer + encode/decode + focus isolation')

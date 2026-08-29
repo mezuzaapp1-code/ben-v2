@@ -201,9 +201,9 @@ def provider_expansion_too_large(expanded: str) -> str | None:
 
 
 def thread_title_from_user_message(content: str) -> str:
-    decoded = decode_message("user", content)
-    display = str(decoded.get("content") or content).strip()
-    return (display[:512] or "Chat")[:512]
+    """Persist instruction text only — never a Large Paste stub as the thread title."""
+    instruction = user_turn_instruction_text(content).strip()
+    return (instruction[:512] or "Conversation")[:512]
 
 from services.providers.speaking_registry import (
     gateway_to_provider_id as _registry_gateway_to_provider_id,
