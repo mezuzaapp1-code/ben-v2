@@ -139,4 +139,24 @@ assert(
 assert(appCss.includes('@media (max-width: 720px)'), 'narrow screens tighten conversation gutter')
 assert(appCss.includes('--conversation-gutter: 1rem'), 'mobile gutter uses the shared token')
 
+{
+  const headerCss = read('src/components/ChatHeader.css')
+  const scrollerStart = appJsx.indexOf('className="messages"')
+  const composerStart = appJsx.indexOf('className="composer-footer"')
+  const conversationFlow = appJsx.slice(scrollerStart, composerStart)
+  assert(scrollerStart >= 0 && composerStart > scrollerStart, 'messages scroller precedes composer')
+  assert(conversationFlow.includes('<ChatHeader'), 'ChatHeader stays inside the conversation scroller')
+  assert(
+    conversationFlow.includes('className="chat-centered-channel"'),
+    'ChatHeader stays in the conversation channel',
+  )
+  assert(!/position:\s*(sticky|fixed)/.test(headerCss), 'ChatHeader is in-flow, not sticky or fixed')
+  assert(!headerCss.includes('box-shadow'), 'ChatHeader is not a floating overlay panel')
+  assert(/overflow-y:\s*auto/.test(appCss.match(/\.messages \{[\s\S]*?\}/)[0]), 'conversation scroller overflow is unchanged')
+  assert(
+    /position:\s*absolute[\s\S]*left:\s*0[\s\S]*right:\s*0[\s\S]*bottom:\s*0/.test(appCss),
+    'composer remains anchored at the bottom',
+  )
+}
+
 console.log('conversation-surface OK')
