@@ -1,21 +1,24 @@
 .account-chrome {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 0.4rem;
+  justify-content: flex-start;
+  gap: 0.45rem;
   min-width: 0;
   max-width: 100%;
 }
 
 .account-chrome--loading,
-.account-chrome--unavailable {
-  max-width: min(100%, 16rem);
+.account-chrome--unavailable,
+.account-chrome--signed-out {
+  width: 100%;
 }
 
 .account-chrome__status {
   display: inline-flex;
   align-items: center;
   min-width: 0;
+  max-width: 100%;
   margin: 0;
   padding: 0.28rem 0.55rem;
   border: 1px solid var(--ben-border-strong, #333);
@@ -40,9 +43,29 @@
   background: #1a1010;
 }
 
+.account-chrome__trigger {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0.15rem 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: start;
+}
+
+.account-chrome__trigger:focus-visible {
+  outline: 2px solid var(--ben-accent-blue);
+  outline-offset: 2px;
+  border-radius: 0.35rem;
+}
+
 .account-chrome__identity {
   min-width: 0;
-  max-width: 10.5rem;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -51,18 +74,27 @@
   color: var(--ben-text-bright, #eee);
 }
 
-.account-chrome__actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  flex-shrink: 0;
+.account-chrome__menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 0.4rem);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.45rem;
+  border-radius: 0.65rem;
+  border: 1px solid var(--ben-border-strong);
+  background: var(--ben-bg-elevated);
+  box-shadow: 0 10px 28px var(--ben-shadow-composer);
 }
 
-.app-topbar__shell-auth .account-chrome .auth-btn {
-  width: auto;
+.account-chrome__menu .auth-btn {
+  width: 100%;
   min-width: 0;
   margin: 0;
-  padding: 0.28rem 0.55rem;
+  padding: 0.35rem 0.55rem;
   font-size: 0.72rem;
 }
 
@@ -70,24 +102,25 @@
   flex-shrink: 0;
 }
 
+.nav-drawer__footer .account-chrome .auth-btn {
+  width: auto;
+  min-width: 0;
+}
+
+.nav-drawer__footer .account-chrome--signed-out .auth-btn,
+.nav-drawer__footer .account-chrome--unavailable .auth-btn {
+  width: 100%;
+}
+
 @media (max-width: 640px) {
   .account-chrome--signed-in {
     flex-wrap: wrap;
     row-gap: 0.2rem;
-    max-width: min(100%, 12rem);
+    max-width: 100%;
   }
 
   .account-chrome__identity {
     flex: 1 1 auto;
     max-width: 7.25rem;
-  }
-
-  .account-chrome__actions {
-    flex: 1 1 100%;
-    justify-content: flex-end;
-  }
-
-  .app-topbar__shell-auth .account-chrome .auth-btn {
-    padding: 0.28rem 0.42rem;
   }
 }

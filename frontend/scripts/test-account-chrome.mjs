@@ -198,10 +198,24 @@ const cssSrc = readFileSync(join(root, 'src/components/AccountChrome.css'), 'utf
 assert(cssSrc.includes('text-overflow: ellipsis'), 'identity truncates')
 assert(cssSrc.includes('flex-wrap: wrap'), 'narrow signed-in chrome wraps instead of overflowing')
 assert(cssSrc.includes('max-width: 7.25rem') || cssSrc.includes('max-width: 5.75rem'), 'mobile identity max-width is tight')
-assert(cssSrc.includes('max-width: 100%'), 'chrome cannot exceed top-bar slot')
+assert(cssSrc.includes('max-width: 100%'), 'chrome cannot exceed sidebar footer')
+assert(cssSrc.includes('account-chrome__menu'), 'signed-in actions live in a disclosure menu')
+assert(chromeSrc.includes('account-chrome__trigger'), 'account row discloses Sign out / Switch account')
+assert(chromeSrc.includes('aria-haspopup="menu"'), 'account trigger is a menu button')
+
+const drawerSrc = readFileSync(join(root, 'src/components/NavDrawer.jsx'), 'utf8')
+const drawerCss = readFileSync(join(root, 'src/components/NavDrawer.css'), 'utf8')
+assert(drawerSrc.includes('nav-drawer__footer'), 'drawer has a persistent footer slot')
+assert(drawerCss.includes('.nav-drawer__footer'), 'footer is styled outside the scrolling body')
+assert(drawerCss.includes('flex-shrink: 0'), 'footer does not scroll with history')
+assert(drawerCss.includes('.nav-drawer__body'), 'sidebar content still scrolls in the body')
 
 const appSrc = readFileSync(join(root, 'src/App.jsx'), 'utf8')
-assert(appSrc.includes('shellAuth={HAS_CLERK_UI ? <AccountChrome /> : null}'), 'top bar always has chrome when Clerk is configured')
+assert(
+  appSrc.includes('footer={HAS_CLERK_UI ? <AccountChrome /> : null}'),
+  'sidebar footer owns account chrome when Clerk is configured'
+)
+assert(!appSrc.includes('shellAuth='), 'account chrome is not mounted in the top bar')
 assert(appSrc.includes('authControls={HAS_CLERK_UI ? <ClerkAuthControls /> : null}'), 'Settings auth remains secondary')
 assert(appSrc.includes('<OrganizationSwitcher hidePersonal />'), 'Settings org switcher remains')
 assert(appSrc.includes('showClerkSignIn ? <ClerkSignInBanner /> : null'), 'signed-out banner remains')
@@ -217,8 +231,10 @@ assert(
 )
 assert(appSrc.includes('if (loading || !persistentReady) return false'), 'composer/chat cannot send while unresolved')
 
+const topBarSrc = readFileSync(join(root, 'src/components/AppTopBar.jsx'), 'utf8')
 const topBarCss = readFileSync(join(root, 'src/components/AppTopBar.css'), 'utf8')
-assert(topBarCss.includes('max-width: calc(100vw - 6.5rem)'), 'shell auth slot is viewport-bounded')
+assert(!topBarSrc.includes('shellAuth'), 'AppTopBar no longer accepts shell auth')
+assert(!topBarCss.includes('app-topbar__shell-auth'), 'top bar has no auth slot')
 
 const readySrc = readFileSync(join(root, 'src/auth/clerkPersistentAccess.js'), 'utf8')
 const readyFn = readySrc.split('export function isClerkPersistentSessionReady')[1].split('export function')[0]

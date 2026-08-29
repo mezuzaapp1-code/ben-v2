@@ -71,7 +71,9 @@ assert(
 
 assert(!/bubble-wrap[^>]{0,200}dir=/.test(appJsx), 'bubble wrap never carries content dir')
 assert(/<div className="bubble-text" dir=\{messageDir\}>/.test(appJsx), 'plain text dir is content-level')
-assert(appJsx.includes('dir={getMessageTextDirection(part.text)}'), 'Large Paste text parts get per-part dir')
+assert(appJsx.includes('visibleUserTurnText(m)'), 'sent Large Paste renders as normal user-turn text')
+assert(!appJsx.includes('bubble-large-paste'), 'sent conversation has no Large Paste chip')
+assert(!appJsx.includes('formatPasteChipLabel'), 'sent conversation does not use paste chip labels')
 
 {
   const renderStart = appJsx.indexOf('shouldRenderAssistantMarkdown')

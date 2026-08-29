@@ -155,6 +155,19 @@ export function displayTextFromParts(parts) {
     .join('')
 }
 
+/** Sent-conversation body: actual text + Large Paste bodies. Never a stub/chip. */
+export function visibleUserTurnText(message) {
+  const parts = Array.isArray(message?.parts) ? message.parts : null
+  if (parts) {
+    const body = parts
+      .filter((part) => part?.type === 'text' || part?.type === 'large_paste')
+      .map((part) => String(part.text || ''))
+      .join('')
+    if (body) return body
+  }
+  return String(message?.content ?? '')
+}
+
 export function expandPartsForProvider(parts) {
   return (parts || [])
     .filter((part) => part?.type === 'text' || part?.type === 'large_paste')

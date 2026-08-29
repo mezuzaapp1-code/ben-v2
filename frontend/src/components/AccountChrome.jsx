@@ -1,5 +1,5 @@
 import { SignInButton, SignOutButton, UserButton, useAuth, useClerk, useUser } from '@clerk/clerk-react'
-import { Component, useEffect, useState } from 'react'
+import { Component, useEffect, useRef, useState } from 'react'
 import {
   ACCOUNT_CHROME_LOAD_TIMEOUT_MS,
   ACCOUNT_CHROME_STATES,
@@ -7,6 +7,7 @@ import {
   resolveAccountChromeState,
   switchAccountAfterSignOut,
 } from '../auth/clerkPersistentAccess.js'
+import { useDismissOnOutside } from '../hooks/useDismissOnOutside.js'
 import './AccountChrome.css'
 
 class AccountChromeErrorBoundary extends Component {
@@ -48,15 +49,26 @@ function SignedInChrome() {
   const clerk = useClerk()
   const { user } = useUser()
   const [switching, setSwitching] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const rootRef = useRef(null)
+  const triggerRef = useRef(null)
   const label = publicAccountLabel({
     emailAddress: user?.primaryEmailAddress?.emailAddress || '',
     fullName: user?.fullName || '',
     firstName: user?.firstName || '',
   })
 
+  useDismissOnOutside({
+    open: menuOpen,
+    onDismiss: () => setMenuOpen(false),
+    containerRef: rootRef,
+    triggerRef,
+  })
+
   const handleSwitchAccount = async () => {
     if (switching) return
     setSwitching(true)
+    setMenuOpen(false)
     try {
       await switchAccountAfterSignOut(clerk)
     } catch {
@@ -65,26 +77,42 @@ function SignedInChrome() {
   }
 
   return (
-    <div className="account-chrome account-chrome--signed-in" data-account-chrome="signed_in">
+    <div
+      ref={rootRef}
+      className="account-chrome account-chrome--signed-in"
+      data-account-chrome="signed_in"
+    >
       <UserButton appearance={{ elements: { userButtonAvatarBox: { width: '1.65rem', height: '1.65rem' } } }} />
-      <span className="account-chrome__identity" title={label}>
-        {label}
-      </span>
-      <div className="account-chrome__actions">
-        <SignOutButton>
-          <button type="button" className="auth-btn">
-            Sign out
+      <button
+        ref={triggerRef}
+        type="button"
+        className="account-chrome__trigger"
+        aria-expanded={menuOpen}
+        aria-haspopup="menu"
+        onClick={() => setMenuOpen((open) => !open)}
+      >
+        <span className="account-chrome__identity" title={label}>
+          {label}
+        </span>
+      </button>
+      {menuOpen ? (
+        <div className="account-chrome__menu" role="menu">
+          <SignOutButton>
+            <button type="button" className="auth-btn" role="menuitem">
+              Sign out
+            </button>
+          </SignOutButton>
+          <button
+            type="button"
+            className="auth-btn"
+            role="menuitem"
+            onClick={handleSwitchAccount}
+            disabled={switching}
+          >
+            {switching ? 'Switching…' : 'Switch account'}
           </button>
-        </SignOutButton>
-        <button
-          type="button"
-          className="auth-btn"
-          onClick={handleSwitchAccount}
-          disabled={switching}
-        >
-          {switching ? 'Switching…' : 'Switch account'}
-        </button>
-      </div>
+        </div>
+      ) : null}
     </div>
   )
 }
