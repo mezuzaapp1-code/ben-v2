@@ -1,7 +1,4 @@
 .chat-header {
-  position: sticky;
-  top: 0;
-  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -11,7 +8,6 @@
   margin-bottom: 0.15rem;
   background: var(--ben-bg);
   border-bottom: 1px solid var(--ben-border);
-  box-shadow: 0 1px 0 var(--ben-border), 0 6px 16px rgba(0, 0, 0, 0.18);
   flex-shrink: 0;
 }
 
