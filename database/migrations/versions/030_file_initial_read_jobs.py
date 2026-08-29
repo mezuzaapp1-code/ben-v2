@@ -17,6 +17,9 @@ depends_on = None
 T = "document_processing_jobs"
 SYSTEM_ROLE = "ben_doc_processor"
 
+# Same production historical quarantine as 027 / ingest_eligibility.py.
+# Recreated claim functions must keep the denylist or a CREATE OR REPLACE
+# would drop the protection. Not a new IR-specific exception.
 _HIST_A = "43cef794-1fff-40ae-bd3c-47d9fc121518"
 _HIST_B = "0bbd0dd0-cfd9-4ef4-a3b9-c1e96bef83a4"
 _DENY = (
@@ -30,12 +33,15 @@ _EXTRACTION = (
     "c.job_type IN ('file_extraction', 'structured_extraction')"
 )
 _IR = "c.job_type = 'file_initial_read'"
+_IR_E = "e.job_type = 'file_initial_read'"
 
 _CLAIM_IR = "claim_file_initial_read_jobs"
 _CLAIM_IR_FILE = "claim_file_initial_read_job_for_file"
+_REAP_IR = "reap_expired_file_initial_read_jobs"
 _SYNC_FAILED = "sync_failed_file_initial_reads"
 _CLAIM_IR_ARGS = "text, integer, integer"
 _CLAIM_IR_FILE_ARGS = "text, integer, uuid"
+_REAP_IR_ARGS = "integer, integer, integer"
 _SYNC_ARGS = ""
 
 
@@ -51,6 +57,9 @@ def upgrade() -> None:
         """
     )
     op.execute(f"GRANT {SYSTEM_ROLE} TO CURRENT_USER")
+    op.execute(f"GRANT USAGE ON SCHEMA {SCHEMA} TO {SYSTEM_ROLE}")
+    op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON {SCHEMA}.{T} TO {SYSTEM_ROLE}")
+    op.execute(f"GRANT SELECT, UPDATE ON {SCHEMA}.workspace_files TO {SYSTEM_ROLE}")
 
     # Extraction drains must never claim Initial Read jobs (LLM is a separate drain).
     op.execute(
@@ -242,6 +251,49 @@ def upgrade() -> None:
         $$;
         """
     )
+    # Dedicated IR reaper: generic reap requires runner_eligible and would miss
+    # chat-originated jobs marked ineligible. Extraction reap stays untouched.
+    op.execute(
+        f"""
+        CREATE OR REPLACE FUNCTION {SCHEMA}.{_REAP_IR}(
+            p_base_seconds integer DEFAULT 30, p_cap_seconds integer DEFAULT 3600,
+            p_limit integer DEFAULT 100)
+        RETURNS TABLE(job_id uuid, outcome text)
+        LANGUAGE plpgsql SECURITY DEFINER SET search_path = {SCHEMA}, pg_temp AS $$
+        BEGIN
+            RETURN QUERY
+            WITH expired AS (
+                SELECT e.id, e.attempts, e.max_attempts
+                  FROM {SCHEMA}.{T} e
+                 WHERE e.status = 'running' AND e.lease_expires_at < now()
+                   AND {_IR_E}
+                   AND {_DENY_E}
+                 ORDER BY e.lease_expires_at
+                 FOR UPDATE SKIP LOCKED
+                 LIMIT p_limit
+            ), upd AS (
+                UPDATE {SCHEMA}.{T} j
+                   SET status = CASE WHEN e.attempts >= j.max_attempts THEN 'failed' ELSE 'queued' END,
+                       available_at = CASE WHEN e.attempts >= j.max_attempts THEN j.available_at
+                            ELSE now() + make_interval(secs => LEAST(
+                                 p_cap_seconds,
+                                 (p_base_seconds * power(2, GREATEST(e.attempts - 1, 0)))::int)) END,
+                       claimed_at = NULL,
+                       lease_expires_at = NULL,
+                       worker_id = NULL,
+                       last_error_code = CASE WHEN e.attempts >= j.max_attempts
+                            THEN 'max_attempts_exceeded' ELSE 'lease_expired' END,
+                       last_error_detail = 'reaped expired lease',
+                       updated_at = now()
+                  FROM expired e
+                 WHERE j.id = e.id
+                 RETURNING j.id, j.status
+            )
+            SELECT upd.id, upd.status FROM upd;
+        END;
+        $$;
+        """
+    )
     op.execute(
         f"""
         CREATE OR REPLACE FUNCTION {SCHEMA}.{_SYNC_FAILED}()
@@ -279,8 +331,13 @@ def upgrade() -> None:
     )
 
     for fn, args in (
+        ("claim_document_processing_jobs", "text, integer, integer"),
+        ("claim_document_processing_jobs_for_eligible", "text, integer, integer"),
+        ("claim_document_processing_job_for_file", "text, integer, uuid"),
+        ("claim_document_processing_jobs_for_allowlist", "text, integer, integer, uuid[], uuid[]"),
         (_CLAIM_IR, _CLAIM_IR_ARGS),
         (_CLAIM_IR_FILE, _CLAIM_IR_FILE_ARGS),
+        (_REAP_IR, _REAP_IR_ARGS),
         (_SYNC_FAILED, _SYNC_ARGS),
     ):
         op.execute(f"ALTER FUNCTION {SCHEMA}.{fn}({args}) OWNER TO {SYSTEM_ROLE}")
@@ -308,6 +365,9 @@ def upgrade() -> None:
               'GRANT EXECUTE ON FUNCTION {SCHEMA}.{_CLAIM_IR_FILE}({_CLAIM_IR_FILE_ARGS}) TO %I',
               r.grantee);
             EXECUTE format(
+              'GRANT EXECUTE ON FUNCTION {SCHEMA}.{_REAP_IR}({_REAP_IR_ARGS}) TO %I',
+              r.grantee);
+            EXECUTE format(
               'GRANT EXECUTE ON FUNCTION {SCHEMA}.{_SYNC_FAILED}() TO %I',
               r.grantee);
           END LOOP;
@@ -318,8 +378,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drops IR claim/reap/sync functions. Extraction claim replacements stay
+    (job_type filter is strictly narrower). Production policy is upgrade-only.
+    """
     op.execute(f"GRANT {SYSTEM_ROLE} TO CURRENT_USER")
     op.execute(f"DROP FUNCTION IF EXISTS {SCHEMA}.{_SYNC_FAILED}()")
+    op.execute(f"DROP FUNCTION IF EXISTS {SCHEMA}.{_REAP_IR}({_REAP_IR_ARGS})")
     op.execute(f"DROP FUNCTION IF EXISTS {SCHEMA}.{_CLAIM_IR_FILE}({_CLAIM_IR_FILE_ARGS})")
     op.execute(f"DROP FUNCTION IF EXISTS {SCHEMA}.{_CLAIM_IR}({_CLAIM_IR_ARGS})")
     op.execute(f"REVOKE {SYSTEM_ROLE} FROM CURRENT_USER")

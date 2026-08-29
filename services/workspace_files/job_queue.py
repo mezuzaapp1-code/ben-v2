@@ -353,6 +353,27 @@ async def reap_expired_jobs(
     return reaped
 
 
+async def reap_expired_file_initial_read_jobs(
+    *, base_seconds: int = RETRY_BASE_SECONDS, cap_seconds: int = RETRY_CAP_SECONDS, limit: int = 100
+) -> list[dict[str, Any]]:
+    """Reap expired file_initial_read leases only. Does not require runner_eligible."""
+    async with get_db_session() as session:
+        rows = (
+            await session.execute(
+                text("SELECT * FROM ben.reap_expired_file_initial_read_jobs(:b, :c, :n)"),
+                {"b": base_seconds, "c": cap_seconds, "n": limit},
+            )
+        ).mappings().all()
+        await session.commit()
+    reaped = [_job_dict(r) for r in rows]
+    for j in reaped:
+        log_warning(
+            "processing job lease reaped", subsystem=_SUBSYSTEM, operation="reap_initial_read",
+            outcome="ok", job_id=j.get("job_id"), status=j.get("outcome"),
+        )
+    return reaped
+
+
 async def claim_jobs_for_allowlist(
     worker_id: str,
     *,

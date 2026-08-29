@@ -546,6 +546,45 @@ def test_runner_drain_and_stats_require_cron_secret_and_do_not_call_generic():
             assert generic["n"] == 0
 
 
+def test_initial_read_drain_requires_cron_secret_and_does_not_call_extraction():
+    """Dedicated IR drain is the same cron-secret gate; never extraction."""
+    ir = {"n": 0}
+    extract = {"n": 0}
+
+    async def fake_ir(*, worker_id, limit):
+        ir["n"] += 1
+        return {"claimed": 0, "worker_id": worker_id}
+
+    async def fake_extract(**_k):
+        extract["n"] += 1
+        return {"claimed": 0}
+
+    client = TestClient(main.app)
+    path = "/api/internal/documents/processing/initial-read/drain"
+    with patch(
+        "routers.document_processing.drain_file_initial_reads",
+        side_effect=fake_ir,
+    ), patch(
+        "routers.document_processing.drain_document_processing_jobs",
+        side_effect=fake_extract,
+    ), patch(
+        "routers.document_processing.drain_document_processing_jobs_for_runner",
+        side_effect=fake_extract,
+    ):
+        assert client.post(path).status_code == 503
+        assert ir["n"] == 0 and extract["n"] == 0
+        with patch.dict("os.environ", {"BEN_DOC_PROCESSING_CRON_SECRET": "cron-secret"}):
+            assert client.post(
+                path, headers={"X-BEN-Doc-Processing-Cron-Secret": "wrong"},
+            ).status_code == 401
+            ok = client.post(
+                path, headers={"X-BEN-Doc-Processing-Cron-Secret": "cron-secret"},
+            )
+            assert ok.status_code == 200
+            assert ir["n"] == 1
+            assert extract["n"] == 0
+
+
 def test_old_anonymous_fallback_no_longer_lists_shared_projects():
     """Phase 1F — old leak was unsigned GET /api/projects → BEN_ANONYMOUS_ORG_ID list.
 

@@ -28,7 +28,7 @@ from services.workspace_files.job_queue import (
     claim_file_initial_read_jobs,
     complete_job,
     enqueue_document_processing_job,
-    reap_expired_jobs,
+    reap_expired_file_initial_read_jobs,
     reap_expired_jobs_for_file,
     requeue_job,
 )
@@ -534,7 +534,7 @@ async def drain_file_initial_reads(
     }
     if reap:
         try:
-            summary["reaped"] = len(await reap_expired_jobs())
+            summary["reaped"] = len(await reap_expired_file_initial_read_jobs())
         except Exception as exc:  # noqa: BLE001
             log_warning(
                 "initial read reaper failed",

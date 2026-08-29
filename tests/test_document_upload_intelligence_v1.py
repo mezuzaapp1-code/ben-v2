@@ -659,6 +659,16 @@ def test_schedule_initial_read_never_blocks_on_llm() -> None:
     assert inspect.iscoroutinefunction(
         __import__("services.workspace_files.initial_read", fromlist=["notify_file_processed"]).notify_file_processed
     )
+    router = (ROOT / "routers" / "document_processing.py").read_text(encoding="utf-8")
+    generic_fn = router.split("async def drain_processing_jobs(", 1)[1].split("\n@", 1)[0]
+    runner_fn = router.split("async def drain_processing_jobs_for_runner(", 1)[1].split("\n@", 1)[0]
+    scoped_fn = router.split("async def drain_processing_job_for_file(", 1)[1].split("\n@", 1)[0]
+    assert "drain_file_initial_reads" not in generic_fn
+    assert "drain_file_initial_reads" not in runner_fn
+    assert "drain_file_initial_reads" not in scoped_fn
+    assert '@router.post("/processing/initial-read/drain")' in router
+    ir_fn = router.split("async def drain_initial_read_jobs(", 1)[1].split("\n@", 1)[0]
+    assert "drain_file_initial_reads(" in ir_fn
 
 
 @pytest.mark.asyncio
@@ -1018,6 +1028,118 @@ async def test_extraction_drain_requeues_initial_read_without_llm(monkeypatch):
     assert requeued == ["wrong_drain"]
     drain.complete_job.assert_not_awaited()
     run_llm.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_extraction_cron_http_does_not_invoke_initial_read_drain(monkeypatch):
+    """Gate A: extraction cron returns without calling the IR drain."""
+    from starlette.requests import Request
+
+    import routers.document_processing as dp
+
+    ir_called = {"n": 0}
+
+    async def fake_extract(*, worker_id, limit):
+        return {
+            "claimed": 1,
+            "succeeded": 1,
+            "failed": 0,
+            "requeued": 0,
+            "reaped": 0,
+            "worker_id": worker_id,
+        }
+
+    async def ir_must_not_run(**_k):
+        ir_called["n"] += 1
+        raise AssertionError("extraction cron must not await Initial Read")
+
+    monkeypatch.setattr(dp, "drain_document_processing_jobs", fake_extract)
+    monkeypatch.setattr(dp, "drain_document_processing_jobs_for_runner", fake_extract)
+    monkeypatch.setattr(dp, "drain_file_initial_reads", ir_must_not_run)
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/",
+            "headers": [(b"x-ben-doc-processing-cron-secret", b"cron-secret")],
+        }
+    )
+    with patch.dict("os.environ", {"BEN_DOC_PROCESSING_CRON_SECRET": "cron-secret"}):
+        generic = await dp.drain_processing_jobs(request, limit=5)
+        runner = await dp.drain_processing_jobs_for_runner(request, limit=5)
+    assert generic["succeeded"] == 1
+    assert runner["succeeded"] == 1
+    assert ir_called["n"] == 0
+    assert "initial_read" not in generic
+    assert "initial_read" not in runner
+
+
+@pytest.mark.asyncio
+async def test_hung_ir_llm_does_not_block_extraction_cron(monkeypatch):
+    """Gate A: LLM hang on IR drain leaves extraction cron independent; job recoverable."""
+    from services.workspace_files import initial_read
+
+    hang_started = asyncio.Event()
+    job = {
+        "job_id": str(uuid.uuid4()),
+        "org_id": str(ORG_A),
+        "workspace_id": str(WS_A),
+        "file_id": str(FILE_A),
+        "job_type": "file_initial_read",
+        "attempts": 1,
+    }
+
+    async def hang_llm(*_a, **_k):
+        hang_started.set()
+        await asyncio.sleep(3600)
+        return {"outcome": "ok"}
+
+    async def claim(*_a, **_k):
+        return [job]
+
+    monkeypatch.setattr(initial_read, "claim_file_initial_read_jobs", claim)
+    monkeypatch.setattr(initial_read, "reap_expired_file_initial_read_jobs", AsyncMock(return_value=[]))
+    monkeypatch.setattr(initial_read, "run_initial_read", hang_llm)
+    monkeypatch.setattr(initial_read, "complete_job", AsyncMock())
+    monkeypatch.setattr(initial_read, "requeue_job", AsyncMock())
+    monkeypatch.setattr(initial_read, "sync_failed_file_initial_reads", AsyncMock(return_value=0))
+
+    extract_calls = {"n": 0}
+
+    async def fake_extract(*, worker_id, limit):
+        extract_calls["n"] += 1
+        return {
+            "claimed": 1,
+            "succeeded": 1,
+            "failed": 0,
+            "requeued": 0,
+            "reaped": 0,
+            "worker_id": worker_id,
+        }
+
+    monkeypatch.setattr(
+        "services.workspace_files.drain.drain_document_processing_jobs",
+        fake_extract,
+    )
+
+    ir_task = asyncio.create_task(
+        initial_read.drain_file_initial_reads(worker_id="ir-hang", limit=1)
+    )
+    await asyncio.wait_for(hang_started.wait(), timeout=1)
+    t0 = asyncio.get_event_loop().time()
+    from services.workspace_files.drain import drain_document_processing_jobs
+
+    summary = await drain_document_processing_jobs(worker_id="extract-cron", limit=5)
+    elapsed = asyncio.get_event_loop().time() - t0
+    assert elapsed < 1.0
+    assert summary["succeeded"] == 1
+    assert extract_calls["n"] == 1
+    assert not ir_task.done()
+    ir_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await ir_task
+    initial_read.complete_job.assert_not_awaited()
 
 
 # --------------------------------------------------------------------------- #
