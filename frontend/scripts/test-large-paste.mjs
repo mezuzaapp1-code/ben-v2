@@ -287,6 +287,12 @@ assert(LARGE_PASTE_PROVIDER_MAX_CHARS === 400000, 'provider refuse 400000')
   assert(publicConversationTitle('Normal question about retrieval') === 'Normal question about retrieval', 'normal title unchanged')
   assert(publicConversationTitle('  ') === 'Conversation', 'blank title falls back')
   assert(publicConversationTitle(`[Large paste · 17,292 charact`) === 'Conversation', 'sliced historical stub is sanitized')
+  assert(publicConversationTitle('[Large pas') === 'Conversation', 'mid-token sliced stub is sanitized')
+  assert(
+    publicConversationTitle(`${'Please review this contract carefully'}${formatLargePasteStub(17292)}`.slice(0, 48)) ===
+      'Please review this contract carefully',
+    'sliced instruction+stub title keeps instruction only',
+  )
 }
 
 {

@@ -29,7 +29,9 @@ export function formatLargePasteStub(charCount) {
 }
 
 const COMPLETE_LARGE_PASTE_STUB_RE = /\[Large paste · [^\]]+\]/g
-const INCOMPLETE_LARGE_PASTE_STUB_RE = /\[Large paste(?: ·[^\]]*)?$/
+// Historical titles used display.slice(0, 48), which can cut the stub mid-token
+// (`[Large pas`). Match any trailing prefix of the known stub from `[Large`.
+const INCOMPLETE_LARGE_PASTE_STUB_RE = /\[Large(?: p(?:a(?:s(?:t(?:e(?: ·[^\]]*)?)?)?)?)?)?$/
 
 /** Conversation chrome only. Never expose a Large Paste stub as a thread title. */
 export function publicConversationTitle(title) {
