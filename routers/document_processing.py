@@ -7,6 +7,9 @@ behavior; not part of the product API surface.
 
 A separate file-id-scoped path drains exactly one WorkspaceFile without claiming
 the generic queue.
+
+Initial Read (file_initial_read) uses the same durable job table but a dedicated
+drain HTTP path so extraction cadence never waits on LLM latency.
 """
 from __future__ import annotations
 
@@ -24,6 +27,7 @@ from services.workspace_files.drain import (
     drain_document_processing_jobs_for_runner,
     runner_processing_stats,
 )
+from services.workspace_files.initial_read import drain_file_initial_reads
 
 router = APIRouter(prefix="/api/internal/documents", tags=["document-processing"])
 
@@ -33,7 +37,7 @@ async def drain_processing_jobs(
     request: Request,
     limit: int = Query(DEFAULT_DRAIN_LIMIT, ge=1, le=50),
 ):
-    """Bounded drain of durable document-processing jobs (cron-secret only)."""
+    """Bounded drain of durable extraction jobs (cron-secret only). Never runs LLM."""
     assert_doc_processing_cron(request)
     summary = await drain_document_processing_jobs(worker_id=default_worker_id(), limit=limit)
     return attach_request_id(summary)
@@ -41,7 +45,7 @@ async def drain_processing_jobs(
 
 @router.post("/processing/files/{file_id}/drain")
 async def drain_processing_job_for_file(request: Request, file_id: uuid.UUID):
-    """Drain exactly one file_id. Cron-secret only. No generic-queue fallback."""
+    """Drain exactly one file_id extraction job. Cron-secret only. No generic-queue fallback."""
     assert_doc_processing_cron(request)
     summary = await drain_document_processing_job_for_file(
         file_id, worker_id=default_worker_id(),
@@ -54,11 +58,22 @@ async def drain_processing_jobs_for_runner(
     request: Request,
     limit: int = Query(DEFAULT_DRAIN_LIMIT, ge=1, le=50),
 ):
-    """Eligible-job runner drain. Cron-secret only. Never a silent FIFO fallback."""
+    """Eligible-job runner drain. Cron-secret only. Never a silent FIFO fallback. Never LLM."""
     assert_doc_processing_cron(request)
     summary = await drain_document_processing_jobs_for_runner(
         worker_id=default_worker_id(), limit=limit,
     )
+    return attach_request_id(summary)
+
+
+@router.post("/processing/initial-read/drain")
+async def drain_initial_read_jobs(
+    request: Request,
+    limit: int = Query(DEFAULT_DRAIN_LIMIT, ge=1, le=50),
+):
+    """Bounded drain of durable file_initial_read jobs. Independent of extraction cron."""
+    assert_doc_processing_cron(request)
+    summary = await drain_file_initial_reads(worker_id=default_worker_id(), limit=limit)
     return attach_request_id(summary)
 
 

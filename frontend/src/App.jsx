@@ -89,7 +89,7 @@ import {
   ProjectLibraryOverlay,
 } from './components/ProjectLibraryOverlay.jsx'
 import { FileLifecycleBubble } from './components/FileLifecycleStatus.jsx'
-import { workspaceFileInventory } from './hooks/useWorkspaceFileInventory.jsx'
+import { useWorkspaceFileInventory, workspaceFileInventory } from './hooks/useWorkspaceFileInventory.jsx'
 import { parseNewsLocation, newsFeedPath, newsTopicPath } from './lib/newsRoutes.js'
 import { ProjectRepositoriesDashboard } from './components/ProjectRepositoriesDashboard.jsx'
 import { usePlatformActiveFeatures } from './hooks/usePlatformActiveFeatures.js'
@@ -109,7 +109,9 @@ import { getMessageTextDirection } from './lib/markdownDirection.js'
 import { singleDeleteConfirmMessage } from './lib/uiStrings.js'
 import {
   buildFileUploadResultPatch,
+  isAwaitingInitialRead,
   isStandardChatAssistant,
+  mergeInitialReadIntoMessages,
   patchFileUploadRow,
   unavailableChatNote,
   usedFilesFromDoneEvent,
@@ -553,6 +555,7 @@ function App() {
   const betaSession = useBetaSession()
   const [threads, setThreads] = useState([])
   const [activeId, setActiveId] = useState(null)
+  const fileInventory = useWorkspaceFileInventory()
   const [composerParts, setComposerParts] = useState(() => emptyComposerParts())
   const input = useMemo(() => instructionTextFromParts(composerParts), [composerParts])
   const setInput = useCallback((next) => {
@@ -888,6 +891,39 @@ function App() {
       buildHeaders: persistentReady ? persistentHeaders : null,
     })
   }, [persistentReady, activeProjectId, persistentHeaders, sessionTenantId])
+
+  useEffect(() => {
+    if (!persistentReady || !isPersistedThreadId(activeId)) return undefined
+    const rows = fileInventory.rows || []
+    const shouldFetchOverview = rows.some((row) => {
+      if (String(row?.source_chat_id || '') !== String(activeId)) return false
+      const ir = String(row?.initial_read_status || '').toLowerCase()
+      return isAwaitingInitialRead(row) || ir === 'complete' || ir === 'failed'
+    })
+    if (!shouldFetchOverview) return undefined
+    let cancelled = false
+    ;(async () => {
+      try {
+        const headers = await buildAppHeaders()
+        const data = await fetchThreadDetail(activeId, headers)
+        if (cancelled) return
+        const server = (data.messages || []).map(mapApiMessage)
+        setThreads((prev) =>
+          prev.map((t) => {
+            if (t.id !== activeId) return t
+            const merged = mergeInitialReadIntoMessages(t.messages, server)
+            if (merged === t.messages) return t
+            return { ...t, messages: merged, loaded: true }
+          })
+        )
+      } catch {
+        /* keep local lifecycle row */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [persistentReady, activeId, fileInventory.rows, buildAppHeaders])
 
   useEffect(() => {
     return () => {

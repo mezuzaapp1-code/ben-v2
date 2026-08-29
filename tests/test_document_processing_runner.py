@@ -216,9 +216,13 @@ def test_generic_drain_router_unchanged():
     assert '@router.post("/processing/runner/drain")' in src
     assert '@router.get("/processing/runner/stats")' in src
     generic_fn = src.split("async def drain_processing_jobs(", 1)[1].split("\n@", 1)[0]
+    runner_fn = src.split("async def drain_processing_jobs_for_runner(", 1)[1].split("\n@", 1)[0]
     assert "drain_document_processing_jobs(" in generic_fn
     assert "for_runner" not in generic_fn
     assert "file_ids" not in generic_fn
+    assert "drain_file_initial_reads" not in generic_fn
+    assert "drain_file_initial_reads" not in runner_fn
+    assert '@router.post("/processing/initial-read/drain")' in src
 
 
 def test_generic_claim_sql_still_unscoped_fifo():

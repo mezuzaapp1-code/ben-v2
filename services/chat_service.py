@@ -48,6 +48,14 @@ from services.ops.failure_classification import classify_failure
 from services.ops.runtime_diagnostics import attach_workspace_to_request_diagnostics
 from services.ops.structured_log import log_info, log_warning
 from services.workspace_files.service import load_ready_files_context
+from services.workspace_files.thread_sources import (
+    expire_active,
+    load_source_state,
+    log_source_state_error,
+    mutate_source_state,
+    record_standard_chat_turn,
+    restriction_file_ids,
+)
 from services.rolling_context import (
     DEFAULT_OPINION_REQUEST,
     RAW_STREAM_SYSTEM,
@@ -380,11 +388,24 @@ async def stream_chat_response(
         # text or the bounded paste stub, never the envelope or full paste body.
         if project_id is not None and vision_user_content is None:
             try:
+                # None = no pending/active source (unrestricted).
+                # [] = fail-closed empty allow-list (never dump Workspace Files).
+                restrict_arg: list[str] | None = None
+                try:
+                    await mutate_source_state(org, tid, expire_active)
+                    restrict_ids = restriction_file_ids(await load_source_state(org, tid))
+                    restrict_arg = restrict_ids if restrict_ids else None
+                except Exception as exc:  # noqa: BLE001
+                    log_source_state_error(
+                        exc, operation="load_source_restriction", file_id=""
+                    )
+                    restrict_arg = []
                 wsf = await load_ready_files_context(
                     org,
                     project_id,
                     max_chars=WORKSPACE_FILES_CONTEXT_MAX_CHARS,
                     user_query=user_turn_focus_query_source(message),
+                    restrict_to_file_ids=restrict_arg,
                 )
                 workspace_files_unavailable_count = int(wsf.unavailable_count or 0)
                 workspace_retrieval_mode = wsf.retrieval_mode
@@ -497,6 +518,21 @@ async def stream_chat_response(
     resp = "".join(parts)
     if not resolved_provider_id:
         resolved_provider_id = gateway_to_provider_id(provider_used)
+
+    # Success boundary: unused_turns / last_used_at advance only after the
+    # model produced at least one token. Error, exception, cancel, and empty
+    # streams return above or skip this block.
+    if parts and not expert_opinion and project_id is not None and vision_user_content is None:
+        try:
+            await record_standard_chat_turn(
+                org_id=org,
+                thread_id=tid,
+                used_file_ids=[item["id"] for item in workspace_files_used],
+            )
+        except Exception as exc:  # noqa: BLE001
+            log_source_state_error(
+                exc, operation="record_chat_turn_sources", file_id=""
+            )
 
     accounted = get_last_accounted_call() or {}
     stream_cost = float(accounted.get("cost_usd") or 0.0)

@@ -30,6 +30,7 @@ from services.workspace_files.job_queue import (
     DEFAULT_LEASE_SECONDS,
     DEFAULT_MAX_ATTEMPTS,
     JOB_TYPE_FILE_EXTRACTION,
+    JOB_TYPE_FILE_INITIAL_READ,
     JOB_TYPE_STRUCTURED_EXTRACTION,
     claim_job_for_file,
     claim_jobs,
@@ -139,6 +140,12 @@ async def _run_claimed_jobs(
         attempts = int(job.get("attempts") or 0)
         jtype = str(job.get("job_type") or "")
 
+        if jtype == JOB_TYPE_FILE_INITIAL_READ:
+            # Extraction drain must never run the LLM. Requeue for the Initial Read drain.
+            await requeue_job(jid, delay_seconds=0, error_code="wrong_drain")
+            summary["requeued"] += 1
+            continue
+
         executor = _EXECUTORS.get(jtype)
         if executor is None:
             await complete_job(jid, "failed", error_code="unknown_job_type", error_detail=jtype)
@@ -234,6 +241,14 @@ async def _run_claimed_jobs(
                 processing_started_at=processing_started_at,
                 processing_finished_at=processing_finished_at,
                 job_completed_at=job_completed_at,
+            )
+            from services.workspace_files.initial_read import notify_file_processed
+
+            await notify_file_processed(
+                org_id=org,
+                workspace_id=ws,
+                file_id=fid,
+                ready=terminal_status == "succeeded",
             )
 
         fields = {k: diag.get(k) for k in _DIAG_KEYS} if diag else {}
