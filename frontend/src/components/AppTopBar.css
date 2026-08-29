@@ -44,26 +44,6 @@
   }
 }
 
-.app-topbar--with-shell-auth {
-  grid-template-columns: 2.75rem minmax(0, 1fr) minmax(0, auto) 2.75rem;
-}
-
-.app-topbar__shell-auth {
-  justify-self: end;
-  min-width: 0;
-  max-width: calc(100vw - 6.5rem);
-}
-
-.app-topbar__shell-auth .auth-controls {
-  margin: 0;
-  flex-direction: row;
-}
-
-.app-topbar__shell-auth .auth-btn {
-  width: auto;
-  min-width: 4.75rem;
-}
-
 .app-topbar__brand {
   justify-self: start;
   font-size: 0.78rem;

@@ -170,7 +170,7 @@ export function NavDrawerHistory({
   )
 }
 
-export const NavDrawer = forwardRef(function NavDrawer({ open, onClose, overlay = true, children }, ref) {
+export const NavDrawer = forwardRef(function NavDrawer({ open, onClose, overlay = true, children, footer = null }, ref) {
   return (
     <>
       {overlay ? (
@@ -194,6 +194,7 @@ export const NavDrawer = forwardRef(function NavDrawer({ open, onClose, overlay 
           </button>
         </div>
         <div className="nav-drawer__body">{children}</div>
+        {footer ? <div className="nav-drawer__footer">{footer}</div> : null}
       </aside>
     </>
   )

@@ -27,6 +27,7 @@ import {
   providerExpansionError,
   shouldCreateLargePaste,
   unwrapLargePaste,
+  visibleUserTurnText,
 } from '../src/lib/largePaste.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -222,6 +223,41 @@ assert(LARGE_PASTE_PROVIDER_MAX_CHARS === 400000, 'provider refuse 400000')
   assert(payload.parts.some((part) => part.type === 'file_ref'), 'envelope has file_ref')
   assert(!JSON.stringify(payload).includes('storage_key'), 'no storage_key in envelope')
   assert(hasFileRef(parts) === true, 'hasFileRef')
+}
+
+{
+  const paste = 'BODY'.repeat(4000)
+  const message = {
+    role: 'user',
+    content: `Note.\n${formatLargePasteStub(paste.length)}`,
+    parts: [
+      { type: 'text', text: 'Note.\n' },
+      { type: 'large_paste', id: 'p', label: 'Pasted text', text: paste, char_count: paste.length },
+    ],
+  }
+  const visible = visibleUserTurnText(message)
+  assert(visible === `Note.\n${paste}`, 'sent turn shows instruction plus paste body')
+  assert(!visible.includes('Large paste'), 'sent turn has no stub header')
+  assert(!visible.includes('Pasted text ·'), 'sent turn has no paste chip')
+  assert(displayTextFromParts(message.parts).includes(formatLargePasteStub(paste.length)), 'internal stub unchanged')
+  assert(expandPartsForProvider(message.parts) === `Note.\n${paste}`, 'provider expansion unchanged')
+}
+
+{
+  const paste = 'ONLY'.repeat(3000)
+  const message = {
+    role: 'user',
+    content: formatLargePasteStub(paste.length),
+    parts: [{ type: 'large_paste', id: 'only', text: paste, char_count: paste.length }],
+  }
+  assert(visibleUserTurnText(message) === paste, 'paste-only sent turn is the body')
+}
+
+{
+  const app = readFileSync(join(root, 'src/App.jsx'), 'utf8')
+  assert(app.includes('visibleUserTurnText(m)'), 'conversation uses visible user-turn text')
+  assert(app.includes('content={m.role === \'user\' ? visibleUserTurnText(m) : m.content}'), 'Copy uses visible user-turn text')
+  assert(!app.includes('bubble-large-paste'), 'App no longer renders a sent paste chip')
 }
 
 console.log('PASS large paste v1 composer + encode/decode + focus isolation')

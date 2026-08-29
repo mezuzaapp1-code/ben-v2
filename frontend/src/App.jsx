@@ -129,8 +129,8 @@ import {
   encodeUserTurn,
   expandPartsForProvider,
   focusSourceFromParts,
-  formatPasteChipLabel,
   hasStructuredUserTurn,
+  visibleUserTurnText,
   instructionTextFromParts,
   isVisionImageFile,
   providerExpansionError,
@@ -450,8 +450,9 @@ function conversationCopyLabel(m) {
 }
 
 function conversationCopyBody(m) {
+  if (m.role === 'user') return visibleUserTurnText(m)
   const content = String(m.content ?? '')
-  if (m.role === 'user' || m.kind === 'council_synthesis') return content
+  if (m.kind === 'council_synthesis') return content
   for (const head of Object.values(COUNCIL_LABEL)) {
     const prefix = `${head}: `
     if (content.startsWith(prefix)) return content.slice(prefix.length)
@@ -2505,7 +2506,6 @@ function App() {
         onSettingsClose={closeSettings}
         settingsPanelRef={settingsPanelRef}
         authControls={HAS_CLERK_UI ? <ClerkAuthControls /> : null}
-        shellAuth={HAS_CLERK_UI ? <AccountChrome /> : null}
       />
 
       <div className="app-layout">
@@ -2514,6 +2514,7 @@ function App() {
           open={navDrawerOpen}
           overlay={isOverlayNav}
           onClose={closeNavDrawer}
+          footer={HAS_CLERK_UI ? <AccountChrome /> : null}
         >
           <section className="nav-drawer__section">
             <h2 className="nav-drawer__section-title">Actions</h2>
@@ -2694,19 +2695,9 @@ function App() {
                       : undefined
                   }
                 >
-                  {m.role === 'user' && Array.isArray(m.parts) && m.parts.some((part) => part.type === 'large_paste') ? (
-                    <div className="bubble-user-turn">
-                      {m.parts.map((part, partIndex) =>
-                        part.type === 'large_paste' ? (
-                          <div key={part.id || `paste-${partIndex}`} className="bubble-large-paste">
-                            {formatPasteChipLabel(part)}
-                          </div>
-                        ) : part.text ? (
-                          <div key={`text-${partIndex}`} className="bubble-text" dir={getMessageTextDirection(part.text)}>
-                            {part.text}
-                          </div>
-                        ) : null
-                      )}
+                  {m.role === 'user' ? (
+                    <div className="bubble-text" dir={getMessageTextDirection(visibleUserTurnText(m))}>
+                      {visibleUserTurnText(m)}
                     </div>
                   ) : shouldRenderAssistantMarkdown(m) ? (
                     <ChatMarkdown content={m.content} />
@@ -2745,7 +2736,7 @@ function App() {
               {m.kind !== 'action_card' && (m.role === 'user' || m.role === 'assistant') ? (
                 <MessageActionBar
                   role={m.role}
-                  content={m.content}
+                  content={m.role === 'user' ? visibleUserTurnText(m) : m.content}
                   onEditRequest={m.role === 'user' ? () => handleEditRequest(m) : undefined}
                   sqliteMessageId={resolveSqliteMessageId(m)}
                   expertDisabled={loading || !isPersistedThreadId(serverThreadIdForApi(activeId) || '')}
