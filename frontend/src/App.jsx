@@ -1232,7 +1232,13 @@ function App() {
       setComposerParts(emptyComposerParts())
       setThreads((prev) =>
         prev.map((t) =>
-          t.id === tid ? { ...t, title: display.slice(0, 48) || t.title, messages: [...t.messages, userMsg] } : t
+          t.id === tid
+            ? {
+                ...t,
+                title: instructionTextFromParts(snapshot).trim().slice(0, 48) || 'Conversation',
+                messages: [...t.messages, userMsg],
+              }
+            : t
         )
       )
       const apiThreadId = serverThreadIdForApi(tid)

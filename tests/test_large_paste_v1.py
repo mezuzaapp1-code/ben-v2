@@ -206,12 +206,24 @@ def test_history_and_rolling_context_use_stub_not_body():
     assert format_large_paste_stub(80_124) in rolling
 
 
-def test_thread_title_uses_display_not_json():
+def test_thread_title_uses_instruction_not_paste_stub():
     encoded = encode_user_turn([{"type": "text", "text": "Hello "}, _paste_part("Z" * 12_000)])
     title = thread_title_from_user_message(encoded)
     assert not title.startswith("{")
-    assert "Hello" in title
-    assert "Large paste" in title
+    assert title == "Hello"
+    assert "Large paste" not in title
+
+
+def test_thread_title_paste_only_is_conversation():
+    encoded = encode_user_turn([_paste_part("Z" * 12_000)])
+    title = thread_title_from_user_message(encoded)
+    assert title == "Conversation"
+    assert "Large paste" not in title
+
+
+def test_thread_title_plain_text_unchanged():
+    title = thread_title_from_user_message("Normal question about retrieval")
+    assert title == "Normal question about retrieval"
 
 
 def test_large_paste_does_not_touch_workspace_file_modules():
