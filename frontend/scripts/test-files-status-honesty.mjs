@@ -29,6 +29,9 @@ import {
   usedFilesFromDoneEvent,
   isStandardChatAssistant,
   visualFileStage,
+  buildFileUploadResultPatch,
+  countFileLifecycleRows,
+  patchFileUploadRow,
 } from '../src/lib/fileStatus.js'
 import { createWorkspaceFileInventory, normalizeProgress } from '../src/lib/workspaceFileInventory.js'
 
@@ -518,6 +521,56 @@ assert(
   await sleep(20)
   assert(calls === 0, 'no polling when job is terminally failed')
   poller.stop()
+}
+
+{
+  const localId = 'upload-1'
+  let messages = [
+    { role: 'user', content: 'hello' },
+    { role: 'user', kind: 'file_upload', local_upload_id: localId, file_name: 'spec.pdf', content: 'Uploading: spec.pdf' },
+  ]
+  assert(countFileLifecycleRows(messages) === 1, 'one upload → exactly one lifecycle row')
+  messages = patchFileUploadRow(
+    messages,
+    localId,
+    buildFileUploadResultPatch(
+      { status: 'queued', processing_stage: 'queued', job_status: 'queued', id: 'f1', display_name: 'spec.pdf' },
+      { fileName: 'spec.pdf', workspaceId: 'ws' }
+    )
+  )
+  assert(countFileLifecycleRows(messages) === 1, 'processing still one row')
+  assert(messages[1].kind === 'file_upload', 'kind stays file_upload')
+  assert(messages[1].file_id === 'f1', 'file_id patched in place')
+  assert(messages[1].file_status === 'queued', 'Uploading → Processing uses queued/uploaded status')
+  assert(messages[1].processing_stage === 'queued', 'processing_stage preserved')
+  messages = patchFileUploadRow(
+    messages,
+    localId,
+    buildFileUploadResultPatch(
+      {
+        status: 'ready',
+        processing_stage: 'ready',
+        job_status: 'succeeded',
+        extraction_status: 'complete',
+        index_status: 'indexed',
+        id: 'f1',
+        display_name: 'spec.pdf',
+      },
+      { fileName: 'spec.pdf', workspaceId: 'ws' }
+    )
+  )
+  assert(countFileLifecycleRows(messages) === 1, 'Ready updates same row')
+  assert(messages[1].file_status === 'ready', 'Ready status on same row')
+  assert(messages.filter((m) => m.kind === 'file_library').length === 0, 'no second file_library sibling')
+  const failed = patchFileUploadRow(
+    [{ role: 'user', kind: 'file_upload', local_upload_id: localId, file_name: 'bad.pdf' }],
+    localId,
+    buildFileUploadResultPatch(null, { fileName: 'bad.pdf', errorMessage: 'File upload failed.' })
+  )
+  assert(countFileLifecycleRows(failed) === 1, 'failure stays one row')
+  assert(failed[0].kind !== 'api_error', 'failure is not a separate api_error surface')
+  assert(failed[0].file_status === 'failed', 'failure status on same row')
+  assert(failed[0].failure_message === 'File upload failed.', 'failure message on same row')
 }
 
 console.log('OK: Gate 1 file status honesty checks passed')

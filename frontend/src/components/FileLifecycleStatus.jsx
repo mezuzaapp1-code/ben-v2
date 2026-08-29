@@ -68,11 +68,11 @@ export function FileLifecycleBubble({ message }) {
   const live = Boolean(row || upload)
   const stage = deriveFileStage(file, { upload })
   return (
-    <div className={`bubble ${message?.role || 'user'} file-lifecycle-bubble`}>
-      <div className="bubble-text file-lifecycle-bubble__name" dir={getMessageTextDirection(name)}>
+    <div className="file-lifecycle-bubble">
+      <div className="file-lifecycle-bubble__name" dir={getMessageTextDirection(name)}>
         {name}
       </div>
-      {live || message?.kind === 'file_library' ? (
+      {live || message?.kind === 'file_library' || message?.file_status ? (
         <FileLifecycleStatus file={file} upload={upload} />
       ) : (
         <span className="file-lifecycle__label">Attached</span>

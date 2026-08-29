@@ -80,9 +80,11 @@ assert(app.includes('uploadWorkspaceFile') || app.includes('workspaceFileInvento
 assert(app.includes('sourceChatId: chatId') || app.includes('sourceChatId'), 'chat retains file reference')
 assert(api.includes("form.append('source_chat_id'"), 'source_chat_id sent')
 
-// 11. No misleading success after failure
-assert(app.includes("kind: failed ? 'api_error'"), 'failed upload is error kind')
-assert(app.includes('Upload failed:'), 'failure copy')
+// 11. Failure stays on the same in-flow row (no second lifecycle surface)
+assert(app.includes('updateFileUploadRow'), 'chat upload patches the existing row')
+assert(app.includes('buildFileUploadResultPatch'), 'chat upload preserves lifecycle fields')
+assert(!app.includes("kind: failed ? 'api_error'"), 'failed upload is not a second api_error surface')
+assert(!app.includes('Saved to Workspace Files:'), 'success does not append a file_library sibling')
 assert(overlay.includes('uploadError'), 'library upload error state')
 
 // Workspace isolation messaging / no Search All

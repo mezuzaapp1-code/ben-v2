@@ -225,6 +225,45 @@ export function processingPercent(file, upload) {
  * Merge server files with in-flight uploads so Sidebar, File Library, and
  * composer attachment all render the same rows.
  */
+/** Patch the single in-thread file_upload row. Never inserts a sibling. */
+export function patchFileUploadRow(messages, localId, patch) {
+  const id = String(localId || '').trim()
+  if (!id) return messages || []
+  return (messages || []).map((message) =>
+    message?.kind === 'file_upload' && String(message.local_upload_id || '') === id
+      ? { ...message, ...patch }
+      : message
+  )
+}
+
+export function countFileLifecycleRows(messages) {
+  return (messages || []).filter(
+    (message) => message?.kind === 'file_upload' || message?.kind === 'file_library'
+  ).length
+}
+
+export function buildFileUploadResultPatch(result, { fileName, workspaceId, errorMessage } = {}) {
+  if (errorMessage) {
+    return {
+      file_status: 'failed',
+      processing_stage: 'failed',
+      failure_message: errorMessage,
+    }
+  }
+  const status = result?.status || 'uploaded'
+  return {
+    file_id: result?.id,
+    file_name: result?.display_name || fileName,
+    file_status: status,
+    processing_stage: result?.processing_stage,
+    job_status: result?.job_status,
+    extraction_status: result?.extraction_status,
+    index_status: result?.index_status,
+    failure_message: result?.failure_message,
+    workspace_id: result?.workspace_id || workspaceId,
+  }
+}
+
 export function mergeFileInventory(files, uploads) {
   const list = Array.isArray(files) ? files : []
   const ups = Array.isArray(uploads) ? uploads : []
