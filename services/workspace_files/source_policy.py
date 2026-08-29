@@ -13,8 +13,15 @@ ACTIVE_SOURCE_MAX_UNUSED_TURNS = 2
 # Idle after last injection (or after active opened if never used).
 ACTIVE_SOURCE_IDLE_TTL_MINUTES = 20
 
-# Sequential chat-originated uploads within this window join one pending cohort.
+# Sequential chat-originated uploads within this window join one burst cohort.
+# Membership uses burst_opened_at (not whether a file is still pending).
 UPLOAD_BURST_WINDOW_SECONDS = 120
+
+# Durable Initial Read job (document_processing_jobs.job_type=file_initial_read).
+# Stale running jobs are reaped by lease expiry, then retried until this cap.
+INITIAL_READ_MAX_ATTEMPTS = 5
+INITIAL_READ_LEASE_SECONDS = 300
+INITIAL_READ_JOB_VERSION = 1
 
 FILE_INITIAL_READ_EVENT = "file_initial_read"
 

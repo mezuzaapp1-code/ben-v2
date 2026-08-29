@@ -424,16 +424,6 @@ async def stream_chat_response(
                     for item in (wsf.used_files or ())
                     if str(item.get("id", "")).strip() and str(item.get("name", "")).strip()
                 ]
-                try:
-                    await record_standard_chat_turn(
-                        org_id=org,
-                        thread_id=tid,
-                        used_file_ids=[item["id"] for item in workspace_files_used],
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    log_source_state_error(
-                        exc, operation="record_chat_turn_sources", file_id=""
-                    )
                 if wsf.block:
                     effective_message = f"{wsf.block}\n\n{effective_message}"
                     workspace_files_injected = True
@@ -528,6 +518,21 @@ async def stream_chat_response(
     resp = "".join(parts)
     if not resolved_provider_id:
         resolved_provider_id = gateway_to_provider_id(provider_used)
+
+    # Success boundary: unused_turns / last_used_at advance only after the
+    # model produced at least one token. Error, exception, cancel, and empty
+    # streams return above or skip this block.
+    if parts and not expert_opinion and project_id is not None and vision_user_content is None:
+        try:
+            await record_standard_chat_turn(
+                org_id=org,
+                thread_id=tid,
+                used_file_ids=[item["id"] for item in workspace_files_used],
+            )
+        except Exception as exc:  # noqa: BLE001
+            log_source_state_error(
+                exc, operation="record_chat_turn_sources", file_id=""
+            )
 
     accounted = get_last_accounted_call() or {}
     stream_cost = float(accounted.get("cost_usd") or 0.0)

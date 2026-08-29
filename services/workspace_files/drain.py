@@ -30,6 +30,7 @@ from services.workspace_files.job_queue import (
     DEFAULT_LEASE_SECONDS,
     DEFAULT_MAX_ATTEMPTS,
     JOB_TYPE_FILE_EXTRACTION,
+    JOB_TYPE_FILE_INITIAL_READ,
     JOB_TYPE_STRUCTURED_EXTRACTION,
     claim_job_for_file,
     claim_jobs,
@@ -138,6 +139,12 @@ async def _run_claimed_jobs(
             raise RuntimeError("drain refused a historically quarantined file_id")
         attempts = int(job.get("attempts") or 0)
         jtype = str(job.get("job_type") or "")
+
+        if jtype == JOB_TYPE_FILE_INITIAL_READ:
+            # Extraction drain must never run the LLM. Requeue for the Initial Read drain.
+            await requeue_job(jid, delay_seconds=0, error_code="wrong_drain")
+            summary["requeued"] += 1
+            continue
 
         executor = _EXECUTORS.get(jtype)
         if executor is None:

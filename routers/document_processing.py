@@ -24,6 +24,7 @@ from services.workspace_files.drain import (
     drain_document_processing_jobs_for_runner,
     runner_processing_stats,
 )
+from services.workspace_files.initial_read import drain_file_initial_reads
 
 router = APIRouter(prefix="/api/internal/documents", tags=["document-processing"])
 
@@ -36,6 +37,11 @@ async def drain_processing_jobs(
     """Bounded drain of durable document-processing jobs (cron-secret only)."""
     assert_doc_processing_cron(request)
     summary = await drain_document_processing_jobs(worker_id=default_worker_id(), limit=limit)
+    try:
+        ir = await drain_file_initial_reads(worker_id=default_worker_id(), limit=limit)
+        summary["initial_read"] = ir
+    except Exception:
+        summary["initial_read"] = {"outcome": "error"}
     return attach_request_id(summary)
 
 
@@ -59,6 +65,11 @@ async def drain_processing_jobs_for_runner(
     summary = await drain_document_processing_jobs_for_runner(
         worker_id=default_worker_id(), limit=limit,
     )
+    try:
+        ir = await drain_file_initial_reads(worker_id=default_worker_id(), limit=limit)
+        summary["initial_read"] = ir
+    except Exception:
+        summary["initial_read"] = {"outcome": "error"}
     return attach_request_id(summary)
 
 

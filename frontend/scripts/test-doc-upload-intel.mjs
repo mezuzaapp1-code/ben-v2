@@ -52,6 +52,30 @@ assert(
 assert(
   isAwaitingInitialRead({
     status: 'ready',
+    source_chat_id: chatId,
+    initial_read_status: 'failed',
+  }) === false,
+  'failed Initial Read must stop the poller'
+)
+assert(
+  isAwaitingInitialRead({
+    status: 'ready',
+    source_chat_id: chatId,
+    initial_read_status: 'skipped',
+  }) === false,
+  'skipped Initial Read must stop the poller'
+)
+assert(
+  isNonTerminalFile({
+    status: 'ready',
+    source_chat_id: chatId,
+    initial_read_status: 'failed',
+  }) === false,
+  'failed Initial Read is terminal for inventory polling'
+)
+assert(
+  isAwaitingInitialRead({
+    status: 'ready',
     source_chat_id: '',
     initial_read_status: 'none',
   }) === false,

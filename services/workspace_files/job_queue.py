@@ -31,6 +31,9 @@ JOB_TYPE_STRUCTURED_EXTRACTION = "structured_extraction"
 # Gate 3B: async execution of the existing legacy extraction (process_file), which
 # is what produces the READY state + extracted_text consumed by chat retrieval.
 JOB_TYPE_FILE_EXTRACTION = "file_extraction"
+# Post-READY grounded overview. Never executed by the extraction drain.
+JOB_TYPE_FILE_INITIAL_READ = "file_initial_read"
+EXTRACTION_JOB_TYPES = (JOB_TYPE_FILE_EXTRACTION, JOB_TYPE_STRUCTURED_EXTRACTION)
 ACTIVE_STATUSES = ("queued", "running")
 TERMINAL_STATUSES = ("succeeded", "failed", "cancelled")
 
@@ -257,6 +260,66 @@ async def claim_job_for_file(
             raise RuntimeError("claim refused a historically quarantined file_id")
         log_info(
             "processing job claimed", subsystem=_SUBSYSTEM, operation="claim_for_file",
+            outcome="ok", job_id=j.get("job_id"), org_id=j.get("org_id"),
+            workspace_id=j.get("workspace_id"), file_id=j.get("file_id"),
+            job_type=j.get("job_type"), attempt=j.get("attempts"),
+            status="running", worker_id=worker_id,
+        )
+    return claimed
+
+
+async def claim_file_initial_read_jobs(
+    worker_id: str, *, lease_seconds: int = DEFAULT_LEASE_SECONDS, limit: int = 1
+) -> list[dict[str, Any]]:
+    """Claim due queued file_initial_read jobs only. Never claims extraction jobs."""
+    async with get_db_session() as session:
+        rows = (
+            await session.execute(
+                text("SELECT * FROM ben.claim_file_initial_read_jobs(:w, :l, :n)"),
+                {"w": worker_id, "l": lease_seconds, "n": limit},
+            )
+        ).mappings().all()
+        await session.commit()
+    claimed = [_job_dict(r) for r in rows]
+    for j in claimed:
+        if str(j.get("job_type") or "") != JOB_TYPE_FILE_INITIAL_READ:
+            raise RuntimeError("initial-read claim returned a non-initial-read job")
+        if file_is_ingest_protected(j.get("file_id")):
+            raise RuntimeError("claim refused a historically quarantined file_id")
+        log_info(
+            "processing job claimed", subsystem=_SUBSYSTEM, operation="claim_initial_read",
+            outcome="ok", job_id=j.get("job_id"), org_id=j.get("org_id"),
+            workspace_id=j.get("workspace_id"), file_id=j.get("file_id"),
+            job_type=j.get("job_type"), attempt=j.get("attempts"),
+            status="running", worker_id=worker_id,
+        )
+    return claimed
+
+
+async def claim_file_initial_read_job_for_file(
+    worker_id: str, file_id: uuid.UUID, *, lease_seconds: int = DEFAULT_LEASE_SECONDS
+) -> list[dict[str, Any]]:
+    """Claim at most one due file_initial_read job for an exact file_id."""
+    if file_is_ingest_protected(file_id):
+        return []
+    async with get_db_session() as session:
+        rows = (
+            await session.execute(
+                text("SELECT * FROM ben.claim_file_initial_read_job_for_file(:w, :l, :f)"),
+                {"w": worker_id, "l": lease_seconds, "f": str(file_id)},
+            )
+        ).mappings().all()
+        await session.commit()
+    claimed = [_job_dict(r) for r in rows]
+    for j in claimed:
+        if str(j.get("file_id")) != str(file_id):
+            raise RuntimeError("scoped initial-read claim returned a different file_id")
+        if str(j.get("job_type") or "") != JOB_TYPE_FILE_INITIAL_READ:
+            raise RuntimeError("initial-read claim returned a non-initial-read job")
+        if file_is_ingest_protected(j.get("file_id")):
+            raise RuntimeError("claim refused a historically quarantined file_id")
+        log_info(
+            "processing job claimed", subsystem=_SUBSYSTEM, operation="claim_initial_read_for_file",
             outcome="ok", job_id=j.get("job_id"), org_id=j.get("org_id"),
             workspace_id=j.get("workspace_id"), file_id=j.get("file_id"),
             job_type=j.get("job_type"), attempt=j.get("attempts"),

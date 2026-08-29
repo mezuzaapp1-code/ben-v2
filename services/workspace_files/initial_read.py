@@ -22,10 +22,23 @@ from services.workspace_files.initial_read_pack import (
     render_pack_evidence,
     select_representative_chunks,
 )
+from services.workspace_files.job_queue import (
+    JOB_TYPE_FILE_INITIAL_READ,
+    claim_file_initial_read_job_for_file,
+    claim_file_initial_read_jobs,
+    complete_job,
+    enqueue_document_processing_job,
+    reap_expired_jobs,
+    reap_expired_jobs_for_file,
+    requeue_job,
+)
 from services.workspace_files.source_policy import (
     FILE_INITIAL_READ_EVENT,
     INITIAL_READ_COMPLETE,
     INITIAL_READ_FAILED,
+    INITIAL_READ_JOB_VERSION,
+    INITIAL_READ_LEASE_SECONDS,
+    INITIAL_READ_MAX_ATTEMPTS,
     INITIAL_READ_NONE,
     INITIAL_READ_PENDING,
     INITIAL_READ_SKIPPED,
@@ -40,6 +53,12 @@ from services.workspace_files.thread_sources import (
 
 _SUBSYSTEM = "workspace_files"
 _inflight: set[asyncio.Task] = set()
+
+
+def _worker_id() -> str:
+    import os
+
+    return os.getenv("BEN_WORKER_ID") or f"web-{uuid.uuid4().hex[:8]}"
 
 _INITIAL_READ_SYSTEM = (
     GLOBAL_CHAT_SYSTEM
@@ -117,8 +136,9 @@ async def claim_initial_read(
             await session.commit()
             return None
         status = str(getattr(row, "initial_read_status", None) or INITIAL_READ_NONE)
-        if status in {INITIAL_READ_PENDING, INITIAL_READ_COMPLETE, INITIAL_READ_SKIPPED}:
+        if status in {INITIAL_READ_COMPLETE, INITIAL_READ_SKIPPED, INITIAL_READ_FAILED}:
             return None
+        # none or pending: pending is reclaimable after a crashed worker (job lease).
         row.initial_read_status = INITIAL_READ_PENDING
         await session.commit()
         await session.refresh(row)
@@ -281,7 +301,6 @@ async def run_initial_read(org_id: uuid.UUID, workspace_id: uuid.UUID, file_id: 
         )
         content = str((result or {}).get("content") or "").strip()
         if not content:
-            await _mark_initial_read(org_id, file_id, INITIAL_READ_FAILED)
             return {"outcome": "failed", "reason": "empty_model"}
 
         used = [
@@ -326,7 +345,6 @@ async def run_initial_read(org_id: uuid.UUID, workspace_id: uuid.UUID, file_id: 
         )
         return {"outcome": "ok"}
     except Exception as exc:  # noqa: BLE001
-        await _mark_initial_read(org_id, file_id, INITIAL_READ_FAILED)
         log_warning(
             "file initial read failed",
             subsystem=_SUBSYSTEM,
@@ -339,9 +357,9 @@ async def run_initial_read(org_id: uuid.UUID, workspace_id: uuid.UUID, file_id: 
         return {"outcome": "failed", "reason": type(exc).__name__}
 
 
-async def _run_scheduled(org_id: uuid.UUID, workspace_id: uuid.UUID, file_id: uuid.UUID) -> None:
+async def _run_scheduled(file_id: uuid.UUID) -> None:
     try:
-        await run_initial_read(org_id, workspace_id, file_id)
+        await drain_file_initial_read_for_file(file_id)
     except Exception as exc:  # noqa: BLE001
         log_warning(
             "file initial read schedule leaked",
@@ -354,16 +372,16 @@ async def _run_scheduled(org_id: uuid.UUID, workspace_id: uuid.UUID, file_id: uu
 
 
 def schedule_initial_read(org_id: Any, workspace_id: Any, file_id: Any) -> bool:
-    """Fire-and-forget. Never raises. Never awaited from upload or drain extract."""
+    """Fire-and-forget drain of the durable Initial Read job. Never awaited from extract."""
     try:
-        oid = uuid.UUID(str(org_id))
-        wid = uuid.UUID(str(workspace_id))
         fid = uuid.UUID(str(file_id))
+        uuid.UUID(str(org_id))
+        uuid.UUID(str(workspace_id))
     except (TypeError, ValueError, AttributeError):
         return False
     try:
         task = asyncio.create_task(
-            _run_scheduled(oid, wid, fid),
+            _run_scheduled(fid),
             name=f"initial-read-{fid}",
         )
     except RuntimeError:
@@ -377,6 +395,184 @@ def reset_initial_read_schedule_for_tests() -> None:
     _inflight.clear()
 
 
+async def enqueue_initial_read_job(
+    org_id: uuid.UUID, workspace_id: uuid.UUID, file_id: uuid.UUID
+) -> dict[str, Any]:
+    """Idempotent durable enqueue. Does not run the LLM."""
+    return await enqueue_document_processing_job(
+        org_id,
+        workspace_id,
+        file_id,
+        job_type=JOB_TYPE_FILE_INITIAL_READ,
+        extraction_version=INITIAL_READ_JOB_VERSION,
+        chunking_version=INITIAL_READ_JOB_VERSION,
+        max_attempts=INITIAL_READ_MAX_ATTEMPTS,
+    )
+
+
+async def _complete_initial_read_job(
+    job: dict[str, Any],
+    *,
+    outcome: str,
+    result: dict[str, Any],
+    max_attempts: int,
+) -> str:
+    jid = uuid.UUID(job["job_id"])
+    org = uuid.UUID(job["org_id"])
+    fid = uuid.UUID(job["file_id"])
+    attempts = int(job.get("attempts") or 0)
+    kind = str(result.get("outcome") or "")
+    if kind in {"ok", "already_present", "skipped"}:
+        await complete_job(jid, "succeeded")
+        return "succeeded"
+    if attempts >= max_attempts:
+        await complete_job(jid, "failed", error_code=kind or "initial_read_failed")
+        await _mark_initial_read(org, fid, INITIAL_READ_FAILED)
+        return "failed"
+    await requeue_job(
+        jid,
+        delay_seconds=0,
+        error_code=kind or "initial_read_failed",
+        error_detail=str(result.get("reason") or kind),
+    )
+    return "requeued"
+
+
+async def _execute_claimed_initial_read(
+    job: dict[str, Any], *, max_attempts: int
+) -> str:
+    org = uuid.UUID(job["org_id"])
+    ws = uuid.UUID(job["workspace_id"])
+    fid = uuid.UUID(job["file_id"])
+    try:
+        result = await run_initial_read(org, ws, fid)
+    except Exception as exc:  # noqa: BLE001
+        result = {"outcome": "failed", "reason": type(exc).__name__}
+        log_warning(
+            "file initial read drain failed",
+            subsystem=_SUBSYSTEM,
+            operation="file_initial_read",
+            outcome="error",
+            file_id=str(fid),
+            error_class=type(exc).__name__,
+        )
+    return await _complete_initial_read_job(
+        job, outcome=str(result.get("outcome") or ""), result=result, max_attempts=max_attempts
+    )
+
+
+async def drain_file_initial_read_for_file(
+    file_id: uuid.UUID,
+    *,
+    worker_id: str | None = None,
+    lease_seconds: int = INITIAL_READ_LEASE_SECONDS,
+    max_attempts: int = INITIAL_READ_MAX_ATTEMPTS,
+    reap: bool = True,
+) -> dict[str, Any]:
+    """Claim and run at most one Initial Read job for this file. No extraction."""
+    wid = worker_id or _worker_id()
+    summary: dict[str, Any] = {
+        "worker_id": wid,
+        "file_id": str(file_id),
+        "reaped": 0,
+        "claimed": 0,
+        "succeeded": 0,
+        "failed": 0,
+        "requeued": 0,
+        "outcome": "no_eligible_job",
+    }
+    if reap:
+        try:
+            summary["reaped"] = len(await reap_expired_jobs_for_file(file_id))
+        except Exception as exc:  # noqa: BLE001
+            log_warning(
+                "initial read reaper failed",
+                subsystem=_SUBSYSTEM,
+                operation="file_initial_read_reap",
+                outcome="error",
+                file_id=str(file_id),
+                error_class=type(exc).__name__,
+            )
+    claimed = await claim_file_initial_read_job_for_file(
+        wid, file_id, lease_seconds=lease_seconds
+    )
+    summary["claimed"] = len(claimed)
+    for job in claimed:
+        result = await _execute_claimed_initial_read(job, max_attempts=max_attempts)
+        summary[result] = int(summary.get(result) or 0) + 1
+        summary["outcome"] = result
+    try:
+        await sync_failed_file_initial_reads()
+    except Exception as exc:  # noqa: BLE001
+        log_warning(
+            "initial read fail-sync skipped",
+            subsystem=_SUBSYSTEM,
+            operation="file_initial_read_sync",
+            outcome="error",
+            error_class=type(exc).__name__,
+        )
+    return summary
+
+
+async def drain_file_initial_reads(
+    *,
+    worker_id: str | None = None,
+    limit: int = 5,
+    lease_seconds: int = INITIAL_READ_LEASE_SECONDS,
+    max_attempts: int = INITIAL_READ_MAX_ATTEMPTS,
+    reap: bool = True,
+) -> dict[str, Any]:
+    """Bounded Initial Read drain. Separate from extraction drain. Recovers stale leases."""
+    wid = worker_id or _worker_id()
+    summary: dict[str, Any] = {
+        "worker_id": wid,
+        "reaped": 0,
+        "claimed": 0,
+        "succeeded": 0,
+        "failed": 0,
+        "requeued": 0,
+    }
+    if reap:
+        try:
+            summary["reaped"] = len(await reap_expired_jobs())
+        except Exception as exc:  # noqa: BLE001
+            log_warning(
+                "initial read reaper failed",
+                subsystem=_SUBSYSTEM,
+                operation="file_initial_read_reap",
+                outcome="error",
+                error_class=type(exc).__name__,
+            )
+    claimed = await claim_file_initial_read_jobs(
+        wid, lease_seconds=lease_seconds, limit=limit
+    )
+    summary["claimed"] = len(claimed)
+    for job in claimed:
+        result = await _execute_claimed_initial_read(job, max_attempts=max_attempts)
+        summary[result] = int(summary.get(result) or 0) + 1
+    try:
+        await sync_failed_file_initial_reads()
+    except Exception as exc:  # noqa: BLE001
+        log_warning(
+            "initial read fail-sync skipped",
+            subsystem=_SUBSYSTEM,
+            operation="file_initial_read_sync",
+            outcome="error",
+            error_class=type(exc).__name__,
+        )
+    return summary
+
+
+async def sync_failed_file_initial_reads() -> int:
+    """Mark files failed when the durable Initial Read job is exhausted. Stops UI polling."""
+    async with get_db_session() as session:
+        row = (
+            await session.execute(text("SELECT ben.sync_failed_file_initial_reads() AS n"))
+        ).mappings().first()
+        await session.commit()
+    return int((row or {}).get("n") or 0)
+
+
 async def notify_file_processed(
     *,
     org_id: uuid.UUID,
@@ -384,10 +580,11 @@ async def notify_file_processed(
     file_id: uuid.UUID,
     ready: bool,
 ) -> None:
-    """Source-state + schedule Initial Read. Drain/process_file must not await the LLM."""
+    """Source-state + durable Initial Read enqueue. Drain/process_file must not await the LLM."""
     try:
         if ready:
             await on_file_ready(org_id=org_id, file_id=file_id)
+            await enqueue_initial_read_job(org_id, workspace_id, file_id)
             schedule_initial_read(org_id, workspace_id, file_id)
         else:
             await on_file_failed(org_id=org_id, file_id=file_id)

@@ -36,10 +36,12 @@ def empty_source_state() -> dict[str, Any]:
         "pending_file_ids": [],
         "active_file_ids": [],
         "recent_file_ids": [],
+        "burst_file_ids": [],
         "generation": 0,
         "active_opened_at": None,
         "last_used_at": None,
         "pending_opened_at": None,
+        "burst_opened_at": None,
         "unused_turns": 0,
     }
 
@@ -49,8 +51,16 @@ def normalize_source_state(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, dict):
         return base
     out = deepcopy(base)
-    for key in ("conversation_file_ids", "pending_file_ids", "active_file_ids", "recent_file_ids"):
+    for key in (
+        "conversation_file_ids",
+        "pending_file_ids",
+        "active_file_ids",
+        "recent_file_ids",
+        "burst_file_ids",
+    ):
         out[key] = _uniq_ids(raw.get(key))
+    if not out["burst_file_ids"]:
+        out["burst_file_ids"] = _uniq_ids([*out["pending_file_ids"], *out["active_file_ids"]])
     try:
         out["generation"] = int(raw.get("generation") or 0)
     except (TypeError, ValueError):
@@ -62,6 +72,7 @@ def normalize_source_state(raw: Any) -> dict[str, Any]:
     out["active_opened_at"] = _iso_or_none(raw.get("active_opened_at"))
     out["last_used_at"] = _iso_or_none(raw.get("last_used_at"))
     out["pending_opened_at"] = _iso_or_none(raw.get("pending_opened_at"))
+    out["burst_opened_at"] = _iso_or_none(raw.get("burst_opened_at") or raw.get("pending_opened_at"))
     return out
 
 
@@ -86,18 +97,28 @@ def parse_thread_uuid(raw: str | None) -> uuid.UUID | None:
 
 
 def apply_chat_upload(state: dict[str, Any], file_id: str, *, now: datetime | None = None) -> dict[str, Any]:
-    """Record a chat-originated non-image upload. Burst append vs supersede."""
+    """Record a chat-originated non-image upload. Burst append vs supersede.
+
+    Burst membership is conversational: same window as burst_opened_at while
+    pending or active files still exist. READY of A must not start a new burst
+    when B is attached in the same user upload window.
+    """
     s = normalize_source_state(state)
     fid = str(file_id).strip()
     if not fid:
         return s
     now = now or utcnow()
     s["conversation_file_ids"] = _uniq_ids([*s["conversation_file_ids"], fid])
-    burst = _in_burst_window(s.get("pending_opened_at"), now)
-    if burst and s["pending_file_ids"]:
+    same_burst = _in_burst_window(s.get("burst_opened_at"), now) and bool(
+        s["pending_file_ids"] or s["active_file_ids"]
+    )
+    if same_burst:
+        s["burst_file_ids"] = _uniq_ids([*s["burst_file_ids"], fid])
         s["pending_file_ids"] = _uniq_ids([*s["pending_file_ids"], fid])
+        if not s.get("pending_opened_at"):
+            s["pending_opened_at"] = _iso(now)
         return s
-    # New burst: current active becomes recent; pending is replaced.
+    # New burst: current active/pending become recent; cohort is replaced.
     if s["active_file_ids"]:
         s["recent_file_ids"] = _uniq_ids([*s["recent_file_ids"], *s["active_file_ids"]])
         s["active_file_ids"] = []
@@ -107,7 +128,9 @@ def apply_chat_upload(state: dict[str, Any], file_id: str, *, now: datetime | No
     if s["pending_file_ids"]:
         s["recent_file_ids"] = _uniq_ids([*s["recent_file_ids"], *s["pending_file_ids"]])
     s["pending_file_ids"] = [fid]
+    s["burst_file_ids"] = [fid]
     s["pending_opened_at"] = _iso(now)
+    s["burst_opened_at"] = _iso(now)
     s["generation"] = int(s.get("generation") or 0) + 1
     return s
 
@@ -128,6 +151,7 @@ def apply_file_ready(state: dict[str, Any], file_id: str, *, now: datetime | Non
         s["active_file_ids"] = [*s["active_file_ids"], fid]
     if not s["pending_file_ids"]:
         s["pending_opened_at"] = None
+    # burst_opened_at stays: READY of one file must not close the upload burst.
     return s
 
 
@@ -138,8 +162,11 @@ def apply_file_failed(state: dict[str, Any], file_id: str) -> dict[str, Any]:
         return s
     s["pending_file_ids"] = [x for x in s["pending_file_ids"] if x != fid]
     s["active_file_ids"] = [x for x in s["active_file_ids"] if x != fid]
+    s["burst_file_ids"] = [x for x in s["burst_file_ids"] if x != fid]
     if not s["pending_file_ids"]:
         s["pending_opened_at"] = None
+    if not s["burst_file_ids"]:
+        s["burst_opened_at"] = None
     if not s["active_file_ids"]:
         s["active_opened_at"] = None
         s["last_used_at"] = None
@@ -168,7 +195,7 @@ def apply_chat_turn(
     *,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """After a standard-chat retrieval turn. Explicit-name override does not clear active."""
+    """After a *successful* standard-chat model turn. Failed/cancelled turns must not call this."""
     now = now or utcnow()
     s = expire_active(state, now=now)
     if not s["active_file_ids"]:
