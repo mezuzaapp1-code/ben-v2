@@ -12,6 +12,7 @@
     "test:files": "node scripts/test-files-ui.mjs",
     "test:files-status": "node scripts/test-files-status-honesty.mjs",
     "test:file-lifecycle-inflow": "node scripts/test-file-lifecycle-inflow.mjs",
+    "test:doc-upload-intel": "node scripts/test-doc-upload-intel.mjs",
     "test:auth": "node scripts/test-clerk-persistent-access.mjs",
     "test:account-chrome": "node scripts/test-account-chrome.mjs",
     "test:auth-headers": "node scripts/test-auth-header-stability.mjs",

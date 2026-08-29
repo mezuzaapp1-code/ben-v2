@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import desc, or_, select, text
@@ -45,6 +45,7 @@ from services.workspace_files.file_resolver import (
     PER_FILE_MAX_CHARS,
     apply_context_budget,
     eligible_from_row,
+    file_is_explicitly_named,
     rank_eligible_files,
 )
 from services.workspace_files.job_queue import (
@@ -52,6 +53,7 @@ from services.workspace_files.job_queue import (
     enqueue_document_processing_job,
 )
 from services.workspace_files.upload_wake import schedule_upload_wake
+from services.workspace_files.thread_sources import log_source_state_error, record_chat_upload
 from services.workspace_files.types import (
     MAX_UPLOAD_BYTES,
     REJECTED_EXTENSIONS,
@@ -113,6 +115,8 @@ def _payload(row: WorkspaceFile, job_status: str | None = None) -> dict[str, Any
         # unless row.status is already ready. Never Extracting/Indexing unless
         # the durable job is running.
         "processing_stage": derive_processing_stage(row, resolved_job),
+        "initial_read_status": getattr(row, "initial_read_status", None) or "none",
+        "initial_read_at": _iso(getattr(row, "initial_read_at", None)),
     }
 
 
@@ -251,6 +255,17 @@ async def upload_file(
         file_uuid = row.id
         payload = _payload(row, job_status="queued" if async_enabled else None)
 
+    try:
+        await record_chat_upload(
+            org_id=org_id,
+            source_chat_id=source_chat_id,
+            file_id=file_uuid,
+            media_type=media_type,
+            filename=safe_name,
+        )
+    except Exception as exc:  # noqa: BLE001 — source state must never fail upload
+        log_source_state_error(exc, operation="record_chat_upload", file_id=str(file_uuid))
+
     if async_enabled:
         # Durable async path: return 'queued' without waiting for extraction.
         # Best-effort scoped wake (fail-closed OFF) may claim THIS file after commit.
@@ -308,7 +323,9 @@ async def process_file(
             row.failure_message = "Stored file bytes were not found."
             await session.commit()
             await session.refresh(row)
-            return attach_request_id(_payload(row))
+            payload = attach_request_id(_payload(row))
+            await _notify_process_outcome(org_id, workspace_id, file_id, ready=False)
+            return payload
 
         text_out, err = extract_text(path, media_type=row.media_type, filename=row.original_filename)
         soft_codes = {
@@ -324,7 +341,9 @@ async def process_file(
             row.failure_message = err[:500]
             await session.commit()
             await session.refresh(row)
-            return attach_request_id(_payload(row))
+            payload = attach_request_id(_payload(row))
+            await _notify_process_outcome(org_id, workspace_id, file_id, ready=False)
+            return payload
 
         row.extracted_text = text_out if text_out is not None else ""
         row.status = "ready"
@@ -336,7 +355,19 @@ async def process_file(
         )
         await session.commit()
         await session.refresh(row)
-        return attach_request_id(_payload(row))
+        payload = attach_request_id(_payload(row))
+        await _notify_process_outcome(org_id, workspace_id, file_id, ready=True)
+        return payload
+
+
+async def _notify_process_outcome(
+    org_id: uuid.UUID, workspace_id: uuid.UUID, file_id: uuid.UUID, *, ready: bool
+) -> None:
+    from services.workspace_files.initial_read import notify_file_processed
+
+    await notify_file_processed(
+        org_id=org_id, workspace_id=workspace_id, file_id=file_id, ready=ready
+    )
 
 
 async def list_files(
@@ -624,6 +655,26 @@ def _empty_gate4a_context(
     )
 
 
+def _id_set(raw: Sequence[Any] | None) -> set[str] | None:
+    """None = unrestricted. Empty set = inject nothing (fail-closed / empty intersection)."""
+    if raw is None:
+        return None
+    return {str(i).strip() for i in raw if str(i).strip()}
+
+
+def _named_eligible_ids(eligible, user_query: str | None) -> set[str] | None:
+    if not (user_query or "").strip():
+        return None
+    named = [
+        item
+        for item in eligible
+        if file_is_explicitly_named(user_query or "", item.display_name, item.original_filename)
+    ]
+    if not named:
+        return None
+    return {str(item.id) for item in named}
+
+
 async def load_ready_files_context(
     org_id: uuid.UUID,
     workspace_id: uuid.UUID,
@@ -631,9 +682,14 @@ async def load_ready_files_context(
     max_chars: int,
     user_query: str | None = None,
     per_file_max: int | None = None,
+    restrict_to_file_ids: Sequence[Any] | None = None,
 ) -> WorkspaceFilesContext:
     """Read-only: assemble a filename-labeled, size-capped text block from the
     ready Workspace Files of a single org + workspace.
+
+    Named files (explicit query mention) win as an allow-list. Else pending/active
+    conversation sources restrict the search set. An empty READY ∩ restriction
+    must not fall back to unrelated workspace files.
 
     Gate 3D pipeline (selection before budgeting) when chunk retrieval is OFF:
 
@@ -675,9 +731,14 @@ async def load_ready_files_context(
         if item is not None:
             eligible.append(item)
 
+    named_ids = _named_eligible_ids(eligible, user_query)
+    restriction = _id_set(restrict_to_file_ids)
+    allow_ids = named_ids if named_ids is not None else restriction
+
     if not chunk_retrieval_enabled(workspace_id):
+        gated = [item for item in eligible if str(item.id) in allow_ids] if allow_ids is not None else eligible
         ctx = _context_from_gate3d(
-            eligible,
+            gated,
             user_query,
             max_chars,
             per_file_max,
@@ -695,6 +756,7 @@ async def load_ready_files_context(
         user_query=user_query,
         max_chars=max_chars,
         per_file_max=per_file_max,
+        allow_ids=allow_ids,
     )
     return replace(ctx, unavailable_count=unavailable)
 
@@ -708,6 +770,7 @@ async def _load_gate4a_context(
     user_query: str | None,
     max_chars: int,
     per_file_max: int | None,
+    allow_ids: set[str] | None = None,
 ) -> WorkspaceFilesContext:
     ready: list[ReadyFile] = []
     for row in rows:
@@ -716,8 +779,30 @@ async def _load_gate4a_context(
             ready.append(item)
 
     named = named_ready_files(ready, user_query)
-    search_set = named if named else ready
-    named_ids = {str(f.id) for f in named} if named else None
+    if named:
+        search_set = named
+        named_ids = {str(f.id) for f in named}
+    elif allow_ids is not None:
+        search_set = [f for f in ready if str(f.id) in allow_ids]
+        named_ids = {str(f.id) for f in search_set}
+        if not search_set:
+            diag = diagnostics_from_pack(
+                mode="empty",
+                eligible=len(ready),
+                searched_ids=[],
+                legacy_count=0,
+                considered=0,
+                selected=[],
+                evidence_chars=0,
+                latency_ms=None,
+                fallback_reason="source_restricted_empty",
+                coverage="none",
+                mismatch_ids=[],
+            )
+            return _empty_gate4a_context(diag)
+    else:
+        search_set = ready
+        named_ids = None
 
     tokens = normalize_query_tokens(user_query)
     tsquery = build_or_tsquery(tokens)

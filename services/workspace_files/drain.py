@@ -235,6 +235,14 @@ async def _run_claimed_jobs(
                 processing_finished_at=processing_finished_at,
                 job_completed_at=job_completed_at,
             )
+            from services.workspace_files.initial_read import notify_file_processed
+
+            await notify_file_processed(
+                org_id=org,
+                workspace_id=ws,
+                file_id=fid,
+                ready=terminal_status == "succeeded",
+            )
 
         fields = {k: diag.get(k) for k in _DIAG_KEYS} if diag else {}
         log_info(

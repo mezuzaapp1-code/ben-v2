@@ -257,9 +257,13 @@ def encode_chat_assistant(
     provider_used: str = "",
     used_files: Any = None,
     unavailable_count: Any = None,
+    source_event: str | None = None,
+    source_file_id: str | None = None,
 ) -> str:
     clean_used = _sanitize_used_files(used_files)
     clean_unavailable = _sanitize_unavailable_count(unavailable_count)
+    event = str(source_event or "").strip()
+    source_fid = str(source_file_id or "").strip()
     if (
         not model_used
         and not cost_usd
@@ -267,6 +271,8 @@ def encode_chat_assistant(
         and not provider_used
         and not clean_used
         and not clean_unavailable
+        and not event
+        and not source_fid
     ):
         return text
     payload: dict[str, Any] = {
@@ -284,6 +290,10 @@ def encode_chat_assistant(
         payload["used_files"] = clean_used
     if clean_unavailable:
         payload["unavailable_count"] = clean_unavailable
+    if event:
+        payload["source_event"] = event
+    if source_fid:
+        payload["source_file_id"] = source_fid
     return json.dumps(payload, ensure_ascii=False)
 
 
@@ -437,7 +447,7 @@ def decode_message(role: str, content: str) -> dict[str, Any]:
             return {"role": "assistant", "content": content}
         kind = data.get("kind")
         if kind == "chat":
-            return {
+            out_chat: dict[str, Any] = {
                 "role": "assistant",
                 "content": str(data.get("text", "")),
                 "model_used": data.get("model_used") or "",
@@ -447,6 +457,13 @@ def decode_message(role: str, content: str) -> dict[str, Any]:
                 "used_files": _sanitize_used_files(data.get("used_files")),
                 "unavailable_count": _sanitize_unavailable_count(data.get("unavailable_count")),
             }
+            event = str(data.get("source_event") or "").strip()
+            source_fid = str(data.get("source_file_id") or "").strip()
+            if event:
+                out_chat["source_event"] = event
+            if source_fid:
+                out_chat["source_file_id"] = source_fid
+            return out_chat
         if kind == "council_expert":
             expert = data.get("expert") or "Advisor"
             resp = data.get("response") or ""

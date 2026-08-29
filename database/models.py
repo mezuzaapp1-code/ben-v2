@@ -42,6 +42,11 @@ class Thread(Base):
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    # Conversation source machine (pending / active / recent). Canonical owner.
+    # Never mirrored into SQLite thread_store.
+    source_state: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
 
 
 class Message(Base):
@@ -267,6 +272,10 @@ class WorkspaceFile(Base):
             "index_status IN ('not_indexed','indexing','indexed','stale','failed')",
             name="ck_workspace_files_index_status",
         ),
+        CheckConstraint(
+            "initial_read_status IN ('none','pending','complete','failed','skipped')",
+            name="ck_workspace_files_initial_read_status",
+        ),
         Index("ix_workspace_files_org_workspace", "org_id", "workspace_id"),
         Index("ix_workspace_files_workspace_created", "workspace_id", "created_at"),
         Index("ix_workspace_files_workspace_status", "workspace_id", "status"),
@@ -322,6 +331,12 @@ class WorkspaceFile(Base):
     indexed_chunk_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    initial_read_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'none'")
+    )
+    initial_read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

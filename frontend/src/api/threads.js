@@ -92,6 +92,8 @@ export function mapApiMessage(m) {
     insert_after_id: m.insert_after_id ?? null,
     used_files: sanitizeUsedFiles(m.used_files),
     workspace_files_unavailable_note: unavailableChatNote(m.unavailable_count),
+    source_event: m.source_event,
+    source_file_id: m.source_file_id,
   }
   return base
 }

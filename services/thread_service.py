@@ -100,6 +100,22 @@ def persist_chat_exchange_sqlite(
     return user_id, assistant_id
 
 
+def persist_assistant_message_sqlite(
+    thread_id: uuid.UUID | str,
+    *,
+    encoded_content: str,
+    provider: str | None = None,
+) -> int:
+    """Assistant-only row (no fake user turn). Used by file initial-read."""
+    return insert_thread_message(
+        str(thread_id),
+        role="assistant",
+        content=encoded_content,
+        provider=provider,
+        message_type="normal",
+    )
+
+
 def persist_expert_message_sqlite(
     thread_id: uuid.UUID | str,
     *,

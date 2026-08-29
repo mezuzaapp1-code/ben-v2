@@ -198,12 +198,61 @@ export function isNonTerminalFileStatus(status) {
   return s === 'queued' || s === 'processing' || s === 'uploaded' || s === 'extracting' || s === 'indexing'
 }
 
+export const FILE_INITIAL_READ_EVENT = 'file_initial_read'
+
+export function isAwaitingInitialRead(file) {
+  if (!String(file?.source_chat_id || '').trim()) return false
+  if (normalizeFileStatus(file?.status) !== FILE_STAGES.ready) return false
+  const ir = normalizeFileStatus(file?.initial_read_status) || 'none'
+  return ir === 'none' || ir === 'pending'
+}
+
 export function isNonTerminalFile(file, upload) {
-  if (upload && (upload.phase === 'uploading' || upload.phase === 'failed' && !file?.id)) {
+  if (upload && (upload.phase === 'uploading' || (upload.phase === 'failed' && !file?.id))) {
     return upload.phase === 'uploading'
   }
   const stage = deriveFileStage(file, { upload })
-  return stage === FILE_STAGES.uploading || stage === FILE_STAGES.queued || stage === FILE_STAGES.extracting || stage === FILE_STAGES.indexing
+  if (
+    stage === FILE_STAGES.uploading ||
+    stage === FILE_STAGES.queued ||
+    stage === FILE_STAGES.extracting ||
+    stage === FILE_STAGES.indexing
+  ) {
+    return true
+  }
+  return isAwaitingInitialRead(file)
+}
+
+export function mergeInitialReadIntoMessages(localMessages, serverMessages) {
+  const local = Array.isArray(localMessages) ? localMessages : []
+  const server = Array.isArray(serverMessages) ? serverMessages : []
+  const have = new Set(
+    local
+      .filter((m) => m?.source_event === FILE_INITIAL_READ_EVENT && m?.source_file_id)
+      .map((m) => String(m.source_file_id))
+  )
+  const incoming = server.filter(
+    (m) =>
+      m?.role === 'assistant' &&
+      m?.source_event === FILE_INITIAL_READ_EVENT &&
+      m?.source_file_id &&
+      !have.has(String(m.source_file_id))
+  )
+  if (!incoming.length) return local
+  let next = [...local]
+  for (const msg of incoming) {
+    const fid = String(msg.source_file_id)
+    const idx = next.findIndex(
+      (m) => m?.kind === 'file_upload' && String(m.file_id || '') === fid
+    )
+    if (idx >= 0) {
+      next = [...next.slice(0, idx + 1), msg, ...next.slice(idx + 1)]
+    } else {
+      next = [...next, msg]
+    }
+    have.add(fid)
+  }
+  return next
 }
 
 export function processingPercent(file, upload) {

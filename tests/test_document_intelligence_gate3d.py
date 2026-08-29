@@ -107,7 +107,8 @@ def _eligible(name, text, created_at, rid):
 @pytest.mark.asyncio
 async def test_relevant_canary_survives_older_files_consuming_global_budget(monkeypatch):
     """6 × 2000-char older files would exhaust a 12_000 budget before the canary
-    if iteration were created_at ASC. Selection must admit the canary first.
+    if iteration were created_at ASC. Named files are an allow-list, so the
+    canary is the only injected file.
     """
     older = [
         _row(text="O" * 2000, name=f"old_{i}.txt", created_at=i, rid=uuid.UUID(int=i + 1))
@@ -130,9 +131,10 @@ async def test_relevant_canary_survives_older_files_consuming_global_budget(monk
     )
     assert "CANARY-SECRET-TOKEN" in out.block
     assert '[file name="ben_canary.txt"]' in out.block
-    assert out.block.index("ben_canary.txt") < out.block.index("old_1.txt")
+    assert "old_1.txt" not in out.block
+    assert out.block.count("[file name=") == 1
     assert out.chars <= 12_000
-    assert out.count >= 1
+    assert out.count == 1
 
 
 # --------------------------------------------------------------------------- #
