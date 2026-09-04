@@ -11,6 +11,8 @@ from services.ops.structured_log import log_error
 from services.workspace_files.types import MAX_UPLOAD_BYTES, STREAM_CHUNK_BYTES
 
 _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._\- ()\[\]]+")
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+_DISPLAY_FILENAME_MAX = 512
 _DURABLE_FLAG = "BEN_REQUIRE_DURABLE_FILE_ROOT"
 _DURABLE_ROOT_ENV = "BEN_PROJECTS_DATA_DIR"
 _DURABLE_MOUNT_ENV = "BEN_DURABLE_FILE_MOUNT"
@@ -136,9 +138,18 @@ def assert_durable_root_ready() -> Path | None:
 
 
 def sanitize_filename(name: str | None) -> str:
+    """ASCII-safe basename for disk / storage_key only. Not a display name."""
     raw = (name or "upload.bin").strip().replace("\\", "/").split("/")[-1]
     cleaned = _SAFE_FILENAME_RE.sub("_", raw).strip("._")
     return cleaned[:240] or "upload.bin"
+
+
+def preserve_original_filename(name: str | None) -> str:
+    """User-visible basename: Unicode preserved, path and controls stripped."""
+    raw = (name or "").strip().replace("\\", "/").split("/")[-1]
+    cleaned = _CONTROL_RE.sub("", raw).strip()
+    cleaned = cleaned[:_DISPLAY_FILENAME_MAX].strip()
+    return cleaned or "upload.bin"
 
 
 def files_root() -> Path:

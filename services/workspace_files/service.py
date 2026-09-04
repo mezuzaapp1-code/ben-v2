@@ -166,9 +166,15 @@ async def _require_workspace(org_id: uuid.UUID, workspace_id: uuid.UUID) -> Proj
         return row
 
 
-def _validate_upload_name(filename: str | None) -> tuple[str, str, bool]:
-    safe = storage.sanitize_filename(filename)
-    suffix = Path(safe).suffix.lower()
+def _validate_upload_name(filename: str | None) -> tuple[str, str, str, bool]:
+    """Return (display_name, storage_name, media_type, processable).
+
+    Extension and type checks use the preserved original suffix so Hebrew
+    names like ``הצעה.pdf`` stay PDFs. ``storage_name`` is ASCII-safe for disk.
+    """
+    display_name = storage.preserve_original_filename(filename)
+    storage_name = storage.sanitize_filename(filename)
+    suffix = Path(display_name).suffix.lower()
     if suffix in REJECTED_EXTENSIONS:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -181,7 +187,7 @@ def _validate_upload_name(filename: str | None) -> tuple[str, str, bool]:
             "Supported: PDF, DOCX, TXT, Markdown, CSV, XLSX, PPTX, common images.",
         )
     media_type, processable = SUPPORTED_TYPES[suffix]
-    return safe, media_type, processable
+    return display_name, storage_name, media_type, processable
 
 
 async def upload_file(
@@ -193,7 +199,7 @@ async def upload_file(
     source_chat_id: str | None = None,
 ) -> dict[str, Any]:
     await _require_workspace(org_id, workspace_id)
-    safe_name, media_type, processable = _validate_upload_name(upload.filename)
+    display_name, storage_name, media_type, processable = _validate_upload_name(upload.filename)
     # Prefer client content-type when compatible; else mapped type.
     client_type = (upload.content_type or "").split(";")[0].strip().lower()
     if client_type and client_type != "application/octet-stream":
@@ -206,7 +212,7 @@ async def upload_file(
             org_id=org_id,
             workspace_id=workspace_id,
             file_id=file_id,
-            filename=safe_name,
+            filename=storage_name,
             upload=upload,
         )
     except storage.DurableStorageUnavailable as exc:
@@ -227,8 +233,8 @@ async def upload_file(
             org_id=org_id,
             workspace_id=workspace_id,
             project_id=workspace_id,
-            original_filename=safe_name,
-            display_name=safe_name,
+            original_filename=display_name,
+            display_name=display_name,
             media_type=media_type,
             byte_size=byte_size,
             checksum=checksum,
@@ -261,7 +267,7 @@ async def upload_file(
             source_chat_id=source_chat_id,
             file_id=file_uuid,
             media_type=media_type,
-            filename=safe_name,
+            filename=display_name,
         )
     except Exception as exc:  # noqa: BLE001 — source state must never fail upload
         log_source_state_error(exc, operation="record_chat_upload", file_id=str(file_uuid))
