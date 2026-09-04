@@ -53,6 +53,7 @@ def test_preserve_hebrew_and_strip_path_and_controls() -> None:
     preserved = storage.preserve_original_filename(long)
     assert len(preserved) <= 512
     assert preserved.startswith("א")
+    assert preserved.endswith(".pdf")
 
 
 def test_sanitize_filename_stays_storage_safe() -> None:
@@ -81,6 +82,38 @@ def test_validate_upload_rejects_hebrew_exe() -> None:
     with pytest.raises(file_service.HTTPException) as exc:
         file_service._validate_upload_name("הצעה.exe")
     assert exc.value.status_code == 400
+
+
+def test_validate_long_hebrew_pdf_keeps_extension_and_type() -> None:
+    long = ("א" * 600) + ".pdf"
+    display, storage_name, media, processable = file_service._validate_upload_name(long)
+    assert media == "application/pdf"
+    assert processable is True
+    assert len(display) <= 512
+    assert display.endswith(".pdf")
+    assert display.startswith("א")
+    assert all(ord(ch) < 128 for ch in storage_name)
+    assert "א" not in storage_name
+
+
+def test_validate_long_ascii_pdf_keeps_extension() -> None:
+    long = ("proposal" * 80) + ".pdf"
+    display, storage_name, media, processable = file_service._validate_upload_name(long)
+    assert media == "application/pdf"
+    assert processable is True
+    assert len(display) <= 512
+    assert display.endswith(".pdf")
+    assert display.startswith("proposal")
+    assert all(ord(ch) < 128 for ch in storage_name)
+
+
+def test_validate_long_rejected_extension_still_rejected() -> None:
+    long_exe = ("very-long-name" * 40) + ".exe"
+    assert len(long_exe) > 512
+    with pytest.raises(file_service.HTTPException) as exc:
+        file_service._validate_upload_name(long_exe)
+    assert exc.value.status_code == 400
+    assert ".exe" in str(exc.value.detail)
 
 
 def test_storage_key_hebrew_is_safe_and_traversal_cannot_escape(durable_root) -> None:

@@ -145,10 +145,23 @@ def sanitize_filename(name: str | None) -> str:
 
 
 def preserve_original_filename(name: str | None) -> str:
-    """User-visible basename: Unicode preserved, path and controls stripped."""
+    """User-visible basename: Unicode preserved, path and controls stripped.
+
+    The 512-character cap keeps the original suffix so type validation still
+    sees ``.pdf`` (and similar) after a long stem is shortened.
+    """
     raw = (name or "").strip().replace("\\", "/").split("/")[-1]
     cleaned = _CONTROL_RE.sub("", raw).strip()
-    cleaned = cleaned[:_DISPLAY_FILENAME_MAX].strip()
+    if not cleaned:
+        return "upload.bin"
+    if len(cleaned) > _DISPLAY_FILENAME_MAX:
+        suffix = Path(cleaned).suffix
+        if suffix and len(suffix) < _DISPLAY_FILENAME_MAX:
+            stem = cleaned[: -len(suffix)]
+            cleaned = stem[: _DISPLAY_FILENAME_MAX - len(suffix)] + suffix
+        else:
+            cleaned = cleaned[:_DISPLAY_FILENAME_MAX]
+        cleaned = cleaned.strip()
     return cleaned or "upload.bin"
 
 
