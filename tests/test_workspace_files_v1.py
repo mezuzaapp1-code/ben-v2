@@ -260,8 +260,9 @@ def test_validate_upload_name_rejects_exe_and_accepts_pdf():
         file_service._validate_upload_name("bad.exe")
     assert exc.value.status_code == 400
 
-    safe, media, processable = file_service._validate_upload_name("report.PDF")
-    assert safe.lower().endswith(".pdf")
+    display, storage_name, media, processable = file_service._validate_upload_name("report.PDF")
+    assert display == "report.PDF"
+    assert storage_name.lower().endswith(".pdf")
     assert media == "application/pdf"
     assert processable is True
 
