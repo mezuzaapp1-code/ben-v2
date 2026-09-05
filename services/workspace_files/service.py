@@ -494,6 +494,7 @@ class WorkspaceFilesContext:
     extraction_coverage: str = "legacy"
     used_files: tuple[dict[str, str], ...] = ()
     unavailable_count: int = 0
+    explicit_named_ids: tuple[str, ...] = ()
 
 
 def _sanitize_file_name(name: str | None) -> str:
@@ -715,17 +716,28 @@ def _prefix_cover_missing(
     return budgeted
 
 
-def _named_eligible_ids(eligible, user_query: str | None) -> set[str] | None:
+def _named_ids_from_files(files, user_query: str | None) -> tuple[str, ...]:
+    """Same ``file_is_explicitly_named`` matcher over any display/original/id records."""
     if not (user_query or "").strip():
-        return None
-    named = [
-        item
-        for item in eligible
-        if file_is_explicitly_named(user_query or "", item.display_name, item.original_filename)
-    ]
-    if not named:
-        return None
-    return {str(item.id) for item in named}
+        return ()
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in files:
+        display = str(getattr(item, "display_name", "") or "")
+        original = str(getattr(item, "original_filename", "") or "")
+        if not file_is_explicitly_named(user_query or "", display, original):
+            continue
+        fid = str(getattr(item, "id", "") or "").strip()
+        if not fid or fid in seen:
+            continue
+        seen.add(fid)
+        out.append(fid)
+    return tuple(out)
+
+
+def _named_eligible_ids(eligible, user_query: str | None) -> set[str] | None:
+    named = _named_ids_from_files(eligible, user_query)
+    return set(named) if named else None
 
 
 async def load_ready_files_context(
@@ -788,6 +800,7 @@ async def load_ready_files_context(
             eligible.append(item)
 
     named_ids = _named_eligible_ids(eligible, user_query)
+    explicit_named_ids = _named_ids_from_files(rows, user_query)
     restriction = _id_set(restrict_to_file_ids)
     allow_ids = named_ids if named_ids is not None else restriction
 
@@ -802,7 +815,11 @@ async def load_ready_files_context(
             fallback_reason="flag_off",
             files_eligible=len(eligible),
         )
-        return replace(ctx, unavailable_count=unavailable)
+        return replace(
+            ctx,
+            unavailable_count=unavailable,
+            explicit_named_ids=explicit_named_ids,
+        )
 
     ctx = await _load_gate4a_context(
         org_id,
@@ -815,7 +832,11 @@ async def load_ready_files_context(
         allow_ids=allow_ids,
         cover_file_ids=cover_file_ids,
     )
-    return replace(ctx, unavailable_count=unavailable)
+    return replace(
+        ctx,
+        unavailable_count=unavailable,
+        explicit_named_ids=explicit_named_ids,
+    )
 
 
 async def _load_gate4a_context(

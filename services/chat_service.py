@@ -49,6 +49,7 @@ from services.ops.runtime_diagnostics import attach_workspace_to_request_diagnos
 from services.ops.structured_log import log_info, log_warning
 from services.workspace_files.multi_source import (
     clarification_text,
+    explicit_named_set_incomplete,
     resolve_turn_sources,
     restrict_arg_for_resolution,
     wrap_with_grounding_hint,
@@ -424,7 +425,19 @@ async def stream_chat_response(
                         restrict_to_file_ids=restrict_arg,
                         cover_file_ids=cover_ids,
                     )
-                    if cover_ids and len(wsf.used_files or ()) < 2:
+                    used_ids = [
+                        str(item.get("id", "")).strip()
+                        for item in (wsf.used_files or ())
+                        if str(item.get("id", "")).strip()
+                    ]
+                    if cover_ids and len(used_ids) < 2:
+                        clarify_reply = clarification_text(focus_query)
+                        workspace_fallback_reason = "multi_source_ambiguous"
+                    elif explicit_named_set_incomplete(
+                        focus_query,
+                        named_ids=wsf.explicit_named_ids,
+                        used_ids=used_ids,
+                    ):
                         clarify_reply = clarification_text(focus_query)
                         workspace_fallback_reason = "multi_source_ambiguous"
                     else:
@@ -543,10 +556,16 @@ async def stream_chat_response(
     if not resolved_provider_id:
         resolved_provider_id = gateway_to_provider_id(provider_used)
 
-    # Success boundary: unused_turns / last_used_at advance only after the
-    # model produced at least one token. Error, exception, cancel, and empty
-    # streams return above or skip this block.
-    if parts and not expert_opinion and project_id is not None and vision_user_content is None:
+    # Success boundary: unused_turns / last_used_at advance only after a
+    # real model turn produced at least one token. Resolver clarifications
+    # persist as chat text but must not age Active Source.
+    if (
+        parts
+        and not clarify_reply
+        and not expert_opinion
+        and project_id is not None
+        and vision_user_content is None
+    ):
         try:
             await record_standard_chat_turn(
                 org_id=org,

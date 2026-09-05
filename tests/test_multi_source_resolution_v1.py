@@ -21,6 +21,8 @@ from services.workspace_files.multi_source import (
     MULTI_SOURCE_GROUNDING_HINT,
     classify_multi_source_intent,
     clarification_text,
+    explicit_named_set_incomplete,
+    filename_mentions_in_query,
     resolve_turn_sources,
     restrict_arg_for_resolution,
 )
@@ -459,6 +461,7 @@ async def test_chat_ambiguous_plural_clarifies_without_workspace_load(monkeypatc
     assert done
     assert done[-1].get("workspace_files_used") in ([], None)
     assert captured.get("message") is None
+    assert captured.get("record_calls") == []
 
 
 @pytest.mark.asyncio
@@ -499,6 +502,316 @@ async def test_chat_pair_with_one_ready_after_load_clarifies(monkeypatch):
     assert "last two" in body or "קבצים" in body
     done = [json.loads(e) for e in events if '"done"' in e]
     assert done[-1].get("workspace_files_used") in ([], None)
+    assert captured.get("record_calls") == []
+
+
+@pytest.mark.asyncio
+async def test_clarification_does_not_age_active_source(monkeypatch):
+    import services.chat_service as chat_service
+
+    captured: dict = {}
+    _patch_stream_pipeline(monkeypatch, captured)
+    seed = _sequential_uploads(FILE_A, FILE_B)
+    used_at = NOW + timedelta(seconds=(UPLOAD_BURST_WINDOW_SECONDS + 1) * 2)
+    seed = apply_chat_turn(seed, [str(FILE_B)], now=used_at)
+    unused_before = seed["unused_turns"]
+    last_used_before = seed["last_used_at"]
+
+    ids = [uuid.uuid4() for _ in range(5)]
+    crowded = _sequential_uploads(*ids)
+    crowded["unused_turns"] = unused_before
+    crowded["last_used_at"] = last_used_before
+    crowded["active_file_ids"] = [str(FILE_B)]
+    crowded["recent_file_ids"] = [str(FILE_A), *[str(i) for i in ids[:-1]]]
+    crowded["pending_file_ids"] = []
+    _source_state_chat_patches(monkeypatch, chat_service, captured, crowded)
+
+    async def boom(_org, _ws, **_k):
+        raise AssertionError("ambiguous multi-source must not load workspace files")
+
+    monkeypatch.setattr(chat_service, "load_ready_files_context", boom)
+
+    async def run(query: str) -> list[str]:
+        events = []
+        async for line in chat_service.stream_chat_response(
+            query,
+            "user-1",
+            str(ORG_A),
+            "free",
+            thread_id=uuid.UUID(CHAT_ID),
+            provider_id="gpt",
+            project_id=WS_A,
+        ):
+            events.append(line)
+        return events
+
+    first = await run("compare the proposals")
+    assert captured.get("message") is None
+    assert "last two" in "".join(first)
+    assert captured.get("record_calls") == []
+    assert crowded["active_file_ids"] == [str(FILE_B)]
+    assert str(FILE_A) in crowded["recent_file_ids"]
+    assert crowded["unused_turns"] == unused_before
+    assert crowded["last_used_at"] == last_used_before
+
+    second = await run("compare the proposals")
+    assert captured.get("message") is None
+    assert "last two" in "".join(second)
+    assert captured.get("record_calls") == []
+    assert crowded["active_file_ids"] == [str(FILE_B)]
+    assert crowded["unused_turns"] == unused_before
+    assert crowded["last_used_at"] == last_used_before
+
+    captured["record_calls"] = []
+
+    async def singular_ctx(_org, _ws, *, max_chars, user_query=None, restrict_to_file_ids=None, **_k):
+        captured["restrict"] = restrict_to_file_ids
+        return WorkspaceFilesContext(
+            block='<workspace_files>[file name="B.pdf"]B[/file]</workspace_files>',
+            count=1,
+            chars=4,
+            truncated=False,
+            used_files=({"id": str(FILE_B), "name": "B.pdf"},),
+        )
+
+    monkeypatch.setattr(chat_service, "load_ready_files_context", singular_ctx)
+    await run("מה הסכום של ההצעה?")
+    assert captured["restrict"] == [str(FILE_B)]
+    assert captured.get("message")
+    assert MULTI_SOURCE_GROUNDING_HINT not in captured["message"]
+
+
+def test_filename_mentions_and_incomplete_named_set() -> None:
+    assert filename_mentions_in_query("compare A.pdf and B.pdf") == ("a.pdf", "b.pdf")
+    assert filename_mentions_in_query("summarize A.pdf") == ("a.pdf",)
+    assert explicit_named_set_incomplete(
+        "compare A.pdf and B.pdf",
+        named_ids=(str(FILE_A), str(FILE_B)),
+        used_ids=(str(FILE_A),),
+    )
+    assert explicit_named_set_incomplete(
+        "compare A.pdf and B.pdf",
+        named_ids=(str(FILE_A),),
+        used_ids=(str(FILE_A),),
+    )
+    assert not explicit_named_set_incomplete(
+        "compare A.pdf and B.pdf",
+        named_ids=(str(FILE_A), str(FILE_B)),
+        used_ids=(str(FILE_A), str(FILE_B)),
+    )
+    assert not explicit_named_set_incomplete(
+        "summarize A.pdf",
+        named_ids=(str(FILE_A),),
+        used_ids=(str(FILE_A),),
+    )
+
+
+@pytest.mark.asyncio
+async def test_explicit_ab_both_ready_grounds_both(monkeypatch):
+    monkeypatch.delenv("BEN_WORKSPACE_CHUNK_RETRIEVAL", raising=False)
+    _patch_session(monkeypatch, _workspace_rows())
+    out = await load_ready_files_context(
+        ORG_A,
+        WS_A,
+        max_chars=12_000,
+        user_query="compare A.pdf and B.pdf",
+        restrict_to_file_ids=[str(FILE_B)],
+    )
+    assert set(out.explicit_named_ids) == {str(FILE_A), str(FILE_B)}
+    assert {u["id"] for u in out.used_files} == {str(FILE_A), str(FILE_B)}
+
+    import services.chat_service as chat_service
+
+    captured: dict = {}
+    _patch_stream_pipeline(monkeypatch, captured)
+    state = _sequential_uploads(FILE_A, FILE_B)
+    _source_state_chat_patches(monkeypatch, chat_service, captured, state)
+
+    async def fake_ctx(_org, _ws, *, max_chars, user_query=None, restrict_to_file_ids=None, **_k):
+        captured["restrict"] = restrict_to_file_ids
+        return WorkspaceFilesContext(
+            block='<workspace_files>[file name="A.pdf"]A[/file]\n[file name="B.pdf"]B[/file]</workspace_files>',
+            count=2,
+            chars=20,
+            truncated=False,
+            used_files=(
+                {"id": str(FILE_A), "name": "A.pdf"},
+                {"id": str(FILE_B), "name": "B.pdf"},
+            ),
+            explicit_named_ids=(str(FILE_A), str(FILE_B)),
+        )
+
+    monkeypatch.setattr(chat_service, "load_ready_files_context", fake_ctx)
+    recorded = {}
+
+    async def fake_turn(*_a, **k):
+        recorded["used"] = k.get("used_file_ids")
+        nxt = apply_chat_turn(
+            state,
+            k.get("used_file_ids") or [],
+            now=NOW + timedelta(seconds=(UPLOAD_BURST_WINDOW_SECONDS + 1) * 2),
+        )
+        state.clear()
+        state.update(nxt)
+        return state
+
+    monkeypatch.setattr(chat_service, "record_standard_chat_turn", fake_turn)
+
+    async for _line in chat_service.stream_chat_response(
+        "compare A.pdf and B.pdf",
+        "user-1",
+        str(ORG_A),
+        "free",
+        thread_id=uuid.UUID(CHAT_ID),
+        provider_id="gpt",
+        project_id=WS_A,
+    ):
+        pass
+
+    assert captured.get("message")  # provider called once
+    assert MULTI_SOURCE_GROUNDING_HINT in captured["message"]
+    assert set(recorded["used"]) == {str(FILE_A), str(FILE_B)}
+    assert state["active_file_ids"] == [str(FILE_B)]
+    assert str(FILE_A) in state["recent_file_ids"]
+    assert str(FILE_A) not in state["active_file_ids"]
+
+
+@pytest.mark.asyncio
+async def test_explicit_ab_b_not_ready_fails_closed(monkeypatch):
+    monkeypatch.delenv("BEN_WORKSPACE_CHUNK_RETRIEVAL", raising=False)
+    rows = [
+        _row(rid=FILE_A, name="A.pdf", text="proposal budget scope " * 20, created_at=3),
+        _row(rid=FILE_B, name="B.pdf", text="compare annex", status="processing", created_at=4),
+        _row(rid=FILE_F0, name="F0-test.txt", text="f0 workspace filler " * 20, created_at=1),
+    ]
+    _patch_session(monkeypatch, rows)
+    out = await load_ready_files_context(
+        ORG_A,
+        WS_A,
+        max_chars=12_000,
+        user_query="compare A.pdf and B.pdf",
+        restrict_to_file_ids=[str(FILE_A)],
+    )
+    assert set(out.explicit_named_ids) == {str(FILE_A), str(FILE_B)}
+    assert {u["id"] for u in out.used_files} == {str(FILE_A)}
+
+    import services.chat_service as chat_service
+
+    captured: dict = {}
+    _patch_stream_pipeline(monkeypatch, captured)
+    state = _sequential_uploads(FILE_A, FILE_B)
+    _source_state_chat_patches(monkeypatch, chat_service, captured, state)
+
+    async def fake_ctx(_org, _ws, **_k):
+        return out
+
+    monkeypatch.setattr(chat_service, "load_ready_files_context", fake_ctx)
+    events = []
+    async for line in chat_service.stream_chat_response(
+        "compare A.pdf and B.pdf",
+        "user-1",
+        str(ORG_A),
+        "free",
+        thread_id=uuid.UUID(CHAT_ID),
+        provider_id="gpt",
+        project_id=WS_A,
+    ):
+        events.append(line)
+
+    assert captured.get("message") is None
+    assert "last two" in "".join(events)
+    assert captured.get("record_calls") == []
+    done = [json.loads(e) for e in events if '"done"' in e]
+    assert done[-1].get("workspace_files_used") in ([], None)
+
+
+@pytest.mark.asyncio
+async def test_explicit_ab_b_missing_fails_closed(monkeypatch):
+    monkeypatch.delenv("BEN_WORKSPACE_CHUNK_RETRIEVAL", raising=False)
+    rows = [
+        _row(rid=FILE_A, name="A.pdf", text="proposal budget scope " * 20, created_at=3),
+        _row(rid=FILE_F0, name="F0-test.txt", text="f0 workspace filler " * 20, created_at=1),
+    ]
+    _patch_session(monkeypatch, rows)
+    out = await load_ready_files_context(
+        ORG_A,
+        WS_A,
+        max_chars=12_000,
+        user_query="compare A.pdf and B.pdf",
+        restrict_to_file_ids=[str(FILE_A)],
+    )
+    assert out.explicit_named_ids == (str(FILE_A),)
+    assert {u["id"] for u in out.used_files} == {str(FILE_A)}
+
+    import services.chat_service as chat_service
+
+    captured: dict = {}
+    _patch_stream_pipeline(monkeypatch, captured)
+    state = _sequential_uploads(FILE_A)
+    _source_state_chat_patches(monkeypatch, chat_service, captured, state)
+
+    async def fake_ctx(*_a, **_k):
+        return out
+
+    monkeypatch.setattr(chat_service, "load_ready_files_context", fake_ctx)
+    events = []
+    async for line in chat_service.stream_chat_response(
+        "compare A.pdf and B.pdf",
+        "user-1",
+        str(ORG_A),
+        "free",
+        thread_id=uuid.UUID(CHAT_ID),
+        provider_id="gpt",
+        project_id=WS_A,
+    ):
+        events.append(line)
+
+    assert captured.get("message") is None
+    assert captured.get("record_calls") == []
+    assert "F0-test.txt" not in "".join(events)
+    done = [json.loads(e) for e in events if '"done"' in e]
+    assert done[-1].get("workspace_files_used") in ([], None)
+
+
+@pytest.mark.asyncio
+async def test_explicit_only_a_stays_singular(monkeypatch):
+    monkeypatch.delenv("BEN_WORKSPACE_CHUNK_RETRIEVAL", raising=False)
+    _patch_session(monkeypatch, _workspace_rows())
+    out = await load_ready_files_context(
+        ORG_A,
+        WS_A,
+        max_chars=12_000,
+        user_query="summarize A.pdf",
+        restrict_to_file_ids=[str(FILE_B)],
+    )
+    assert out.explicit_named_ids == (str(FILE_A),)
+    assert {u["name"] for u in out.used_files} == {"A.pdf"}
+
+    import services.chat_service as chat_service
+
+    captured: dict = {}
+    _patch_stream_pipeline(monkeypatch, captured)
+    state = _sequential_uploads(FILE_A, FILE_B)
+    _source_state_chat_patches(monkeypatch, chat_service, captured, state)
+
+    async def fake_ctx(*_a, **_k):
+        return out
+
+    monkeypatch.setattr(chat_service, "load_ready_files_context", fake_ctx)
+    async for _line in chat_service.stream_chat_response(
+        "summarize A.pdf",
+        "user-1",
+        str(ORG_A),
+        "free",
+        thread_id=uuid.UUID(CHAT_ID),
+        provider_id="gpt",
+        project_id=WS_A,
+    ):
+        pass
+
+    assert captured.get("message")
+    assert MULTI_SOURCE_GROUNDING_HINT not in captured["message"]
+    assert captured.get("record_calls")
 
 
 # --------------------------------------------------------------------------- #

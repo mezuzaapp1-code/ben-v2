@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Iterable, Literal
 
+from services.workspace_files.types import REJECTED_EXTENSIONS, SUPPORTED_TYPES
 from services.workspace_files.thread_sources import (
     normalize_source_state,
     restriction_file_ids,
@@ -29,6 +30,16 @@ Intent = Literal["last_two", "previous_current", "pair", "uncounted_plural"]
 
 _NIKUD_RE = re.compile(r"[\u0591-\u05C7]")
 _HEBREW_RE = re.compile(r"[\u0590-\u05FF]")
+_MENTION_EXTS = "|".join(
+    re.escape(ext.lstrip("."))
+    for ext in sorted({*SUPPORTED_TYPES, *REJECTED_EXTENSIONS}, key=len, reverse=True)
+)
+_FILE_MENTION_RE = re.compile(
+    rf"(?<![0-9A-Za-z\u0590-\u05FF])"
+    rf"([0-9A-Za-z\u0590-\u05FF._\-()\[\]]+\.(?:{_MENTION_EXTS}))"
+    rf"(?![0-9A-Za-z\u0590-\u05FF])",
+    re.IGNORECASE,
+)
 
 # Specificity order: last-two and previous+current before generic pair/plural.
 _LAST_TWO_RE = re.compile(
@@ -192,6 +203,36 @@ def wrap_with_grounding_hint(message: str) -> str:
     if not body:
         return MULTI_SOURCE_GROUNDING_HINT
     return f"{MULTI_SOURCE_GROUNDING_HINT}\n\n{body}"
+
+
+def filename_mentions_in_query(user_query: str | None) -> tuple[str, ...]:
+    """Filename-like tokens in the query (``A.pdf``). Not a second name matcher."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for match in _FILE_MENTION_RE.finditer(str(user_query or "")):
+        key = match.group(1).casefold().strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        found.append(key)
+    return tuple(found)
+
+
+def explicit_named_set_incomplete(
+    user_query: str | None,
+    *,
+    named_ids: Iterable[str] | None,
+    used_ids: Iterable[str] | None,
+) -> bool:
+    """True when the user named 2+ files and this turn did not ground all of them."""
+    named = {str(i).strip() for i in (named_ids or ()) if str(i).strip()}
+    used = {str(i).strip() for i in (used_ids or ()) if str(i).strip()}
+    mentions = filename_mentions_in_query(user_query)
+    if len(named) >= 2 and not named <= used:
+        return True
+    if len(mentions) >= 2 and len(used) < len(mentions):
+        return True
+    return False
 
 
 def _select_for_intent(
