@@ -1,0 +1,15 @@
+{
+  "name": "BEN v2",
+  "install": "bash scripts/cloud/install.sh",
+  "start": "bash scripts/cloud/start.sh",
+  "terminals": [
+    {
+      "name": "backend",
+      "command": "source .venv/bin/activate && uvicorn main:app --host 127.0.0.1 --port 8002 --reload"
+    },
+    {
+      "name": "frontend",
+      "command": "cd frontend && npm run dev"
+    }
+  ]
+}
