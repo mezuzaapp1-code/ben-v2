@@ -21,7 +21,7 @@ function assert(cond, msg) {
   }
 }
 
-const persisted = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+const persisted = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const draftId = `draft:${persisted}`
 
 {
@@ -64,7 +64,7 @@ const draftId = `draft:${persisted}`
   let persistCalls = 0
   const existing = await ensurePersistedThreadForUpload(persisted, async () => {
     persistCalls += 1
-    return { thread: { id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' } }
+    return { thread: { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' } }
   })
   assert(persistCalls === 0, 'F: persisted id does not call create')
   assert(existing.threadId === persisted, 'F: persisted id is returned as-is')

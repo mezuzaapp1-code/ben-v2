@@ -185,19 +185,21 @@ async def test_draft_then_persist_then_upload_records_a(monkeypatch):
 async def test_second_file_same_persisted_chat_is_ab_sequential(monkeypatch):
     store = _in_memory_source_store(monkeypatch)
     tid = uuid.UUID(CHAT_ID)
+    t0 = NOW
 
-    first = await record_chat_upload(
-        org_id=ORG_A,
-        source_chat_id=str(tid),
-        file_id=FILE_A,
-        media_type="application/pdf",
-        filename="A.pdf",
-    )
+    with patch("services.workspace_files.thread_sources.utcnow", return_value=t0):
+        first = await record_chat_upload(
+            org_id=ORG_A,
+            source_chat_id=str(tid),
+            file_id=FILE_A,
+            media_type="application/pdf",
+            filename="A.pdf",
+        )
     assert first is not None
-    ready_a = apply_file_ready(first, str(FILE_A), now=NOW + timedelta(seconds=1))
+    ready_a = apply_file_ready(first, str(FILE_A), now=t0 + timedelta(seconds=1))
     store[tid] = ready_a
 
-    later = NOW + timedelta(seconds=UPLOAD_BURST_WINDOW_SECONDS + 5)
+    later = t0 + timedelta(seconds=UPLOAD_BURST_WINDOW_SECONDS + 5)
     with patch("services.workspace_files.thread_sources.utcnow", return_value=later):
         second = await record_chat_upload(
             org_id=ORG_A,
