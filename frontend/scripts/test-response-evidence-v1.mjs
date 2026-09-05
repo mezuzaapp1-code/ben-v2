@@ -196,6 +196,77 @@ assert(panel.includes('Open source') && panel.includes('Open page'), 'panel has 
 assert(panel.includes('item.page != null'), 'page label is conditional')
 assert(panelCss.includes('.sources-panel'), 'panel has dedicated CSS')
 assert(!panel.includes('FileLibraryOverlay'), 'SourcesPanel is not File Library')
+
+assert(
+  /className="sources-panel__name" dir="auto"/.test(panel),
+  'source filename has dir="auto"'
+)
+assert(
+  /className="sources-panel__excerpt" dir="auto"/.test(panel),
+  'evidence excerpt has its own bidi context'
+)
+assert(
+  /<pre className="sources-panel__excerpt" dir="auto">\{item\.excerpt\}<\/pre>/.test(panel),
+  'excerpt React child is the persisted excerpt with no rewrite'
+)
+assert(!/split\(|reverse\(|\[\\.\\.\\.item\.excerpt\]/.test(panel), 'panel does not reorder excerpt tokens')
+assert(
+  /<h2 className="sources-panel__title">Sources \(\{n\}\)<\/h2>/.test(panel),
+  'Sources (N) chrome stays English LTR'
+)
+assert(/>\s*Close\s*</.test(panel), 'Close chrome stays English LTR')
+assert(!/className="sources-panel"[^>]*dir="rtl"/.test(panel), 'panel root is not forced RTL')
+
+{
+  const excerptRule = panelCss.match(/\.sources-panel__excerpt \{[\s\S]*?\n\}/)?.[0] || ''
+  assert(/unicode-bidi:\s*plaintext/.test(excerptRule), 'excerpt uses unicode-bidi: plaintext')
+  assert(/white-space:\s*pre-wrap/.test(excerptRule), 'excerpt keeps white-space: pre-wrap')
+  assert(/text-align:\s*start/.test(excerptRule), 'excerpt uses text-align: start')
+  assert(/word-break:\s*normal/.test(excerptRule), 'excerpt wrapping is word-break: normal')
+  assert(/overflow-wrap:\s*anywhere/.test(excerptRule), 'excerpt wrapping is overflow-wrap: anywhere')
+  assert(/font-family:\s*inherit/.test(excerptRule), 'excerpt inherits panel font, not monospace')
+  assert(!/word-break:\s*break-word/.test(excerptRule), 'excerpt does not use aggressive break-word')
+}
+{
+  const panelRule = panelCss.match(/\.sources-panel \{[\s\S]*?\n\}/)?.[0] || ''
+  assert(/direction:\s*ltr/.test(panelRule), 'panel chrome stays direction: ltr')
+  assert(/unicode-bidi:\s*isolate/.test(panelRule), 'panel chrome stays unicode-bidi: isolate')
+}
+
+const mixedExcerpt =
+  'הצעת מחיר מספר QT-2024-1847\nלכבוד: חברת אלפא בע"מ\nדוא"ל: purchasing@alpha.co.il\nApplication Server Pro\n₪ 306,233.60'
+const mixedPayload = {
+  retrieval_mode: 'prefix_fallback',
+  sources: [
+    {
+      source_id: FILE_A,
+      source_type: 'workspace_file',
+      display_name: 'הצעת מחיר אלפא QT-2024-1847.pdf',
+    },
+  ],
+  evidence: [
+    {
+      evidence_id: `prefix:${FILE_A}`,
+      source_id: FILE_A,
+      excerpt: mixedExcerpt,
+      origin: 'ben_retrieval',
+    },
+  ],
+}
+const mixedClean = sanitizeResponseEvidence(mixedPayload)
+assert(mixedClean.evidence[0].excerpt === mixedExcerpt, 'mixed Hebrew/English/email/₪/newlines stay character-identical')
+assert(mixedClean.evidence[0].excerpt.includes('\n'), 'newlines in evidence are preserved')
+assert(mixedClean.evidence[0].excerpt.includes('₪ 306,233.60'), 'currency text is not reconstructed')
+assert(mixedClean.sources[0].display_name.includes('הצעת מחיר'), 'Hebrew filename is not reordered')
+assert(canShowSources({ role: 'assistant', kind: 'chat', response_evidence: mixedPayload }) === true, 'Sources(N) still opens for mixed evidence')
+assert(
+  canShowSources({
+    role: 'assistant',
+    kind: 'chat',
+    used_files: [{ id: FILE_A, name: 'A.pdf' }],
+  }) === false,
+  'legacy used_files-only messages still have no Sources'
+)
 assert(preview.includes('fetchWorkspaceFileBlob'), 'open uses authenticated blob path')
 assert(preview.includes('#page='), 'page open uses fragment')
 assert(preview.includes('revokeObjectURL'), 'blob URL is revoked')
