@@ -102,6 +102,65 @@ assert(!('chunk_id' in cleaned.evidence[0]), 'prefix evidence never keeps chunk_
 assert(sanitizeResponseEvidence({ retrieval_mode: 'off', sources: [] }) === null, 'bad mode fails closed')
 assert(sanitizeResponseEvidence(undefined) === null, 'missing evidence is null')
 
+const nineIds = Array.from({ length: 9 }, (_, i) => `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa${String(i + 10).padStart(2, '0')}`)
+const nineSources = {
+  retrieval_mode: 'prefix_fallback',
+  sources: nineIds.map((id, i) => ({
+    source_id: id,
+    source_type: 'workspace_file',
+    display_name: `S${i}.pdf`,
+  })),
+  evidence: [
+    {
+      evidence_id: `prefix:${nineIds[0]}`,
+      source_id: nineIds[0],
+      excerpt: 'kept',
+      origin: 'ben_retrieval',
+    },
+  ],
+}
+const nineClean = sanitizeResponseEvidence(nineSources)
+assert(nineClean.sources.length === 9, 'sanitizer does not drop valid source identities')
+assert(sourcesCount(nineSources) === 9, 'Sources(N) counts all injected sources')
+assert(nineClean.evidence.length === 1, 'evidence rows may be fewer than sources')
+
+const pageDot = sanitizeResponseEvidence({
+  retrieval_mode: 'chunks',
+  sources: [{ source_id: FILE_A, source_type: 'workspace_file', display_name: 'A.pdf' }],
+  evidence: [
+    {
+      evidence_id: `chunk:${CHUNK_A}`,
+      source_id: FILE_A,
+      excerpt: 'p',
+      origin: 'ben_retrieval',
+      chunk_id: CHUNK_A,
+      page: '3.0',
+    },
+  ],
+})
+assert(!('page' in pageDot.evidence[0]), 'page "3.0" is rejected to match Python')
+
+const emojiIds = Array.from({ length: 6 }, (_, i) => `bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb${String(i + 10).padStart(2, '0')}`)
+const emojiBudget = sanitizeResponseEvidence({
+  retrieval_mode: 'chunks',
+  sources: emojiIds.map((id, i) => ({
+    source_id: id,
+    source_type: 'workspace_file',
+    display_name: `E${i}.pdf`,
+  })),
+  evidence: emojiIds.map((id, i) => ({
+    evidence_id: `prefix:${id}`,
+    source_id: id,
+    excerpt: '😀'.repeat(400),
+    origin: 'ben_retrieval',
+  })),
+})
+assert(emojiBudget.sources.length === 6, 'emoji budget does not drop source identity')
+assert(
+  emojiBudget.evidence.length === 6,
+  'total excerpt budget counts Unicode code points (6×400=2400), not UTF-16 units'
+)
+
 const live = responseEvidenceFromDoneEvent({ response_evidence: sample })
 const history = sanitizeResponseEvidence(sample)
 assert(JSON.stringify(live) === JSON.stringify(history), 'live/history same shape')

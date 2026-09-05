@@ -18,7 +18,6 @@ from services.workspace_files.file_resolver import BudgetedFile, EligibleFile
 from services.workspace_files.response_evidence import (
     MAX_EVIDENCE_ITEMS,
     MAX_EXCERPT_CHARS,
-    MAX_SOURCES,
     MAX_TOTAL_EXCERPT_CHARS,
     EvidenceUnit,
     build_response_evidence,
@@ -28,7 +27,12 @@ from services.workspace_files.response_evidence import (
     units_from_chunk_hits,
 )
 from services.workspace_files.multi_source import MODE_CLARIFY, SourceResolution
-from services.workspace_files.service import WorkspaceFilesContext, _context_from_gate3d
+from services.workspace_files.service import (
+    WorkspaceFilesContext,
+    _context_from_gate3d,
+    load_ready_files_context,
+)
+from tests.test_document_upload_intelligence_v1 import _patch_session, _row
 
 FILE_A = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1")
 FILE_B = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb2")
@@ -156,9 +160,14 @@ def test_caps_sources_items_and_total_excerpt():
             )
         )
     out = build_response_evidence(retrieval_mode="chunks", units=units)
-    assert len(out["sources"]) == MAX_SOURCES
+    assert len(out["sources"]) == 10
     assert len(out["evidence"]) <= MAX_EVIDENCE_ITEMS
     assert sum(len(e["excerpt"]) for e in out["evidence"]) <= MAX_TOTAL_EXCERPT_CHARS
+    assert {s["source_id"] for s in out["sources"]} == {str(uuid.UUID(int=i + 1)) for i in range(10)}
+    # 10 × 400 exceeds 2400, so some excerpts are absent — identity is not.
+    assert len(out["evidence"]) < 10
+    evidenced = {e["source_id"] for e in out["evidence"]}
+    assert evidenced < {s["source_id"] for s in out["sources"]}
 
 
 def test_gate3d_context_builds_prefix_evidence():
@@ -195,6 +204,130 @@ def test_empty_gate3d_has_no_evidence():
     ctx = _context_from_gate3d([], "q", 8000, None)
     assert ctx.response_evidence is None
     assert ctx.used_files == ()
+
+
+def _assert_used_files_match_sources(ctx: WorkspaceFilesContext) -> None:
+    assert ctx.response_evidence is not None
+    used = {item["id"] for item in ctx.used_files}
+    sources = {item["source_id"] for item in ctx.response_evidence["sources"]}
+    assert used == sources
+    assert len(used) == len(ctx.used_files)
+    assert len(sources) == len(ctx.response_evidence["sources"])
+
+
+@pytest.mark.asyncio
+async def test_gate3d_nine_injected_files_keep_source_identity(monkeypatch):
+    """Would fail on HEAD bd826ef: sources truncated at 8 while used_files kept 9."""
+    monkeypatch.delenv("BEN_WORKSPACE_CHUNK_RETRIEVAL", raising=False)
+    ids = [uuid.UUID(int=0xA100 + i) for i in range(9)]
+    rows = [
+        _row(rid=fid, name=f"Short{i}.pdf", text=f"short body {i}", created_at=i)
+        for i, fid in enumerate(ids)
+    ]
+    _patch_session(monkeypatch, rows)
+    ctx = await load_ready_files_context(
+        ORG_A,
+        WS_A,
+        max_chars=12_000,
+        user_query="summarize these files",
+    )
+    assert len(ctx.used_files) == 9
+    assert ctx.response_evidence is not None
+    assert len(ctx.response_evidence["sources"]) == 9
+    _assert_used_files_match_sources(ctx)
+    # Evidence rows may be fewer than sources; identity stays complete.
+    assert all(s["source_id"] in {u["id"] for u in ctx.used_files} for s in ctx.response_evidence["sources"])
+
+
+@pytest.mark.asyncio
+async def test_gate4a_mixed_cover_fill_keeps_all_injected_sources(monkeypatch):
+    """8 FTS chunk files + 1 cover-fill prefix. Retrieval caps unchanged."""
+    monkeypatch.setattr(
+        "services.workspace_files.service.chunk_retrieval_enabled",
+        lambda _ws: True,
+    )
+    chunk_ids = [uuid.UUID(int=0xB100 + i) for i in range(8)]
+    cover_id = uuid.UUID(int=0xB109)
+    all_ids = [*chunk_ids, cover_id]
+    rows = [
+        _row(rid=fid, name=f"Mix{i}.pdf", text=f"prefix body {i} extra", created_at=i)
+        for i, fid in enumerate(all_ids)
+    ]
+
+    async def fake_prove(session, *, org_id, workspace_id, file_ids):
+        return {fid: 2 for fid in file_ids}
+
+    async def fake_search(session, *, org_id, workspace_id, file_ids, tsquery, timeout_s=1.5):
+        hits = [
+            ChunkHit(
+                chunk_id=uuid.UUID(int=0xC100 + i),
+                file_id=fid,
+                page_number=i + 1,
+                document_chunk_index=0,
+                text=f"chunk injected {i}",
+                char_count=16,
+                rank=1.0 - (i * 0.01),
+            )
+            for i, fid in enumerate(chunk_ids)
+        ]
+        return hits, 1.0, None
+
+    monkeypatch.setattr("services.workspace_files.service.prove_chunk_rows", fake_prove)
+    monkeypatch.setattr("services.workspace_files.service.search_chunks_bounded", fake_search)
+    _patch_session(monkeypatch, rows)
+    ctx = await load_ready_files_context(
+        ORG_A,
+        WS_A,
+        max_chars=12_000,
+        user_query="what amounts appear across these documents",
+        restrict_to_file_ids=[str(fid) for fid in all_ids],
+        cover_file_ids=[str(fid) for fid in all_ids],
+    )
+    assert ctx.retrieval_mode == "mixed"
+    assert len(ctx.used_files) == 9
+    assert ctx.response_evidence is not None
+    assert len(ctx.response_evidence["sources"]) == 9
+    _assert_used_files_match_sources(ctx)
+    by_source = {item["source_id"]: item for item in ctx.response_evidence["evidence"]}
+    for fid in chunk_ids:
+        row = by_source[str(fid)]
+        assert row["chunk_id"]
+        assert row.get("page")
+        assert row["excerpt"].startswith("chunk injected")
+    cover_rows = [
+        item
+        for item in ctx.response_evidence["evidence"]
+        if item["source_id"] == str(cover_id)
+    ]
+    if cover_rows:
+        assert "page" not in cover_rows[0]
+        assert "chunk_id" not in cover_rows[0]
+        assert cover_rows[0]["excerpt"].startswith("prefix body")
+    else:
+        # Cover identity must still appear even if the evidence budget skipped it.
+        assert str(cover_id) in {s["source_id"] for s in ctx.response_evidence["sources"]}
+
+
+def test_sanitize_keeps_nine_source_identities():
+    ids = [uuid.UUID(int=0xD100 + i) for i in range(9)]
+    raw = {
+        "retrieval_mode": "prefix_fallback",
+        "sources": [
+            {"source_id": str(sid), "source_type": "workspace_file", "display_name": f"S{i}.pdf"}
+            for i, sid in enumerate(ids)
+        ],
+        "evidence": [
+            {
+                "evidence_id": f"prefix:{ids[0]}",
+                "source_id": str(ids[0]),
+                "excerpt": "kept",
+                "origin": "ben_retrieval",
+            }
+        ],
+    }
+    clean = sanitize_response_evidence(raw)
+    assert [s["source_id"] for s in clean["sources"]] == [str(sid) for sid in ids]
+    assert len(clean["evidence"]) == 1
 
 
 def test_units_from_chunk_hits_use_hit_text():

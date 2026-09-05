@@ -15,9 +15,10 @@ ORIGIN = "ben_retrieval"
 
 MAX_EXCERPT_CHARS = 400
 MAX_EVIDENCE_ITEMS = 12
-MAX_SOURCES = 8
 MAX_TOTAL_EXCERPT_CHARS = 2400
 MAX_EVIDENCE_ID_CHARS = 80
+# Source identity is not presentation-capped. Evidence rows stay bounded.
+# sources[] must list every valid injected file so Sources(N) matches used_files.
 
 
 @dataclass(frozen=True)
@@ -151,8 +152,6 @@ def build_response_evidence(
             continue
         name = _sanitize_display_name(unit.display_name)
         if source_id not in seen_sources:
-            if len(sources) >= MAX_SOURCES:
-                continue
             seen_sources.add(source_id)
             sources.append(
                 {
@@ -213,8 +212,6 @@ def sanitize_response_evidence(raw: Any) -> dict[str, Any] | None:
                 "display_name": names[sid],
             }
         )
-        if len(sources) >= MAX_SOURCES:
-            break
     if not sources:
         return None
     evidence: list[dict[str, Any]] = []

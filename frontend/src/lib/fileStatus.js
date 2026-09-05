@@ -387,7 +387,6 @@ const EVIDENCE_ORIGIN = 'ben_retrieval'
 const EVIDENCE_SOURCE_TYPE = 'workspace_file'
 const MAX_EVIDENCE_EXCERPT = 400
 const MAX_EVIDENCE_ITEMS = 12
-const MAX_EVIDENCE_SOURCES = 8
 const MAX_EVIDENCE_TOTAL = 2400
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -401,6 +400,10 @@ function clipEvidenceExcerpt(text) {
   return [...body].slice(0, MAX_EVIDENCE_EXCERPT).join('')
 }
 
+function excerptCodePoints(text) {
+  return [...String(text || '')].length
+}
+
 function sanitizeDisplayName(name) {
   const cleaned = String(name || 'file').replace(/\s+/g, ' ').trim().replace(/"/g, "'").slice(0, 256)
   return cleaned || 'file'
@@ -408,7 +411,13 @@ function sanitizeDisplayName(name) {
 
 function evidencePage(raw) {
   if (raw == null || raw === true || raw === false) return null
-  const n = Number(raw)
+  if (typeof raw === 'number') {
+    if (!Number.isInteger(raw) || raw < 1) return null
+    return raw
+  }
+  const text = String(raw).trim()
+  if (!/^[+-]?\d+$/.test(text)) return null
+  const n = Number(text)
   if (!Number.isInteger(n) || n < 1) return null
   return n
 }
@@ -432,7 +441,6 @@ export function sanitizeResponseEvidence(raw) {
       source_type: EVIDENCE_SOURCE_TYPE,
       display_name: names.get(sourceId),
     })
-    if (sources.length >= MAX_EVIDENCE_SOURCES) break
   }
   if (!sources.length) return null
   const evidence = []
@@ -458,11 +466,12 @@ export function sanitizeResponseEvidence(raw) {
         const page = evidencePage(item.page)
         if (page != null) row.page = page
       }
+      const excerptChars = excerptCodePoints(excerpt)
       if (seenIds.has(row.evidence_id) || evidence.length >= MAX_EVIDENCE_ITEMS) continue
-      if (total + excerpt.length > MAX_EVIDENCE_TOTAL) continue
+      if (total + excerptChars > MAX_EVIDENCE_TOTAL) continue
       seenIds.add(row.evidence_id)
       evidence.push(row)
-      total += excerpt.length
+      total += excerptChars
     }
   }
   return { retrieval_mode: mode, sources, evidence }
