@@ -24,6 +24,7 @@
     "test:large-paste": "node scripts/test-large-paste.mjs",
     "test:conversation-surface": "node scripts/test-conversation-surface.mjs",
     "test:chat-stream-ownership": "node scripts/test-chat-stream-ownership.mjs",
+    "test:response-evidence": "node scripts/test-response-evidence-v1.mjs",
     "test:grok-provider-menu": "node scripts/test-grok-provider-menu.mjs"
   },
   "dependencies": {

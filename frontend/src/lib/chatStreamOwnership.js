@@ -3,6 +3,8 @@
  * Action Cards must never become the chunk/done target.
  */
 
+import { responseEvidenceFromDoneEvent } from './fileStatus.js'
+
 export function isActionCard(message) {
   return message?.kind === 'action_card'
 }
@@ -71,6 +73,7 @@ export function applyOwnedAssistantDone(messages, sendNonce, event, { speakingPr
       sqlite_message_id: event?.sqlite_assistant_id ?? message.sqlite_message_id ?? null,
       used_files: event?.used_files,
       workspace_files_unavailable_note: event?.workspace_files_unavailable_note,
+      response_evidence: responseEvidenceFromDoneEvent(event),
     }
   })
 }

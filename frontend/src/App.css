@@ -323,6 +323,15 @@
   position: relative;
 }
 
+.chat-workspace {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+
 .hydrate-hint {
   color: var(--ben-text-muted);
   font-size: 0.875rem;

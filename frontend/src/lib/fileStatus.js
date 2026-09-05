@@ -382,6 +382,116 @@ export function usedFilesFromDoneEvent(event) {
   return sanitizeUsedFiles(event.workspace_files_used)
 }
 
+const EVIDENCE_MODES = new Set(['chunks', 'prefix_fallback', 'mixed'])
+const EVIDENCE_ORIGIN = 'ben_retrieval'
+const EVIDENCE_SOURCE_TYPE = 'workspace_file'
+const MAX_EVIDENCE_EXCERPT = 400
+const MAX_EVIDENCE_ITEMS = 12
+const MAX_EVIDENCE_TOTAL = 2400
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function evidenceUuid(raw) {
+  const value = String(raw || '').trim()
+  return UUID_RE.test(value) ? value.toLowerCase() : ''
+}
+
+function clipEvidenceExcerpt(text) {
+  const body = String(text || '')
+  return [...body].slice(0, MAX_EVIDENCE_EXCERPT).join('')
+}
+
+function excerptCodePoints(text) {
+  return [...String(text || '')].length
+}
+
+function sanitizeDisplayName(name) {
+  const cleaned = String(name || 'file').replace(/\s+/g, ' ').trim().replace(/"/g, "'").slice(0, 256)
+  return cleaned || 'file'
+}
+
+function evidencePage(raw) {
+  if (raw == null || raw === true || raw === false) return null
+  if (typeof raw === 'number') {
+    if (!Number.isInteger(raw) || raw < 1) return null
+    return raw
+  }
+  const text = String(raw).trim()
+  if (!/^[+-]?\d+$/.test(text)) return null
+  const n = Number(text)
+  if (!Number.isInteger(n) || n < 1) return null
+  return n
+}
+
+export function sanitizeResponseEvidence(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const mode = String(raw.retrieval_mode || '').trim()
+  if (!EVIDENCE_MODES.has(mode)) return null
+  if (!Array.isArray(raw.sources)) return null
+  const names = new Map()
+  const sources = []
+  for (const src of raw.sources) {
+    if (!src || typeof src !== 'object') continue
+    const sourceId = evidenceUuid(src.source_id)
+    if (!sourceId || names.has(sourceId)) continue
+    const sourceType = String(src.source_type || EVIDENCE_SOURCE_TYPE).trim()
+    if (sourceType !== EVIDENCE_SOURCE_TYPE) continue
+    names.set(sourceId, sanitizeDisplayName(src.display_name))
+    sources.push({
+      source_id: sourceId,
+      source_type: EVIDENCE_SOURCE_TYPE,
+      display_name: names.get(sourceId),
+    })
+  }
+  if (!sources.length) return null
+  const evidence = []
+  const seenIds = new Set()
+  let total = 0
+  if (Array.isArray(raw.evidence)) {
+    for (const item of raw.evidence) {
+      if (!item || typeof item !== 'object') continue
+      const sourceId = evidenceUuid(item.source_id)
+      if (!sourceId || !names.has(sourceId)) continue
+      if (String(item.origin || '').trim() !== EVIDENCE_ORIGIN) continue
+      const excerpt = clipEvidenceExcerpt(item.excerpt)
+      if (!excerpt) continue
+      const chunkId = item.chunk_id ? evidenceUuid(item.chunk_id) : ''
+      const row = {
+        evidence_id: chunkId ? `chunk:${chunkId}` : `prefix:${sourceId}`,
+        source_id: sourceId,
+        excerpt,
+        origin: EVIDENCE_ORIGIN,
+      }
+      if (chunkId) {
+        row.chunk_id = chunkId
+        const page = evidencePage(item.page)
+        if (page != null) row.page = page
+      }
+      const excerptChars = excerptCodePoints(excerpt)
+      if (seenIds.has(row.evidence_id) || evidence.length >= MAX_EVIDENCE_ITEMS) continue
+      if (total + excerptChars > MAX_EVIDENCE_TOTAL) continue
+      seenIds.add(row.evidence_id)
+      evidence.push(row)
+      total += excerptChars
+    }
+  }
+  return { retrieval_mode: mode, sources, evidence }
+}
+
+export function responseEvidenceFromDoneEvent(event) {
+  return sanitizeResponseEvidence(event?.response_evidence)
+}
+
+export function sourcesCount(evidence) {
+  const clean = sanitizeResponseEvidence(evidence)
+  return clean?.sources?.length || 0
+}
+
+export function canShowSources(message) {
+  if (!isStandardChatAssistant(message)) return false
+  if (String(message?.source_event || '').trim() === FILE_INITIAL_READ_EVENT) return false
+  return sourcesCount(message?.response_evidence) > 0
+}
+
 export function isStandardChatAssistant(message) {
   if (!message || message.role !== 'assistant') return false
   const kind = message.kind

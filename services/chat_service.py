@@ -24,6 +24,7 @@ from services.message_format import (
     user_turn_copilot_intent_source,
     user_turn_focus_query_source,
 )
+from services.workspace_files.response_evidence import sanitize_response_evidence
 from services.copilot_orchestrator import run_copilot_preamble
 from services.inference.gateway_meter import get_last_accounted_call
 from services.model_gateway import (
@@ -178,6 +179,7 @@ async def _persist_chat_messages(
     provider_used: str,
     used_files: list | None = None,
     unavailable_count: int = 0,
+    response_evidence: dict | None = None,
 ) -> None:
     user_message_id: uuid.UUID | None = None
     assistant_message_id: uuid.UUID | None = None
@@ -189,6 +191,7 @@ async def _persist_chat_messages(
         provider_used=provider_used,
         used_files=used_files,
         unavailable_count=unavailable_count,
+        response_evidence=response_evidence,
     )
     try:
         async with get_db_session() as session:
@@ -354,6 +357,7 @@ async def stream_chat_response(
     workspace_extraction_coverage = "legacy"
     workspace_files_used: list[dict[str, str]] = []
     workspace_files_unavailable_count = 0
+    workspace_response_evidence: dict | None = None
     clarify_reply: str | None = None
 
     try:
@@ -461,6 +465,9 @@ async def stream_chat_response(
                             for item in (wsf.used_files or ())
                             if str(item.get("id", "")).strip() and str(item.get("name", "")).strip()
                         ]
+                        workspace_response_evidence = sanitize_response_evidence(
+                            getattr(wsf, "response_evidence", None)
+                        )
                         if wsf.block:
                             payload = wsf.block
                             if cover_ids or len(workspace_files_used) >= 2:
@@ -589,6 +596,7 @@ async def stream_chat_response(
 
     sqlite_user_id: int | None = None
     sqlite_assistant_id: int | None = None
+    persisted_evidence = sanitize_response_evidence(workspace_response_evidence)
     try:
         sqlite_user_id, sqlite_assistant_id = persist_chat_exchange_sqlite(
             tid,
@@ -601,6 +609,7 @@ async def stream_chat_response(
                 provider_used=provider_used,
                 used_files=workspace_files_used,
                 unavailable_count=workspace_files_unavailable_count,
+                response_evidence=persisted_evidence,
             ),
             provider=resolved_provider_id or None,
         )
@@ -627,11 +636,11 @@ async def stream_chat_response(
             provider_used=provider_used,
             used_files=workspace_files_used,
             unavailable_count=workspace_files_unavailable_count,
+            response_evidence=persisted_evidence,
         )
     )
 
-    yield _stream_ndjson(
-        {
+    done_event = {
             "type": "done",
             "thread_id": str(tid),
             "response": resp,
@@ -664,7 +673,9 @@ async def stream_chat_response(
             "pricing_version": accounted.get("pricing_version"),
             **perf,
         }
-    )
+    if persisted_evidence:
+        done_event["response_evidence"] = persisted_evidence
+    yield _stream_ndjson(done_event)
 
 
 async def handle_chat(
