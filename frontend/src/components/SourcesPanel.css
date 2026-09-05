@@ -80,8 +80,12 @@
   border-radius: 8px;
   background: var(--ben-bg-surface);
   font-size: 0.78rem;
+  font-family: inherit;
+  unicode-bidi: plaintext;
   white-space: pre-wrap;
-  word-break: break-word;
+  text-align: start;
+  word-break: normal;
+  overflow-wrap: anywhere;
 }
 
 .sources-panel__page {
