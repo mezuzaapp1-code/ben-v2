@@ -604,6 +604,30 @@ def test_filename_mentions_and_incomplete_named_set() -> None:
         named_ids=(str(FILE_A),),
         used_ids=(str(FILE_A),),
     )
+    assert filename_mentions_in_query("visit example.com and google.com") == ()
+    assert not explicit_named_set_incomplete(
+        "visit example.com and google.com",
+        named_ids=(),
+        used_ids=(),
+    )
+    assert filename_mentions_in_query("email john@acme.com and jane@other.com") == ()
+    assert not explicit_named_set_incomplete(
+        "email john@acme.com and jane@other.com",
+        named_ids=(),
+        used_ids=(),
+    )
+    assert filename_mentions_in_query("foo.js and bar.js") == ()
+    assert not explicit_named_set_incomplete(
+        "foo.js and bar.js",
+        named_ids=(),
+        used_ids=(),
+    )
+    assert filename_mentions_in_query(
+        "https://foo.com/a.pdf and https://bar.com/b.pdf"
+    ) == ("a.pdf", "b.pdf")
+    assert filename_mentions_in_query(
+        "https://drive.google.com/A.pdf and https://drive.google.com/B.pdf"
+    ) == ("a.pdf", "b.pdf")
 
 
 @pytest.mark.asyncio
@@ -812,6 +836,218 @@ async def test_explicit_only_a_stays_singular(monkeypatch):
     assert captured.get("message")
     assert MULTI_SOURCE_GROUNDING_HINT not in captured["message"]
     assert captured.get("record_calls")
+
+
+_URL_FOO_BAR_PDFS = "https://foo.com/a.pdf and https://bar.com/b.pdf"
+_URL_DRIVE_PDFS = "https://drive.google.com/A.pdf and https://drive.google.com/B.pdf"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query",
+    [
+        "visit example.com and google.com",
+        "email john@acme.com and jane@other.com",
+        "foo.js and bar.js",
+    ],
+)
+async def test_rejected_extension_tokens_do_not_fail_closed(monkeypatch, query):
+    import services.chat_service as chat_service
+
+    captured: dict = {}
+    _patch_stream_pipeline(monkeypatch, captured)
+    state = _sequential_uploads(FILE_A, FILE_B)
+    _source_state_chat_patches(monkeypatch, chat_service, captured, state)
+
+    async def fake_ctx(*_a, **_k):
+        return WorkspaceFilesContext(
+            block='<workspace_files>[file name="B.pdf"]B[/file]</workspace_files>',
+            count=1,
+            chars=4,
+            truncated=False,
+            used_files=({"id": str(FILE_B), "name": "B.pdf"},),
+            explicit_named_ids=(),
+        )
+
+    monkeypatch.setattr(chat_service, "load_ready_files_context", fake_ctx)
+    async for _line in chat_service.stream_chat_response(
+        query,
+        "user-1",
+        str(ORG_A),
+        "free",
+        thread_id=uuid.UUID(CHAT_ID),
+        provider_id="gpt",
+        project_id=WS_A,
+    ):
+        pass
+
+    assert captured.get("message")
+    assert captured.get("record_calls")
+    assert MULTI_SOURCE_GROUNDING_HINT not in captured["message"]
+
+
+def _ab_ready_ctx():
+    return WorkspaceFilesContext(
+        block='<workspace_files>[file name="A.pdf"]A[/file]\n[file name="B.pdf"]B[/file]</workspace_files>',
+        count=2,
+        chars=20,
+        truncated=False,
+        used_files=(
+            {"id": str(FILE_A), "name": "A.pdf"},
+            {"id": str(FILE_B), "name": "B.pdf"},
+        ),
+        explicit_named_ids=(str(FILE_A), str(FILE_B)),
+    )
+
+
+@pytest.mark.asyncio
+async def test_url_foo_bar_pdfs_both_ready_grounds_ab(monkeypatch):
+    monkeypatch.delenv("BEN_WORKSPACE_CHUNK_RETRIEVAL", raising=False)
+    _patch_session(monkeypatch, _workspace_rows())
+    out = await load_ready_files_context(
+        ORG_A,
+        WS_A,
+        max_chars=12_000,
+        user_query=_URL_FOO_BAR_PDFS,
+        restrict_to_file_ids=[str(FILE_B)],
+    )
+    assert set(out.explicit_named_ids) == {str(FILE_A), str(FILE_B)}
+    assert {u["id"] for u in out.used_files} == {str(FILE_A), str(FILE_B)}
+
+    import services.chat_service as chat_service
+
+    captured: dict = {}
+    _patch_stream_pipeline(monkeypatch, captured)
+    state = _sequential_uploads(FILE_A, FILE_B)
+    _source_state_chat_patches(monkeypatch, chat_service, captured, state)
+
+    async def fake_ctx(*_a, **_k):
+        return _ab_ready_ctx()
+
+    monkeypatch.setattr(chat_service, "load_ready_files_context", fake_ctx)
+    recorded = {}
+
+    async def fake_turn(*_a, **k):
+        recorded["used"] = k.get("used_file_ids")
+        return apply_chat_turn(state, k.get("used_file_ids") or [])
+
+    monkeypatch.setattr(chat_service, "record_standard_chat_turn", fake_turn)
+
+    async for _line in chat_service.stream_chat_response(
+        _URL_FOO_BAR_PDFS,
+        "user-1",
+        str(ORG_A),
+        "free",
+        thread_id=uuid.UUID(CHAT_ID),
+        provider_id="gpt",
+        project_id=WS_A,
+    ):
+        pass
+
+    assert captured.get("message")
+    assert set(recorded["used"]) == {str(FILE_A), str(FILE_B)}
+
+
+@pytest.mark.asyncio
+async def test_url_foo_bar_pdfs_b_missing_fails_closed(monkeypatch):
+    monkeypatch.delenv("BEN_WORKSPACE_CHUNK_RETRIEVAL", raising=False)
+    rows = [
+        _row(rid=FILE_A, name="A.pdf", text="proposal budget scope " * 20, created_at=3),
+        _row(rid=FILE_F0, name="F0-test.txt", text="f0 workspace filler " * 20, created_at=1),
+    ]
+    _patch_session(monkeypatch, rows)
+    out = await load_ready_files_context(
+        ORG_A,
+        WS_A,
+        max_chars=12_000,
+        user_query=_URL_FOO_BAR_PDFS,
+        restrict_to_file_ids=[str(FILE_A)],
+    )
+    assert out.explicit_named_ids == (str(FILE_A),)
+    assert {u["id"] for u in out.used_files} == {str(FILE_A)}
+    assert filename_mentions_in_query(_URL_FOO_BAR_PDFS) == ("a.pdf", "b.pdf")
+    assert explicit_named_set_incomplete(
+        _URL_FOO_BAR_PDFS,
+        named_ids=out.explicit_named_ids,
+        used_ids=[u["id"] for u in out.used_files],
+    )
+
+    import services.chat_service as chat_service
+
+    captured: dict = {}
+    _patch_stream_pipeline(monkeypatch, captured)
+    state = _sequential_uploads(FILE_A)
+    _source_state_chat_patches(monkeypatch, chat_service, captured, state)
+
+    async def fake_ctx(*_a, **_k):
+        return out
+
+    monkeypatch.setattr(chat_service, "load_ready_files_context", fake_ctx)
+    events = []
+    async for line in chat_service.stream_chat_response(
+        _URL_FOO_BAR_PDFS,
+        "user-1",
+        str(ORG_A),
+        "free",
+        thread_id=uuid.UUID(CHAT_ID),
+        provider_id="gpt",
+        project_id=WS_A,
+    ):
+        events.append(line)
+
+    assert captured.get("message") is None
+    assert captured.get("record_calls") == []
+    assert "F0-test.txt" not in "".join(events)
+    done = [json.loads(e) for e in events if '"done"' in e]
+    assert done[-1].get("workspace_files_used") in ([], None)
+
+
+@pytest.mark.asyncio
+async def test_url_drive_pdfs_both_ready_grounds_ab(monkeypatch):
+    monkeypatch.delenv("BEN_WORKSPACE_CHUNK_RETRIEVAL", raising=False)
+    _patch_session(monkeypatch, _workspace_rows())
+    out = await load_ready_files_context(
+        ORG_A,
+        WS_A,
+        max_chars=12_000,
+        user_query=_URL_DRIVE_PDFS,
+        restrict_to_file_ids=[str(FILE_B)],
+    )
+    assert set(out.explicit_named_ids) == {str(FILE_A), str(FILE_B)}
+    assert {u["id"] for u in out.used_files} == {str(FILE_A), str(FILE_B)}
+
+    import services.chat_service as chat_service
+
+    captured: dict = {}
+    _patch_stream_pipeline(monkeypatch, captured)
+    state = _sequential_uploads(FILE_A, FILE_B)
+    _source_state_chat_patches(monkeypatch, chat_service, captured, state)
+
+    async def fake_ctx(*_a, **_k):
+        return _ab_ready_ctx()
+
+    monkeypatch.setattr(chat_service, "load_ready_files_context", fake_ctx)
+    recorded = {}
+
+    async def fake_turn(*_a, **k):
+        recorded["used"] = k.get("used_file_ids")
+        return apply_chat_turn(state, k.get("used_file_ids") or [])
+
+    monkeypatch.setattr(chat_service, "record_standard_chat_turn", fake_turn)
+
+    async for _line in chat_service.stream_chat_response(
+        _URL_DRIVE_PDFS,
+        "user-1",
+        str(ORG_A),
+        "free",
+        thread_id=uuid.UUID(CHAT_ID),
+        provider_id="gpt",
+        project_id=WS_A,
+    ):
+        pass
+
+    assert captured.get("message")
+    assert set(recorded["used"]) == {str(FILE_A), str(FILE_B)}
 
 
 # --------------------------------------------------------------------------- #

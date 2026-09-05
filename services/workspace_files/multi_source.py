@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Literal
 
-from services.workspace_files.types import REJECTED_EXTENSIONS, SUPPORTED_TYPES
+from services.workspace_files.types import SUPPORTED_TYPES
 from services.workspace_files.thread_sources import (
     normalize_source_state,
     restriction_file_ids,
@@ -32,7 +32,7 @@ _NIKUD_RE = re.compile(r"[\u0591-\u05C7]")
 _HEBREW_RE = re.compile(r"[\u0590-\u05FF]")
 _MENTION_EXTS = "|".join(
     re.escape(ext.lstrip("."))
-    for ext in sorted({*SUPPORTED_TYPES, *REJECTED_EXTENSIONS}, key=len, reverse=True)
+    for ext in sorted(SUPPORTED_TYPES, key=len, reverse=True)
 )
 _FILE_MENTION_RE = re.compile(
     rf"(?<![0-9A-Za-z\u0590-\u05FF])"
