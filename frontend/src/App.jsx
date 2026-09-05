@@ -120,7 +120,10 @@ import {
   patchFileUploadRow,
   unavailableChatNote,
   usedFilesFromDoneEvent,
+  canShowSources,
+  sourcesCount,
 } from './lib/fileStatus.js'
+import { SourcesPanel } from './components/SourcesPanel.jsx'
 import {
   appendActionCard,
   applyOwnedAssistantChunk,
@@ -380,7 +383,23 @@ const messageActionBtnStyle = {
   cursor: 'pointer',
 }
 
-function MessageActionBar({ role, content, onEditRequest, sqliteMessageId, onExpertOpinion, expertDisabled = false }) {
+function sourcesMessageKey(message, index) {
+  if (message?.sqlite_message_id != null) return `sid:${message.sqlite_message_id}`
+  if (message?.client_request_id) return `cid:${message.client_request_id}`
+  if (message?._sendNonce) return `nonce:${message._sendNonce}`
+  return `idx:${index}`
+}
+
+function MessageActionBar({
+  role,
+  content,
+  onEditRequest,
+  sqliteMessageId,
+  onExpertOpinion,
+  expertDisabled = false,
+  sourcesCount: sourcesN = 0,
+  onOpenSources,
+}) {
   const [copied, setCopied] = useState(false)
   const timerRef = useRef(null)
 
@@ -403,6 +422,16 @@ function MessageActionBar({ role, content, onEditRequest, sqliteMessageId, onExp
 
   return (
     <div className="message-action-bar">
+      {role === 'assistant' && sourcesN > 0 && onOpenSources ? (
+        <button
+          type="button"
+          style={messageActionBtnStyle}
+          onClick={onOpenSources}
+          aria-label={`Sources (${sourcesN})`}
+        >
+          <span>Sources ({sourcesN})</span>
+        </button>
+      ) : null}
       {role === 'user' && onEditRequest ? (
         <button
           type="button"
@@ -593,6 +622,7 @@ function App() {
   const [promotingThread, setPromotingThread] = useState(false)
   const [receiptCapturing, setReceiptCapturing] = useState(false)
   const [filesOpen, setFilesOpen] = useState(false)
+  const [sourcesPanel, setSourcesPanel] = useState({ open: false, messageKey: null })
   const [projectsOpen, setProjectsOpen] = useState(false)
   const [fileUploading, setFileUploading] = useState(false)
   const fileAttachInFlightRef = useRef(false)
@@ -1069,6 +1099,10 @@ function App() {
       cancelled = true
     }
   }, [persistentReady, getToken, loadThreadMessages, buildAppHeaders])
+
+  useEffect(() => {
+    setSourcesPanel({ open: false, messageKey: null })
+  }, [activeId])
 
   const newThread = useCallback(() => {
     const id = `${DRAFT_PREFIX}${crypto.randomUUID()}`
@@ -2682,6 +2716,7 @@ function App() {
         <ProjectSuccessToast message={projectToast} visible={Boolean(projectToast)} />
         <OrgRecoveryBanner banner={orgBanner} onDismiss={() => setOrgBanner(null)} />
         {showClerkSignIn ? <ClerkSignInBanner /> : null}
+        <div className="chat-workspace">
         <div className="messages" ref={messagesScrollRef}>
           <div className="chat-centered-channel">
           <ChatHeader
@@ -2787,7 +2822,7 @@ function App() {
                   ) : (
                     <div className="bubble-text" dir={messageDir}>{m.content}</div>
                   )}
-                  {isStandardChatAssistant(m) && m.used_files?.length ? (
+                  {isStandardChatAssistant(m) && !canShowSources(m) && m.used_files?.length ? (
                     <div className="used-files">
                       <div className="used-files__label">Used files:</div>
                       <ul className="used-files__list">
@@ -2823,6 +2858,16 @@ function App() {
                   onEditRequest={m.role === 'user' ? () => handleEditRequest(m) : undefined}
                   sqliteMessageId={resolveSqliteMessageId(m)}
                   expertDisabled={loading || !isPersistedThreadId(serverThreadIdForApi(activeId) || '')}
+                  sourcesCount={canShowSources(m) ? sourcesCount(m.response_evidence) : 0}
+                  onOpenSources={
+                    canShowSources(m)
+                      ? () =>
+                          setSourcesPanel({
+                            open: true,
+                            messageKey: sourcesMessageKey(m, i),
+                          })
+                      : undefined
+                  }
                   onExpertOpinion={(payload) =>
                     void handleExpertOpinion({
                       ...payload,
@@ -2837,6 +2882,18 @@ function App() {
           })}
           <div ref={messagesEndRef} className="messages-scroll-anchor" aria-hidden="true" />
           </div>
+        </div>
+        {sourcesPanel.open ? (
+          <SourcesPanel
+            evidence={
+              (active?.messages ?? []).find((m, i) => sourcesMessageKey(m, i) === sourcesPanel.messageKey)
+                ?.response_evidence
+            }
+            workspaceId={activeProjectId}
+            buildHeaders={persistentReady ? persistentHeaders : null}
+            onClose={() => setSourcesPanel({ open: false, messageKey: null })}
+          />
+        ) : null}
         </div>
         <footer className="composer-footer" ref={composerFooterRef}>
           <div className="chat-centered-channel">

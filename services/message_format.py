@@ -5,6 +5,8 @@ import json
 import uuid
 from typing import Any
 
+from services.workspace_files.response_evidence import sanitize_response_evidence
+
 _BEN_PREFIX = '{"ben":'
 
 # Large Paste V1 — conversation-scoped chat content (not WorkspaceFile).
@@ -259,9 +261,11 @@ def encode_chat_assistant(
     unavailable_count: Any = None,
     source_event: str | None = None,
     source_file_id: str | None = None,
+    response_evidence: Any = None,
 ) -> str:
     clean_used = _sanitize_used_files(used_files)
     clean_unavailable = _sanitize_unavailable_count(unavailable_count)
+    clean_evidence = sanitize_response_evidence(response_evidence)
     event = str(source_event or "").strip()
     source_fid = str(source_file_id or "").strip()
     if (
@@ -273,6 +277,7 @@ def encode_chat_assistant(
         and not clean_unavailable
         and not event
         and not source_fid
+        and not clean_evidence
     ):
         return text
     payload: dict[str, Any] = {
@@ -294,6 +299,8 @@ def encode_chat_assistant(
         payload["source_event"] = event
     if source_fid:
         payload["source_file_id"] = source_fid
+    if clean_evidence:
+        payload["response_evidence"] = clean_evidence
     return json.dumps(payload, ensure_ascii=False)
 
 
@@ -463,6 +470,9 @@ def decode_message(role: str, content: str) -> dict[str, Any]:
                 out_chat["source_event"] = event
             if source_fid:
                 out_chat["source_file_id"] = source_fid
+            evidence = sanitize_response_evidence(data.get("response_evidence"))
+            if evidence:
+                out_chat["response_evidence"] = evidence
             return out_chat
         if kind == "council_expert":
             expert = data.get("expert") or "Advisor"

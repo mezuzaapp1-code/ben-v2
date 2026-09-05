@@ -48,6 +48,11 @@ from services.workspace_files.file_resolver import (
     file_is_explicitly_named,
     rank_eligible_files,
 )
+from services.workspace_files.response_evidence import (
+    build_response_evidence,
+    units_from_budgeted,
+    units_from_chunk_hits,
+)
 from services.workspace_files.job_queue import (
     JOB_TYPE_FILE_EXTRACTION,
     enqueue_document_processing_job,
@@ -495,6 +500,7 @@ class WorkspaceFilesContext:
     used_files: tuple[dict[str, str], ...] = ()
     unavailable_count: int = 0
     explicit_named_ids: tuple[str, ...] = ()
+    response_evidence: dict | None = None
 
 
 def _sanitize_file_name(name: str | None) -> str:
@@ -552,6 +558,10 @@ def _context_from_gate3d(
         sanitize_name=_sanitize_file_name,
     )
     used_files = _used_files_from_budgeted(budgeted)
+    evidence = build_response_evidence(
+        retrieval_mode="prefix_fallback",
+        units=units_from_budgeted(budgeted),
+    )
     if not budgeted:
         return WorkspaceFilesContext(
             block="",
@@ -563,6 +573,7 @@ def _context_from_gate3d(
             fallback_reason=fallback_reason,
             extraction_coverage="legacy",
             used_files=used_files,
+            response_evidence=None,
         )
     parts = [f'[file name="{item.name}"]\n{item.text}\n[/file]' for item in budgeted]
     total = sum(item.chars for item in budgeted)
@@ -579,6 +590,7 @@ def _context_from_gate3d(
         fallback_reason=fallback_reason,
         extraction_coverage="legacy",
         used_files=used_files,
+        response_evidence=evidence,
     )
 
 
@@ -634,6 +646,10 @@ def _labeled_prefix_context(
         fallback_reason=diag.fallback_reason,
         extraction_coverage=coverage,
         used_files=used_files,
+        response_evidence=build_response_evidence(
+            retrieval_mode="prefix_fallback",
+            units=units_from_budgeted(budgeted),
+        ),
     )
 
 
@@ -1002,6 +1018,10 @@ async def _load_gate4a_context(
         retrieval_mode=retrieval_mode, coverage=coverage, file_parts=parts
     )
     truncated = len(hits) > len(selected) or evidence_chars >= MAX_EVIDENCE_CHARS
+    evidence_units = [
+        *units_from_chunk_hits(grouped, by_id),
+        *units_from_budgeted(filled),
+    ]
     return WorkspaceFilesContext(
         block=block,
         count=len(_used_files_payload(used_entries)),
@@ -1020,6 +1040,10 @@ async def _load_gate4a_context(
         fallback_reason=None,
         extraction_coverage=coverage,
         used_files=_used_files_payload(used_entries),
+        response_evidence=build_response_evidence(
+            retrieval_mode=retrieval_mode,
+            units=evidence_units,
+        ),
     )
 
 
