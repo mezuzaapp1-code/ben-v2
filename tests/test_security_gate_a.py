@@ -155,6 +155,7 @@ def test_unsigned_thread_read_create_delete_401():
     client = TestClient(main.app)
     assert client.get(f"/api/threads/{THREAD_A}").status_code == 401
     assert client.delete(f"/api/threads/{THREAD_A}").status_code == 401
+    assert client.post("/api/threads", json={}).status_code == 401
     assert client.post("/api/threads/project-workspace", json={}).status_code == 401
 
 

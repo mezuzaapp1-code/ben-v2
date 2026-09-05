@@ -293,6 +293,26 @@ async def resolve_thread_id(org_id: uuid.UUID, thread_id: uuid.UUID | None, *, t
         return t.id
 
 
+async def create_conversation_thread(
+    org_id: uuid.UUID,
+    *,
+    title: str | None = None,
+) -> dict[str, Any]:
+    """Persist a chat thread via the same path as the first user message."""
+    thread_title = (title or "").strip() or "Conversation"
+    tid = await resolve_thread_id(org_id, None, title=thread_title)
+    meta = get_thread_metadata(str(tid)) or {}
+    payload = {
+        "thread": {
+            "id": str(tid),
+            "title": thread_title,
+            "session_type": meta.get("session_type") or "chat",
+            "project_slug": meta.get("project_slug"),
+        }
+    }
+    return attach_request_id(payload)
+
+
 async def create_project_workspace_thread(
     org_id: uuid.UUID,
     *,

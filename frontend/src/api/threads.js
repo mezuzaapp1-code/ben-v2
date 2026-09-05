@@ -11,6 +11,27 @@ function enrichFetchError(res, data) {
 }
 
 /**
+ * Persist a draft conversation via the same resolve_thread_id path as first send.
+ * @param {Record<string, string>} headers
+ * @param {{ title?: string | null }} [options]
+ */
+export async function createConversationThread(headers, { title } = {}) {
+  /** @type {Record<string, string>} */
+  const body = {}
+  const threadTitle = String(title || '').trim()
+  if (threadTitle) body.title = threadTitle
+
+  const res = await fetch(`${BEN_API_BASE}/api/threads`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  })
+  const data = await readJsonResponse(res)
+  if (!res.ok) throw enrichFetchError(res, data)
+  return data
+}
+
+/**
  * @param {Record<string, string>} headers
  * @param {{ projectSlug?: string | null, title?: string | null }} [options]
  */
