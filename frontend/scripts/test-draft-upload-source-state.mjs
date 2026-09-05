@@ -89,12 +89,57 @@ assert(!isPersistedThreadId(draftId), 'UUID helper still rejects draft ids')
 
 const app = readFileSync(join(root, 'src/App.jsx'), 'utf8')
 const attach = app.slice(app.indexOf('handleWorkspaceFileAttach'), app.indexOf('handleReceiptFile'))
+const sendFn = app.slice(app.indexOf('const send = useCallback'), app.indexOf('const applyCouncilMessages'))
+const councilFn = app.slice(app.indexOf('const council = useCallback'), app.indexOf('const handleComposerSubmit'))
+const canSend = app.slice(app.indexOf('const canSendComposer = useMemo'), app.indexOf('const handleEngineSelect'))
+const composer = app.slice(app.indexOf('<ComposerCapsule'), app.indexOf('attachMenuItems={attachMenuItems}'))
+
 assert(attach.includes('ensurePersistedThreadForUpload'), 'attach persists drafts before upload')
 assert(attach.includes('createConversationThread'), 'attach reuses POST /api/threads')
 assert(attach.includes('serverThreadIdForApi(tid)'), 'attach uses the API-safe UUID after persist')
 assert(!attach.includes('serverThreadIdForApi(tid) || tid'), 'attach never falls back to draft:*')
 assert(attach.indexOf('ensurePersistedThreadForUpload') < attach.indexOf('uploadFile'), 'persist happens before uploadFile')
 assert(app.includes('threadId: apiThreadId'), 'send still uses serverThreadIdForApi for the first message')
+
+assert(
+  sendFn.includes('if (loading || fileUploading || fileAttachInFlightRef.current) return'),
+  'A: send returns while persist/upload is in flight'
+)
+assert(
+  !sendFn.includes('postChatStream') ||
+    sendFn.indexOf('if (loading || fileUploading || fileAttachInFlightRef.current) return') <
+      sendFn.indexOf('postChatStream'),
+  'A: no chat request until attach in-flight clears'
+)
+assert(
+  canSend.includes('if (loading || !persistentReady || fileUploading) return false'),
+  'A: canSendComposer is false while file attach is in flight'
+)
+assert(
+  composer.includes('disabled={loading || !persistentReady || fileUploading}'),
+  'A: composer Send is disabled while file attach is in flight'
+)
+assert(
+  councilFn.includes('if (!text || loading || fileUploading || fileAttachInFlightRef.current) return'),
+  'C: council returns while persist/upload is in flight'
+)
+
+assert(
+  attach.includes('fileAttachInFlightRef.current = true') &&
+    attach.includes('setFileUploading(true)') &&
+    attach.indexOf('setFileUploading(true)') < attach.indexOf('ensurePersistedThreadForUpload'),
+  'D: in-flight flags rise before persist/upload on draft and persisted threads'
+)
+assert(
+  attach.includes('fileAttachInFlightRef.current = false') &&
+    attach.includes('setFileUploading(false)') &&
+    attach.includes('} finally {'),
+  'E: in-flight flags clear in finally so a failed upload does not leave Send disabled'
+)
+assert(
+  sendFn.includes('const apiThreadId = serverThreadIdForApi(tid)'),
+  'B: after adopt, send uses the persisted UUID only'
+)
 
 const api = readFileSync(join(root, 'src/api/workspaceFiles.js'), 'utf8')
 assert(api.includes('isPersistedThreadId(sourceChatId)'), 'XHR upload drops non-UUID source_chat_id')

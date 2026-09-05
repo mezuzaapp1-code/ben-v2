@@ -748,9 +748,9 @@ function App() {
 
   // Phase 1: composer/provider select must not depend on Switchboard activations.
   const canSendComposer = useMemo(() => {
-    if (loading || !persistentReady) return false
+    if (loading || !persistentReady || fileUploading) return false
     return canSendComposerParts(composerParts)
-  }, [loading, persistentReady, composerParts])
+  }, [loading, persistentReady, fileUploading, composerParts])
 
   const handleEngineSelect = useCallback((providerId) => {
     setActiveSpeakingProviderId(providerId)
@@ -1246,7 +1246,7 @@ function App() {
   )
 
   const send = useCallback(async () => {
-    if (loading) return
+    if (loading || fileUploading || fileAttachInFlightRef.current) return
     if (!canSendComposerParts(composerParts)) return
     const snapshot = cloneParts(composerParts)
     const encoded = encodeUserTurn(snapshot)
@@ -1436,6 +1436,7 @@ function App() {
     persistentHeaders,
     activeProjectId,
     pushThreadAssistantError,
+    fileUploading,
   ])
 
   const applyCouncilMessages = useCallback((tid, extras, resolvedId) => {
@@ -1466,7 +1467,7 @@ function App() {
   const council = useCallback(async (opts = {}) => {
     const text = (opts.question ?? input).trim()
     const forceCodebase = Boolean(opts.forceCodebase)
-    if (!text || loading) return
+    if (!text || loading || fileUploading || fileAttachInFlightRef.current) return
     let tid = activeId
     if (!tid || !threads.some((x) => x.id === tid)) tid = newThread()
     if (isDraftThreadId(tid) && !forceCodebase) {
@@ -1739,6 +1740,7 @@ function App() {
     newThread,
     getToken,
     applyCouncilMessages,
+    fileUploading,
   ])
 
   const handleComposerSubmit = useCallback(() => {
@@ -2850,7 +2852,7 @@ function App() {
               onSubmit={handleComposerSubmit}
               placeholder={composerPlaceholder}
               ariaLabel={composerAriaLabel}
-              disabled={loading || !persistentReady}
+              disabled={loading || !persistentReady || fileUploading}
               canSend={canSendComposer}
               loading={loading}
               sendLabel="Send"
