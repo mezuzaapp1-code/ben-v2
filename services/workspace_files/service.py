@@ -668,6 +668,53 @@ def _id_set(raw: Sequence[Any] | None) -> set[str] | None:
     return {str(i).strip() for i in raw if str(i).strip()}
 
 
+def _cover_ids(
+    cover_file_ids: Sequence[Any] | None,
+    named_ids: set[str] | None,
+) -> set[str]:
+    """Deliberate multi-file set that must appear in Used files if READY."""
+    cover = {str(i).strip() for i in (cover_file_ids or ()) if str(i).strip()}
+    if named_ids and len(named_ids) >= 2:
+        cover |= set(named_ids)
+    return cover
+
+
+def _prefix_cover_missing(
+    eligible,
+    *,
+    cover: set[str],
+    already: set[str],
+    remaining_chars: int,
+    per_file_max: int | None,
+):
+    """Bounded Gate 3D prefix for resolved files FTS did not contribute."""
+    if not cover or remaining_chars <= 0:
+        return []
+    missing = [fid for fid in cover if fid not in already]
+    if not missing:
+        return []
+    wanted = set(missing)
+    ranked = rank_eligible_files(
+        [item for item in eligible if str(item.id) in wanted],
+        "",
+    )
+    by_id = {str(item.file.id): item for item in ranked}
+    ordered = [by_id[fid] for fid in missing if fid in by_id]
+    if not ordered:
+        return []
+    file_cap = min(
+        per_file_max if per_file_max is not None else PER_FILE_MAX_CHARS,
+        MAX_CHARS_PER_FILE,
+    )
+    budgeted, _truncated = apply_context_budget(
+        ordered,
+        max_chars=remaining_chars,
+        per_file_max=file_cap,
+        sanitize_name=_sanitize_file_name,
+    )
+    return budgeted
+
+
 def _named_eligible_ids(eligible, user_query: str | None) -> set[str] | None:
     if not (user_query or "").strip():
         return None
@@ -689,13 +736,16 @@ async def load_ready_files_context(
     user_query: str | None = None,
     per_file_max: int | None = None,
     restrict_to_file_ids: Sequence[Any] | None = None,
+    cover_file_ids: Sequence[Any] | None = None,
 ) -> WorkspaceFilesContext:
     """Read-only: assemble a filename-labeled, size-capped text block from the
     ready Workspace Files of a single org + workspace.
 
     Named files (explicit query mention) win as an allow-list. Else pending/active
-    conversation sources restrict the search set. An empty READY ∩ restriction
-    must not fall back to unrelated workspace files.
+    (or a multi-source resolver allow-list) restrict the search set. An empty
+    READY ∩ restriction must not fall back to unrelated workspace files.
+    ``cover_file_ids`` asks Gate 4A to prefix-fill any deliberately resolved
+    READY file that FTS did not contribute.
 
     Gate 3D pipeline (selection before budgeting) when chunk retrieval is OFF:
 
@@ -763,6 +813,7 @@ async def load_ready_files_context(
         max_chars=max_chars,
         per_file_max=per_file_max,
         allow_ids=allow_ids,
+        cover_file_ids=cover_file_ids,
     )
     return replace(ctx, unavailable_count=unavailable)
 
@@ -777,6 +828,7 @@ async def _load_gate4a_context(
     max_chars: int,
     per_file_max: int | None,
     allow_ids: set[str] | None = None,
+    cover_file_ids: Sequence[Any] | None = None,
 ) -> WorkspaceFilesContext:
     ready: list[ReadyFile] = []
     for row in rows:
@@ -901,25 +953,44 @@ async def _load_gate4a_context(
     if not parts:
         return _prefix("no_lexical_match", searched=qualified, latency=latency)
 
-    coverage = pack_coverage(chunk_files, has_chunks=True, has_legacy=False)
-    block = render_evidence_block(retrieval_mode="chunks", coverage=coverage, file_parts=parts)
-    truncated = len(hits) > len(selected) or evidence_chars >= MAX_EVIDENCE_CHARS
     used_entries: list[tuple[Any, str]] = []
     for fid, _chunks in grouped:
         meta = by_id.get(str(fid))
         if meta is None:
             continue
         used_entries.append((meta.id, meta.display_name or meta.original_filename))
+
+    cover = _cover_ids(cover_file_ids, named_ids if named else None)
+    chunk_chars = sum(len(c.text) for _fid, chunks in grouped for c in chunks)
+    filled = _prefix_cover_missing(
+        eligible,
+        cover=cover,
+        already={str(fid) for fid, _name in used_entries},
+        remaining_chars=min(max_chars, MAX_EVIDENCE_CHARS) - chunk_chars,
+        per_file_max=per_file_max,
+    )
+    for item in filled:
+        parts.append(render_legacy_group(item.name, item.text))
+        used_entries.append((item.file_id, item.name))
+    evidence_chars = chunk_chars + sum(item.chars for item in filled)
+
+    has_legacy = bool(filled)
+    coverage = pack_coverage(chunk_files, has_chunks=True, has_legacy=has_legacy)
+    retrieval_mode = "mixed" if has_legacy else "chunks"
+    block = render_evidence_block(
+        retrieval_mode=retrieval_mode, coverage=coverage, file_parts=parts
+    )
+    truncated = len(hits) > len(selected) or evidence_chars >= MAX_EVIDENCE_CHARS
     return WorkspaceFilesContext(
         block=block,
-        count=len(grouped),
+        count=len(_used_files_payload(used_entries)),
         chars=evidence_chars,
         truncated=truncated,
-        retrieval_mode="chunks",
+        retrieval_mode=retrieval_mode,
         files_eligible=len(ready),
         files_searched=len(qualified),
         files_searched_ids=tuple(str(i) for i in qualified),
-        files_legacy=0,
+        files_legacy=len(filled),
         chunks_considered=len(hits),
         chunks_selected=len(selected),
         evidence_chars=evidence_chars,

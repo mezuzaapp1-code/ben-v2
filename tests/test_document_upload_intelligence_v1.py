@@ -83,7 +83,7 @@ def test_sqlite_is_not_source_state_owner() -> None:
     assert "from database.thread_store" not in src
     assert "import database.thread_store" not in src
     chat = (ROOT / "services" / "chat_service.py").read_text(encoding="utf-8")
-    assert "restriction_file_ids" in chat
+    assert "resolve_turn_sources" in chat
     assert "load_source_state" in chat
 
 

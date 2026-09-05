@@ -47,6 +47,12 @@ from services.vision.current_turn import (
 from services.ops.failure_classification import classify_failure
 from services.ops.runtime_diagnostics import attach_workspace_to_request_diagnostics
 from services.ops.structured_log import log_info, log_warning
+from services.workspace_files.multi_source import (
+    clarification_text,
+    resolve_turn_sources,
+    restrict_arg_for_resolution,
+    wrap_with_grounding_hint,
+)
 from services.workspace_files.service import load_ready_files_context
 from services.workspace_files.thread_sources import (
     expire_active,
@@ -54,7 +60,6 @@ from services.workspace_files.thread_sources import (
     log_source_state_error,
     mutate_source_state,
     record_standard_chat_turn,
-    restriction_file_ids,
 )
 from services.rolling_context import (
     DEFAULT_OPINION_REQUEST,
@@ -348,6 +353,7 @@ async def stream_chat_response(
     workspace_extraction_coverage = "legacy"
     workspace_files_used: list[dict[str, str]] = []
     workspace_files_unavailable_count = 0
+    clarify_reply: str | None = None
 
     try:
         validate_chat_model_override(provider_id, model_override)
@@ -391,64 +397,75 @@ async def stream_chat_response(
                 # None = no pending/active source (unrestricted).
                 # [] = fail-closed empty allow-list (never dump Workspace Files).
                 restrict_arg: list[str] | None = None
+                cover_ids: list[str] | None = None
+                focus_query = user_turn_focus_query_source(message)
                 try:
                     await mutate_source_state(org, tid, expire_active)
-                    restrict_ids = restriction_file_ids(await load_source_state(org, tid))
-                    restrict_arg = restrict_ids if restrict_ids else None
+                    source_state = await load_source_state(org, tid)
+                    resolution = resolve_turn_sources(focus_query, source_state)
+                    restrict_arg = restrict_arg_for_resolution(resolution)
+                    if resolution.is_clarify:
+                        clarify_reply = clarification_text(focus_query)
+                    elif resolution.is_multi:
+                        cover_ids = list(resolution.file_ids)
                 except Exception as exc:  # noqa: BLE001
                     log_source_state_error(
                         exc, operation="load_source_restriction", file_id=""
                     )
                     restrict_arg = []
-                wsf = await load_ready_files_context(
-                    org,
-                    project_id,
-                    max_chars=WORKSPACE_FILES_CONTEXT_MAX_CHARS,
-                    user_query=user_turn_focus_query_source(message),
-                    restrict_to_file_ids=restrict_arg,
-                )
-                workspace_files_unavailable_count = int(wsf.unavailable_count or 0)
-                workspace_retrieval_mode = wsf.retrieval_mode
-                workspace_files_eligible = wsf.files_eligible
-                workspace_files_searched = wsf.files_searched
-                workspace_files_legacy = wsf.files_legacy
-                workspace_chunks_considered = wsf.chunks_considered
-                workspace_chunks_selected = wsf.chunks_selected
-                workspace_evidence_chars = wsf.evidence_chars
-                workspace_evidence_pages = wsf.evidence_pages
-                workspace_fts_latency_ms = wsf.fts_latency_ms
-                workspace_fallback_reason = wsf.fallback_reason
-                workspace_extraction_coverage = wsf.extraction_coverage
-                workspace_files_used = [
-                    {"id": str(item.get("id", "")).strip(), "name": str(item.get("name", "")).strip()}
-                    for item in (wsf.used_files or ())
-                    if str(item.get("id", "")).strip() and str(item.get("name", "")).strip()
-                ]
-                if wsf.block:
-                    effective_message = f"{wsf.block}\n\n{effective_message}"
-                    workspace_files_injected = True
-                    workspace_files_count = wsf.count
-                    workspace_files_chars = wsf.chars
+                if clarify_reply:
+                    workspace_fallback_reason = "multi_source_ambiguous"
+                else:
+                    wsf = await load_ready_files_context(
+                        org,
+                        project_id,
+                        max_chars=WORKSPACE_FILES_CONTEXT_MAX_CHARS,
+                        user_query=focus_query,
+                        restrict_to_file_ids=restrict_arg,
+                        cover_file_ids=cover_ids,
+                    )
+                    if cover_ids and len(wsf.used_files or ()) < 2:
+                        clarify_reply = clarification_text(focus_query)
+                        workspace_fallback_reason = "multi_source_ambiguous"
+                    else:
+                        workspace_files_unavailable_count = int(wsf.unavailable_count or 0)
+                        workspace_retrieval_mode = wsf.retrieval_mode
+                        workspace_files_eligible = wsf.files_eligible
+                        workspace_files_searched = wsf.files_searched
+                        workspace_files_legacy = wsf.files_legacy
+                        workspace_chunks_considered = wsf.chunks_considered
+                        workspace_chunks_selected = wsf.chunks_selected
+                        workspace_evidence_chars = wsf.evidence_chars
+                        workspace_evidence_pages = wsf.evidence_pages
+                        workspace_fts_latency_ms = wsf.fts_latency_ms
+                        workspace_fallback_reason = wsf.fallback_reason
+                        workspace_extraction_coverage = wsf.extraction_coverage
+                        workspace_files_used = [
+                            {
+                                "id": str(item.get("id", "")).strip(),
+                                "name": str(item.get("name", "")).strip(),
+                            }
+                            for item in (wsf.used_files or ())
+                            if str(item.get("id", "")).strip() and str(item.get("name", "")).strip()
+                        ]
+                        if wsf.block:
+                            payload = wsf.block
+                            if cover_ids or len(workspace_files_used) >= 2:
+                                payload = wrap_with_grounding_hint(payload)
+                            effective_message = f"{payload}\n\n{effective_message}"
+                            workspace_files_injected = True
+                            workspace_files_count = wsf.count
+                            workspace_files_chars = wsf.chars
                 log_info(
                     "workspace files injected into chat context",
                     subsystem="chat",
                     operation="workspace_files_context",
-                    outcome="ok",
-                    workspace_files_injected=bool(wsf.block),
-                    workspace_files_count=wsf.count,
-                    workspace_files_chars=wsf.chars,
-                    workspace_files_truncated=wsf.truncated,
-                    retrieval_mode=wsf.retrieval_mode,
-                    files_eligible=wsf.files_eligible,
-                    files_searched=wsf.files_searched,
-                    files_legacy=wsf.files_legacy,
-                    chunks_considered=wsf.chunks_considered,
-                    chunks_selected=wsf.chunks_selected,
-                    evidence_chars=wsf.evidence_chars,
-                    evidence_pages=list(wsf.evidence_pages),
-                    fts_latency_ms=wsf.fts_latency_ms,
-                    fallback_reason=wsf.fallback_reason,
-                    extraction_coverage=wsf.extraction_coverage,
+                    outcome="ok" if not clarify_reply else "clarify",
+                    workspace_files_injected=bool(workspace_files_injected),
+                    workspace_files_count=workspace_files_count,
+                    workspace_files_chars=workspace_files_chars,
+                    retrieval_mode=workspace_retrieval_mode,
+                    fallback_reason=workspace_fallback_reason,
                 )
             except Exception as e:
                 log_warning(
@@ -470,7 +487,7 @@ async def stream_chat_response(
         }
     )
 
-    if project_id and not expert_opinion:
+    if project_id and not expert_opinion and not clarify_reply:
         try:
             copilot_events = await run_copilot_preamble(
                 user_turn_copilot_intent_source(message), org, project_id
@@ -486,34 +503,41 @@ async def stream_chat_response(
     provider_used = ""
     resolved_provider_id = resolved_provider_id or (provider_id or "").strip().lower()
 
-    try:
-        async for chunk, model, prov in route_request_stream(
-            effective_message,
-            tenant_id,
-            tier,
-            provider_id=provider_id,
-            model_override=model_override,
-            system=stream_system,
-            **({"user_content": vision_user_content} if vision_user_content else {}),
-        ):
-            if model:
-                model_u = model
-            if prov:
-                provider_used = prov
-            if not model and chunk:
-                yield _stream_ndjson({"type": "error", "message": chunk})
-                return
-            if not chunk:
-                continue
-            now = time.perf_counter()
-            if first_token_at is None:
-                first_token_at = now
-            last_token_at = now
-            parts.append(chunk)
-            yield _stream_ndjson({"type": "chunk", "content": chunk})
-    except Exception as e:
-        yield _stream_ndjson({"type": "error", "message": str(e) or "Chat stream failed."})
-        return
+    if clarify_reply:
+        now = time.perf_counter()
+        first_token_at = now
+        last_token_at = now
+        parts.append(clarify_reply)
+        yield _stream_ndjson({"type": "chunk", "content": clarify_reply})
+    else:
+        try:
+            async for chunk, model, prov in route_request_stream(
+                effective_message,
+                tenant_id,
+                tier,
+                provider_id=provider_id,
+                model_override=model_override,
+                system=stream_system,
+                **({"user_content": vision_user_content} if vision_user_content else {}),
+            ):
+                if model:
+                    model_u = model
+                if prov:
+                    provider_used = prov
+                if not model and chunk:
+                    yield _stream_ndjson({"type": "error", "message": chunk})
+                    return
+                if not chunk:
+                    continue
+                now = time.perf_counter()
+                if first_token_at is None:
+                    first_token_at = now
+                last_token_at = now
+                parts.append(chunk)
+                yield _stream_ndjson({"type": "chunk", "content": chunk})
+        except Exception as e:
+            yield _stream_ndjson({"type": "error", "message": str(e) or "Chat stream failed."})
+            return
 
     resp = "".join(parts)
     if not resolved_provider_id:
