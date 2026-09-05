@@ -83,7 +83,7 @@ def test_sqlite_is_not_source_state_owner() -> None:
     assert "from database.thread_store" not in src
     assert "import database.thread_store" not in src
     chat = (ROOT / "services" / "chat_service.py").read_text(encoding="utf-8")
-    assert "restriction_file_ids" in chat
+    assert "resolve_turn_sources" in chat
     assert "load_source_state" in chat
 
 
@@ -1287,7 +1287,18 @@ def _source_state_chat_patches(monkeypatch, chat_service, captured, state):
     async def fake_ctx(_org, _ws, *, max_chars, user_query=None, restrict_to_file_ids=None, **_k):
         captured["restrict"] = restrict_to_file_ids
         captured["user_query"] = user_query
-        return WorkspaceFilesContext(block="", count=0, chars=0, truncated=False, used_files=())
+        used = tuple(
+            {"id": str(fid), "name": f"{fid}.pdf"}
+            for fid in (restrict_to_file_ids or [])
+            if str(fid).strip()
+        )
+        return WorkspaceFilesContext(
+            block="injected" if used else "",
+            count=len(used),
+            chars=len(used),
+            truncated=False,
+            used_files=used,
+        )
 
     monkeypatch.setattr(chat_service, "load_ready_files_context", fake_ctx)
 
