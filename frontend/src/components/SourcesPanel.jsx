@@ -85,7 +85,7 @@ export function SourcesPanel({
           return (
             <section key={source.source_id} className="sources-panel__source">
               <div className="sources-panel__source-head">
-                <div className="sources-panel__name">{source.display_name}</div>
+                <div className="sources-panel__name" dir="auto">{source.display_name}</div>
                 <div className="sources-panel__count">
                   {rows.length === 1 ? '1 evidence item' : `${rows.length} evidence items`}
                 </div>
@@ -95,7 +95,7 @@ export function SourcesPanel({
                   {item.page != null ? (
                     <span className="sources-panel__page">Page {item.page}</span>
                   ) : null}
-                  <pre className="sources-panel__excerpt">{item.excerpt}</pre>
+                  <pre className="sources-panel__excerpt" dir="auto">{item.excerpt}</pre>
                   <div className="sources-panel__actions">
                     <button
                       type="button"
