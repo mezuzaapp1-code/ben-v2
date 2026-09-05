@@ -21,6 +21,8 @@ const css = readFileSync(join(root, 'src/components/FileLifecycleStatus.css'), '
 
 const attach = app.slice(app.indexOf('handleWorkspaceFileAttach'), app.indexOf('handleReceiptFile'))
 assert(attach.includes("kind: 'file_upload'"), 'initial file_upload row is kept')
+assert(attach.includes('ensurePersistedThreadForUpload'), 'draft attach persists before the lifecycle row')
+assert(attach.includes('createConversationThread'), 'draft persist reuses POST /api/threads')
 assert(attach.includes('updateFileUploadRow'), 'success/failure patches the same row')
 assert(attach.includes('buildFileUploadResultPatch'), 'lifecycle fields are preserved on the same row')
 assert(!attach.includes("kind: 'file_library'"), 'does not append a file_library sibling')

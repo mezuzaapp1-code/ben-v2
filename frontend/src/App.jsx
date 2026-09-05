@@ -14,6 +14,7 @@ import {
 } from './api/council.js'
 import { ADHOC_SYNTHESIS_PIPELINE } from './api/adhoc.js'
 import {
+  createConversationThread,
   createProjectWorkspace,
   deleteThread,
   fetchThreadDetail,
@@ -22,6 +23,10 @@ import {
   mapThreadFromList,
   promoteThread,
 } from './api/threads.js'
+import {
+  adoptPersistedThreadInList,
+  ensurePersistedThreadForUpload,
+} from './lib/ensurePersistedThread.js'
 import { logCouncilLifecycle } from './councilLifecycleLog.js'
 import {
   canSubmitCouncil,
@@ -590,6 +595,7 @@ function App() {
   const [filesOpen, setFilesOpen] = useState(false)
   const [projectsOpen, setProjectsOpen] = useState(false)
   const [fileUploading, setFileUploading] = useState(false)
+  const fileAttachInFlightRef = useRef(false)
   const [attentionFocusRequest, setAttentionFocusRequest] = useState(null)
   const [newProjectModalOpen, setNewProjectModalOpen] = useState(false)
   const [catalogOpen, setCatalogOpen] = useState(false)
@@ -742,9 +748,9 @@ function App() {
 
   // Phase 1: composer/provider select must not depend on Switchboard activations.
   const canSendComposer = useMemo(() => {
-    if (loading || !persistentReady) return false
+    if (loading || !persistentReady || fileUploading) return false
     return canSendComposerParts(composerParts)
-  }, [loading, persistentReady, composerParts])
+  }, [loading, persistentReady, fileUploading, composerParts])
 
   const handleEngineSelect = useCallback((providerId) => {
     setActiveSpeakingProviderId(providerId)
@@ -1240,7 +1246,7 @@ function App() {
   )
 
   const send = useCallback(async () => {
-    if (loading) return
+    if (loading || fileUploading || fileAttachInFlightRef.current) return
     if (!canSendComposerParts(composerParts)) return
     const snapshot = cloneParts(composerParts)
     const encoded = encodeUserTurn(snapshot)
@@ -1430,6 +1436,7 @@ function App() {
     persistentHeaders,
     activeProjectId,
     pushThreadAssistantError,
+    fileUploading,
   ])
 
   const applyCouncilMessages = useCallback((tid, extras, resolvedId) => {
@@ -1460,7 +1467,7 @@ function App() {
   const council = useCallback(async (opts = {}) => {
     const text = (opts.question ?? input).trim()
     const forceCodebase = Boolean(opts.forceCodebase)
-    if (!text || loading) return
+    if (!text || loading || fileUploading || fileAttachInFlightRef.current) return
     let tid = activeId
     if (!tid || !threads.some((x) => x.id === tid)) tid = newThread()
     if (isDraftThreadId(tid) && !forceCodebase) {
@@ -1733,6 +1740,7 @@ function App() {
     newThread,
     getToken,
     applyCouncilMessages,
+    fileUploading,
   ])
 
   const handleComposerSubmit = useCallback(() => {
@@ -1877,9 +1885,16 @@ function App() {
     ]
   )
 
+  const adoptPersistedThread = useCallback((fromId, serverTid) => {
+    if (!serverTid || !fromId || fromId === serverTid) return
+    setThreads((prev) => adoptPersistedThreadInList(prev, fromId, serverTid))
+    setActiveId(serverTid)
+    setStoredActiveThreadId(serverTid)
+  }, [])
+
   const handleWorkspaceFileAttach = useCallback(
     async (file) => {
-      if (!persistentReady || !file || fileUploading || loading) return
+      if (!persistentReady || !file || fileUploading || loading || fileAttachInFlightRef.current) return
       let tid = activeId
       if (!tid || !threads.some((x) => x.id === tid)) tid = newThread()
 
@@ -1896,20 +1911,35 @@ function App() {
         return
       }
 
-      const chatId = serverThreadIdForApi(tid) || tid
-      const localId = workspaceFileInventory.beginUpload(file)
-      appendThreadMessages(tid, [
-        {
-          role: 'user',
-          kind: 'file_upload',
-          content: `Uploading: ${file.name}`,
-          file_name: file.name,
-          local_upload_id: localId,
-          workspace_id: activeProjectId,
-        },
-      ])
+      fileAttachInFlightRef.current = true
       setFileUploading(true)
+      let localId = null
       try {
+        const ensured = await ensurePersistedThreadForUpload(tid, async () => {
+          const headers = await buildAppHeaders()
+          const currentTitle = threads.find((x) => x.id === tid)?.title || 'Conversation'
+          return createConversationThread(headers, { title: currentTitle })
+        })
+        if (ensured.created) {
+          adoptPersistedThread(ensured.replacedDraftId, ensured.threadId)
+        }
+        tid = ensured.threadId
+        const chatId = serverThreadIdForApi(tid)
+        if (!chatId) {
+          throw new Error('Conversation could not be saved before upload.')
+        }
+
+        localId = workspaceFileInventory.beginUpload(file)
+        appendThreadMessages(tid, [
+          {
+            role: 'user',
+            kind: 'file_upload',
+            content: `Uploading: ${file.name}`,
+            file_name: file.name,
+            local_upload_id: localId,
+            workspace_id: activeProjectId,
+          },
+        ])
         const { result } = await workspaceFileInventory.uploadFile(file, {
           sourceChatId: chatId,
           localId,
@@ -1931,22 +1961,37 @@ function App() {
         }
       } catch (e) {
         const parsed = parseBenErrorResponse(e.status, e.data)
-        updateFileUploadRow(
-          tid,
-          localId,
-          buildFileUploadResultPatch(null, {
-            fileName: file.name,
-            workspaceId: activeProjectId,
-            errorMessage: parsed?.message || e.message || 'File upload failed.',
-          })
-        )
+        const errorMessage = parsed?.message || e.message || 'File upload failed.'
+        if (localId) {
+          updateFileUploadRow(
+            tid,
+            localId,
+            buildFileUploadResultPatch(null, {
+              fileName: file.name,
+              workspaceId: activeProjectId,
+              errorMessage,
+            })
+          )
+        } else {
+          appendThreadMessages(tid, [
+            {
+              role: 'assistant',
+              kind: 'api_error',
+              content: errorMessage,
+              model_used: '',
+              cost_usd: 0,
+            },
+          ])
+        }
       } finally {
+        fileAttachInFlightRef.current = false
         setFileUploading(false)
       }
     },
     [
       activeId,
       activeProjectId,
+      adoptPersistedThread,
       appendThreadMessages,
       buildAppHeaders,
       fileUploading,
@@ -2807,7 +2852,7 @@ function App() {
               onSubmit={handleComposerSubmit}
               placeholder={composerPlaceholder}
               ariaLabel={composerAriaLabel}
-              disabled={loading || !persistentReady}
+              disabled={loading || !persistentReady || fileUploading}
               canSend={canSendComposer}
               loading={loading}
               sendLabel="Send"

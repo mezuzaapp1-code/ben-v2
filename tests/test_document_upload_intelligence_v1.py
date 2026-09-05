@@ -288,6 +288,7 @@ def test_vision_and_draft_uploads_are_not_sources() -> None:
     assert is_vision_upload(media_type="image/png", filename="x.png") is True
     assert is_vision_upload(media_type="application/pdf", filename="A.pdf") is False
     assert parse_thread_uuid("draft-local-id") is None
+    assert parse_thread_uuid(f"draft:{CHAT_ID}") is None
     assert parse_thread_uuid(CHAT_ID) == uuid.UUID(CHAT_ID)
 
 

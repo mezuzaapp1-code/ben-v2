@@ -81,6 +81,7 @@ from services.expert_opinion_service import run_expert_opinion, stream_expert_op
 from services.continuity_service import build_thread_continuity
 from services.feedback_capture_service import capture_beta_feedback
 from services.thread_service import (
+    create_conversation_thread,
     create_project_workspace_thread,
     delete_thread,
     get_thread_detail,
@@ -872,11 +873,32 @@ async def runtime_snapshot():
 
 
 
+class ConversationThreadCreateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(None, min_length=1, max_length=512)
+
+
 class ProjectWorkspaceCreateBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     project_slug: str | None = Field(None, min_length=1, max_length=64)
     title: str | None = Field(None, min_length=1, max_length=512)
+
+
+@app.post("/api/threads")
+async def api_create_conversation_thread(
+    request: Request,
+    body: ConversationThreadCreateBody | None = None,
+):
+    ctx = await _tenant_ctx_from_request(
+        request, route_operation="POST /api/threads", require_customer=True
+    )
+    payload = body or ConversationThreadCreateBody()
+    return await create_conversation_thread(
+        uuid.UUID(ctx.tenant_id),
+        title=payload.title,
+    )
 
 
 @app.post("/api/threads/project-workspace")

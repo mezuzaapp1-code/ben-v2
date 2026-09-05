@@ -3,6 +3,7 @@
  * Must use the same API base as News/Projects (BEN_API_BASE), not a separate env var.
  */
 import { BEN_API_BASE } from '../config.js'
+import { isPersistedThreadId } from '../threadStorage.js'
 import { humanizeBenHttpError, parseBenErrorResponse, readJsonResponse } from './benErrors.js'
 
 function apiBase() {
@@ -45,7 +46,7 @@ export async function uploadWorkspaceFile(
 ) {
   const form = new FormData()
   form.append('file', file, file.name)
-  if (sourceChatId) form.append('source_chat_id', sourceChatId)
+  if (isPersistedThreadId(sourceChatId)) form.append('source_chat_id', sourceChatId)
 
   // XHR for upload progress (fetch lacks reliable upload progress).
   return new Promise((resolve, reject) => {
