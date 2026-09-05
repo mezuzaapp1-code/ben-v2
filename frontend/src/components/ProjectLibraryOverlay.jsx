@@ -7,7 +7,10 @@ import {
   PROJECT_LIBRARY_DEFAULT_LIMIT,
   PROJECT_LIBRARY_MAX_ITEMS,
   PROJECT_LIBRARY_REOPEN_RESETS,
+  PROJECT_LIBRARY_SEARCH_DEBOUNCE_MS,
+  PROJECT_LIBRARY_SEARCH_MAX,
   applyProjectPage,
+  normalizeProjectSearchQuery,
   projectLibraryEmptyMessage,
 } from '../lib/projectLibrary.js'
 import './ProjectLibraryOverlay.css'
@@ -65,20 +68,30 @@ export function ProjectLibraryOverlay({
   onNewProject,
   onOpenProject,
 }) {
-  const [pageState, setPageState] = useState({ tenantId, items: [], nextCursor: null })
+  const [pageState, setPageState] = useState({ tenantId, query: '', items: [], nextCursor: null })
+  const [searchInput, setSearchInput] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState(null)
   const requestSeq = useRef(0)
   const loadPageRef = useRef(null)
-  const items = pageState.tenantId === tenantId ? pageState.items : []
-  const nextCursor = pageState.tenantId === tenantId ? pageState.nextCursor : null
+  const searching = Boolean(debouncedQuery)
+  const items =
+    pageState.tenantId === tenantId && (pageState.query || '') === debouncedQuery
+      ? pageState.items
+      : []
+  const nextCursor =
+    pageState.tenantId === tenantId && (pageState.query || '') === debouncedQuery
+      ? pageState.nextCursor
+      : null
   const tenantMismatch = pageState.tenantId !== tenantId
+  const queryMismatch = (pageState.query || '') !== debouncedQuery
 
   const loadPage = useCallback(
     async ({ cursor = null, append = false } = {}) => {
       if (!buildHeaders) {
-        setPageState({ tenantId, items: [], nextCursor: null })
+        setPageState({ tenantId, query: debouncedQuery, items: [], nextCursor: null })
         setError(null)
         setLoading(false)
         setLoadingMore(false)
@@ -95,24 +108,32 @@ export function ProjectLibraryOverlay({
         const data = await fetchProjects(headers, {
           limit: PROJECT_LIBRARY_DEFAULT_LIMIT,
           cursor,
+          query: debouncedQuery || undefined,
         })
         if (seq !== requestSeq.current) return
         setPageState((prev) => {
           const applied = applyProjectPage(
             {
-              items: append && prev.tenantId === tenantId ? prev.items : [],
+              items: append && prev.tenantId === tenantId && (prev.query || '') === debouncedQuery
+                ? prev.items
+                : [],
               nextCursor: null,
             },
             data,
             { maxItems: PROJECT_LIBRARY_MAX_ITEMS }
           )
-          return { tenantId, items: applied.items, nextCursor: applied.nextCursor }
+          return {
+            tenantId,
+            query: debouncedQuery,
+            items: applied.items,
+            nextCursor: applied.nextCursor,
+          }
         })
         setError(null)
       } catch (e) {
         if (seq !== requestSeq.current) return
         setError(e?.message || 'Could not load projects.')
-        if (!append) setPageState({ tenantId, items: [], nextCursor: null })
+        if (!append) setPageState({ tenantId, query: debouncedQuery, items: [], nextCursor: null })
       } finally {
         if (seq === requestSeq.current) {
           setLoading(false)
@@ -120,25 +141,39 @@ export function ProjectLibraryOverlay({
         }
       }
     },
-    [buildHeaders, tenantId]
+    [buildHeaders, tenantId, debouncedQuery]
   )
   loadPageRef.current = loadPage
 
   useEffect(() => {
+    const needle = normalizeProjectSearchQuery(searchInput)
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(needle)
+    }, PROJECT_LIBRARY_SEARCH_DEBOUNCE_MS)
+    return () => window.clearTimeout(timer)
+  }, [searchInput])
+
+  useEffect(() => {
+    setSearchInput('')
+    setDebouncedQuery('')
+  }, [open, tenantId])
+
+  useEffect(() => {
     if (!open || !PROJECT_LIBRARY_REOPEN_RESETS) return
     requestSeq.current += 1
-    setPageState({ tenantId, items: [], nextCursor: null })
+    setPageState({ tenantId, query: debouncedQuery, items: [], nextCursor: null })
     setError(null)
     setLoading(true)
     void loadPageRef.current?.({ append: false })
-  }, [open, tenantId])
+  }, [open, tenantId, debouncedQuery])
 
-  const listLoading = loading || tenantMismatch
+  const listLoading = loading || tenantMismatch || queryMismatch
   const emptyCopy = projectLibraryEmptyMessage({
     signedIn: Boolean(buildHeaders),
     loading: listLoading,
     error: tenantMismatch ? null : error,
     itemCount: items.length,
+    searching,
   })
 
   if (!open) return null
@@ -162,6 +197,20 @@ export function ProjectLibraryOverlay({
         </header>
 
         <div className="projects-toolbar">
+          <label className="projects-search">
+            <span className="projects-search__label">Search projects</span>
+            <input
+              type="search"
+              className="projects-search__input"
+              value={searchInput}
+              maxLength={PROJECT_LIBRARY_SEARCH_MAX}
+              placeholder="Search projects..."
+              onChange={(event) => setSearchInput(event.target.value)}
+              disabled={!buildHeaders || disabled}
+              autoComplete="off"
+              spellCheck="false"
+            />
+          </label>
           <button
             type="button"
             className="projects-new-btn"
@@ -182,7 +231,9 @@ export function ProjectLibraryOverlay({
         ) : null}
 
         <div className="projects-body">
-          {listLoading ? <p className="projects-status">Loading projects…</p> : null}
+          {listLoading ? (
+            <p className="projects-status">{searching ? 'Searching…' : 'Loading projects…'}</p>
+          ) : null}
           {!listLoading && emptyCopy ? <div className="projects-empty">{emptyCopy}</div> : null}
           {!listLoading && items.length > 0 ? (
             <ul className="projects-list">

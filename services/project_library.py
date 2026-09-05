@@ -23,6 +23,7 @@ from database.models import Project, WorkspaceFile
 _ABSOLUTE_MAX_PAGE = 200
 _DEFAULT_PAGE = 50
 _DEFAULT_MAX = 100
+_SEARCH_QUERY_MAX = 128
 
 
 def _env_int(name: str, fallback: int) -> int:
@@ -51,6 +52,30 @@ def clamp_project_page_limit(raw: int | None) -> int:
     except (TypeError, ValueError):
         return default
     return max(1, min(n, maximum))
+
+
+def normalize_project_search_query(raw: str | None) -> str | None:
+    """Trim and bound the search string. Empty → browse (no search filter)."""
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    return text[:_SEARCH_QUERY_MAX]
+
+
+def parse_project_uuid_query(query: str) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(query).strip())
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def escape_project_like(query: str) -> str:
+    return (
+        str(query)
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
 
 
 def encode_project_cursor(*, updated_at: datetime, project_id: uuid.UUID) -> str:
@@ -120,13 +145,20 @@ def build_project_list_stmt(
     limit: int,
     cursor_ts: datetime | None = None,
     cursor_id: uuid.UUID | None = None,
+    query: str | None = None,
 ) -> Select:
-    stmt = (
-        select(Project)
-        .where(Project.org_id == org_id)
-        .order_by(Project.updated_at.desc(), Project.id.desc())
-        .limit(int(limit) + 1)
-    )
+    """Tenant-scoped keyset page. Optional name/UUID search never drops org_id."""
+    stmt = select(Project).where(Project.org_id == org_id)
+    needle = normalize_project_search_query(query)
+    if needle:
+        pattern = f"%{escape_project_like(needle)}%"
+        name_match = Project.name.ilike(pattern, escape="\\")
+        exact_id = parse_project_uuid_query(needle)
+        if exact_id is not None:
+            stmt = stmt.where(or_(name_match, Project.id == exact_id))
+        else:
+            stmt = stmt.where(name_match)
+    stmt = stmt.order_by(Project.updated_at.desc(), Project.id.desc()).limit(int(limit) + 1)
     if cursor_ts is not None and cursor_id is not None:
         stmt = stmt.where(
             or_(

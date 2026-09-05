@@ -26,9 +26,13 @@ from services.project_library import (  # noqa: E402
     clamp_project_page_limit,
     decode_project_cursor,
     encode_project_cursor,
+    escape_project_like,
     keyset_after,
+    normalize_project_search_query,
+    parse_project_uuid_query,
     projects_page_bounds,
 )
+from auth.tenant_ids import personal_tenant_id  # noqa: E402
 from services.workspace_files.chunk_retriever import chunk_retrieval_enabled  # noqa: E402
 from tests.helpers_auth import AUTH_HEADER, patch_clerk_user  # noqa: E402
 
@@ -57,6 +61,8 @@ def test_unsigned_project_list_remains_401():
     client = TestClient(main.app)
     assert client.get("/api/projects").status_code == 401
     assert client.get("/api/projects?limit=50").status_code == 401
+    assert client.get("/api/projects?query=Amazon").status_code == 401
+    assert client.get("/api/projects?query=11111111-1111-1111-1111-111111111111").status_code == 401
 
 
 def test_page_size_is_clamped_to_hard_max(monkeypatch):
@@ -235,7 +241,7 @@ def test_active_project_is_tenant_bound_and_not_derived_from_page1_cache():
     assert "[persistentReady, persistentHeaders, sessionTenantId]" in app
     overlay = Path("frontend/src/components/ProjectLibraryOverlay.jsx").read_text()
     assert "projectLibraryActiveCopy" in overlay
-    assert "[open, tenantId]" in overlay
+    assert "[open, tenantId, debouncedQuery]" in overlay
 
 
 def test_signed_in_org_isolation_unchanged():
@@ -271,3 +277,142 @@ def test_no_n_plus_one_in_project_library_overlay():
     service = Path("services/project_service.py").read_text()
     assert "fetch_file_counts" in service
     assert "for row in page_rows:\n            await" not in service
+
+
+def test_search_query_normalization_and_like_escape():
+    assert normalize_project_search_query(None) is None
+    assert normalize_project_search_query("  ") is None
+    assert normalize_project_search_query("  Amazon  ") == "Amazon"
+    assert parse_project_uuid_query("not-a-uuid") is None
+    pid = uuid.uuid4()
+    assert parse_project_uuid_query(str(pid)) == pid
+    assert escape_project_like("100%") == "100\\%"
+    assert escape_project_like("a_b") == "a\\_b"
+
+
+def test_search_stmt_is_org_scoped_ilike_without_offset():
+    stmt = build_project_list_stmt(ORG, limit=50, query="Amazon")
+    compiled = str(
+        stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+    ).lower()
+    assert "offset" not in compiled
+    assert "ilike" in compiled
+    assert "amazon" in compiled
+    assert str(ORG) in compiled
+    assert str(ORG_OTHER) not in compiled
+    other = str(
+        build_project_list_stmt(ORG_OTHER, limit=10, query="Amazon").compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+    assert str(ORG_OTHER) in other
+    assert str(ORG) not in other
+
+
+def test_uuid_search_stays_inside_current_org():
+    foreign = uuid.uuid4()
+    stmt = build_project_list_stmt(ORG, limit=50, query=str(foreign))
+    compiled = str(
+        stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+    ).lower()
+    assert str(ORG) in compiled
+    assert str(foreign) in compiled
+    assert str(ORG_OTHER) not in compiled
+    assert "ilike" in compiled
+
+
+def test_empty_query_browse_has_no_name_filter():
+    compiled = str(
+        build_project_list_stmt(ORG, limit=50, query="  ").compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    ).lower()
+    assert "ilike" not in compiled
+    assert str(ORG) in compiled
+
+
+def test_signed_in_org_a_cannot_search_org_b():
+    seen: list[tuple[str, str | None]] = []
+
+    async def list_projects(org_id, *, query=None, **_k):
+        seen.append((str(org_id), query))
+        return {"items": [], "next_cursor": None, "projects": []}
+
+    foreign_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    client = TestClient(main.app)
+    with patch("routers.projects.list_projects", side_effect=list_projects):
+        with patch_clerk_user("org_a_user", org_id=ORG_A, org_role="org:member"):
+            name = client.get("/api/projects?query=SecretB", headers=AUTH_HEADER)
+            uid = client.get(f"/api/projects?query={foreign_id}", headers=AUTH_HEADER)
+        with patch_clerk_user("org_b_user", org_id=ORG_B, org_role="org:member"):
+            b = client.get("/api/projects?query=SecretB", headers=AUTH_HEADER)
+    assert name.status_code == 200
+    assert uid.status_code == 200
+    assert b.status_code == 200
+    assert seen[0] == (ORG_A, "SecretB")
+    assert seen[1] == (ORG_A, foreign_id)
+    assert seen[2] == (ORG_B, "SecretB")
+    assert all(org != ORG_B for org, q in seen[:2])
+
+
+def test_personal_tenant_search_does_not_use_org_a():
+    seen: list[str] = []
+    personal = personal_tenant_id("user_personal")
+
+    async def list_projects(org_id, *, query=None, **_k):
+        seen.append(str(org_id))
+        return {"items": [], "next_cursor": None, "projects": [], "query": query}
+
+    client = TestClient(main.app)
+    with patch("routers.projects.list_projects", side_effect=list_projects), patch_clerk_user(
+        "user_personal"
+    ):
+        res = client.get("/api/projects?query=Amazon", headers=AUTH_HEADER)
+    assert res.status_code == 200
+    assert seen == [personal]
+    assert ORG_A not in seen
+    assert ORG_B not in seen
+
+
+def test_router_forwards_search_query():
+    captured: list[tuple] = []
+
+    async def list_projects(org_id, *, limit=None, cursor=None, query=None, **_k):
+        captured.append((str(org_id), limit, cursor, query))
+        return {
+            "items": [],
+            "next_cursor": None,
+            "limit": limit,
+            "projects": [],
+        }
+
+    client = TestClient(main.app)
+    with patch("routers.projects.list_projects", side_effect=list_projects), patch_clerk_user(
+        "org_user", org_id=ORG_A, org_role="org:member"
+    ):
+        res = client.get("/api/projects?query=Gate+3E&limit=50", headers=AUTH_HEADER)
+    assert res.status_code == 200
+    assert captured[0][0] == ORG_A
+    assert captured[0][3] == "Gate 3E"
+
+
+def test_search_index_migration_is_additive_trgm():
+    mig = Path("database/migrations/versions/029_projects_name_trgm.py").read_text()
+    assert "ix_projects_name_trgm" in mig
+    assert "gin_trgm_ops" in mig
+    assert "CREATE EXTENSION IF NOT EXISTS pg_trgm" in mig
+    assert "UPDATE " not in mig.split("def upgrade")[1].split("def downgrade")[0]
+    assert "028_projects_org_updated_id" in mig
+
+
+def test_search_does_not_enable_gate4a_or_n_plus_one():
+    overlay = Path("frontend/src/components/ProjectLibraryOverlay.jsx").read_text()
+    assert "query: debouncedQuery" in overlay
+    assert ".filter(" not in overlay
+    assert "fetchProject(" not in overlay
+    assert "BEN_WORKSPACE_CHUNK_RETRIEVAL" not in overlay
+    api = Path("frontend/src/api/projects.js").read_text()
+    assert "params.set('query'" in api
+    app = Path("frontend/src/App.jsx").read_text()
+    assert "fetchProjects(headers, { limit: PROJECT_LIBRARY_DEFAULT_LIMIT })" in app
+    assert "query: debouncedQuery" not in app

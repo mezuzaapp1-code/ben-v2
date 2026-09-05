@@ -6,11 +6,36 @@
 export const PROJECT_LIBRARY_DEFAULT_LIMIT = 50
 export const PROJECT_LIBRARY_MAX_ITEMS = 1000
 export const PROJECT_LIBRARY_REOPEN_RESETS = true
+export const PROJECT_LIBRARY_SEARCH_DEBOUNCE_MS = 250
+export const PROJECT_LIBRARY_SEARCH_MAX = 128
 
 export const PROJECT_LIBRARY_EMPTY = {
   signedOut: 'Sign in to browse projects.',
   inventoryEmpty: 'No projects yet. Create a project to get started.',
   noMatches: 'No more projects to load.',
+  searchEmpty: 'No matching projects.',
+}
+
+export function normalizeProjectSearchQuery(raw) {
+  const text = String(raw || '').trim()
+  if (!text) return ''
+  return text.slice(0, PROJECT_LIBRARY_SEARCH_MAX)
+}
+
+export function debounceProjectSearch(fn, waitMs = PROJECT_LIBRARY_SEARCH_DEBOUNCE_MS) {
+  let timer = null
+  const wrapped = (...args) => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = null
+      fn(...args)
+    }, waitMs)
+  }
+  wrapped.cancel = () => {
+    if (timer) clearTimeout(timer)
+    timer = null
+  }
+  return wrapped
 }
 
 export function projectLibraryEmptyMessage({
@@ -18,11 +43,13 @@ export function projectLibraryEmptyMessage({
   loading = false,
   error = null,
   itemCount = 0,
+  searching = false,
 } = {}) {
   if (!signedIn) return PROJECT_LIBRARY_EMPTY.signedOut
   if (loading) return null
   if (error) return null
   if (Number(itemCount) > 0) return null
+  if (searching) return PROJECT_LIBRARY_EMPTY.searchEmpty
   return PROJECT_LIBRARY_EMPTY.inventoryEmpty
 }
 
