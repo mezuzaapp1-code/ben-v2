@@ -1,0 +1,45 @@
+{
+  "schema": "ben.evidence_ir.v1",
+  "pages": [
+    {
+      "page_index": {
+        "mark": "NATIVE",
+        "value": 0
+      },
+      "header": {
+        "mark": "UNAVAILABLE",
+        "value": null
+      },
+      "footer": {
+        "mark": "UNAVAILABLE",
+        "value": null
+      },
+      "blocks": [
+        {
+          "type": {
+            "mark": "NATIVE",
+            "value": "page_text"
+          },
+          "text": "QT-2024-1847 control line",
+          "bbox": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "table_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "block_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "confidence": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          }
+        }
+      ],
+      "tables": []
+    }
+  ]
+}

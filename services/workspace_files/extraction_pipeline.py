@@ -25,7 +25,12 @@ from typing import Any
 from sqlalchemy import delete, select, text
 
 from database.connection import get_db_session
-from database.models import WorkspaceFile, WorkspaceFileChunk, WorkspaceFilePage
+from database.models import (
+    WorkspaceFile,
+    WorkspaceFileChunk,
+    WorkspaceFileEvidenceIR,
+    WorkspaceFilePage,
+)
 from services.ops.failure_classification import classify_failure
 from services.ops.structured_log import log_info, log_warning
 from services.workspace_files import storage
@@ -40,6 +45,13 @@ from services.workspace_files.document_parser import (
     PAGE_SKIPPED,
     StructuredDocument,
     resolve_parser,
+)
+from services.workspace_files.evidence_ir import (
+    IR_SCHEMA_VERSION,
+    evidence_ir_payload,
+    evidence_ir_write_enabled,
+    ir_counts,
+    validate_evidence_ir,
 )
 from services.workspace_files.extract import MAX_EXTRACT_CHARS
 
@@ -203,6 +215,9 @@ async def run_structured_extraction(
 
         # --- Atomic persistence: delete-by-version then insert; single txn ---
         t_persist = time.perf_counter()
+        evidence_ir_written = False
+        n_tables = 0
+        n_blocks = 0
         async with get_db_session() as session:
             await _set_org(session, org_id)
             await session.execute(
@@ -240,6 +255,36 @@ async def run_structured_extraction(
                         extraction_version=EXTRACTION_VERSION, chunking_version=CHUNKING_VERSION,
                     )
                 )
+            evidence_ir_written = False
+            n_tables = 0
+            n_blocks = 0
+            if evidence_ir_write_enabled():
+                await session.execute(
+                    delete(WorkspaceFileEvidenceIR).where(
+                        WorkspaceFileEvidenceIR.file_id == file_id,
+                        WorkspaceFileEvidenceIR.extraction_version == EXTRACTION_VERSION,
+                        WorkspaceFileEvidenceIR.ir_schema_version == IR_SCHEMA_VERSION,
+                    )
+                )
+                raw_ir = evidence_ir_payload(doc)
+                if raw_ir is not None:
+                    payload = validate_evidence_ir(raw_ir)
+                    counts = ir_counts(payload)
+                    n_tables = counts["n_tables"]
+                    n_blocks = counts["n_blocks"]
+                    session.add(
+                        WorkspaceFileEvidenceIR(
+                            org_id=org_id,
+                            workspace_id=workspace_id,
+                            file_id=file_id,
+                            ir_schema_version=IR_SCHEMA_VERSION,
+                            extraction_version=EXTRACTION_VERSION,
+                            parser_id=doc.parser_id,
+                            parser_version=doc.parser_version,
+                            payload=payload,
+                        )
+                    )
+                    evidence_ir_written = True
             file_row = await session.get(WorkspaceFile, file_id)
             file_row.extraction_status = extraction_status
             file_row.index_status = index_status
@@ -274,6 +319,9 @@ async def run_structured_extraction(
             "final_extraction_status": extraction_status,
             "final_index_status": index_status,
             "valid_source_without_text": valid_source_without_text(doc),
+            "evidence_ir_written": evidence_ir_written,
+            "n_tables": n_tables,
+            "n_blocks": n_blocks,
             "parse_ms": parse_ms, "chunk_ms": chunk_ms, "persist_ms": persist_ms,
             "total_ms": round((time.perf_counter() - t_start) * 1000.0, 1),
         })
@@ -306,6 +354,7 @@ def _safe(d: dict[str, Any]) -> dict[str, Any]:
         "indexing_version", "source_page_count", "pages_extracted", "pages_empty",
         "pages_needs_ocr", "pages_failed", "pages_skipped", "chunk_count", "truncated",
         "final_extraction_status", "final_index_status", "valid_source_without_text",
+        "evidence_ir_written", "n_tables", "n_blocks",
         "parse_ms", "chunk_ms", "persist_ms", "total_ms", "error",
     }
     return {k: v for k, v in d.items() if k in keep}

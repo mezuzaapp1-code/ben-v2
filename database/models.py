@@ -823,6 +823,53 @@ class WorkspaceFileChunk(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class WorkspaceFileEvidenceIR(Base):
+    """Optional WRAP sidecar: native structured evidence IR for one extraction.
+
+    Additive. Not consulted by chat, Sources, or chunk retrieval. Current
+    production parsers emit no payload, so this table stays empty unless a
+    caller injects IR and BEN_DOC_EVIDENCE_IR_WRITE is ON.
+    """
+
+    __tablename__ = "workspace_file_evidence_ir"
+    __table_args__ = (
+        UniqueConstraint(
+            "file_id",
+            "extraction_version",
+            "ir_schema_version",
+            name="uq_workspace_file_evidence_ir_file_version_schema",
+        ),
+        Index(
+            "ix_workspace_file_evidence_ir_org_workspace_file",
+            "org_id",
+            "workspace_id",
+            "file_id",
+        ),
+        {"schema": SCHEMA},
+    )
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    file_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.workspace_files.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    ir_schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    extraction_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    parser_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    parser_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
 class DocumentProcessingJob(Base):
     """Durable, tenant-isolated orchestration ledger for the future extraction
     processor (Gate 3A). Owns ONLY scheduling / ownership / attempts / lease /

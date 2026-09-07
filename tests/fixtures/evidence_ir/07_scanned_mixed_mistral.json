@@ -1,0 +1,134 @@
+{
+  "schema": "ben.evidence_ir.v1",
+  "pages": [
+    {
+      "page_index": {
+        "mark": "NATIVE",
+        "value": 0
+      },
+      "header": {
+        "mark": "UNAVAILABLE",
+        "value": null
+      },
+      "footer": {
+        "mark": "UNAVAILABLE",
+        "value": null
+      },
+      "blocks": [
+        {
+          "type": {
+            "mark": "NATIVE",
+            "value": "text"
+          },
+          "text": "הצעת מחיר סרוקה",
+          "bbox": {
+            "mark": "NATIVE",
+            "value": [
+              489,
+              49,
+              677,
+              76
+            ]
+          },
+          "table_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "block_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "confidence": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          }
+        },
+        {
+          "type": {
+            "mark": "NATIVE",
+            "value": "text"
+          },
+          "text": "Amazon Data Center",
+          "bbox": {
+            "mark": "NATIVE",
+            "value": [
+              467,
+              88,
+              677,
+              115
+            ]
+          },
+          "table_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "block_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "confidence": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          }
+        },
+        {
+          "type": {
+            "mark": "NATIVE",
+            "value": "text"
+          },
+          "text": "INFO@BASALT.CO.IL",
+          "bbox": {
+            "mark": "NATIVE",
+            "value": [
+              472,
+              128,
+              677,
+              156
+            ]
+          },
+          "table_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "block_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "confidence": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          }
+        },
+        {
+          "type": {
+            "mark": "NATIVE",
+            "value": "text"
+          },
+          "text": "סכום כולל ",
+          "bbox": {
+            "mark": "NATIVE",
+            "value": [
+              426,
+              170,
+              677,
+              199
+            ]
+          },
+          "table_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "block_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "confidence": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          }
+        }
+      ],
+      "tables": []
+    }
+  ]
+}

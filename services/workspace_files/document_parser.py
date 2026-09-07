@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 # Bump when the extraction algorithm/adapter output changes in a way that should
 # invalidate previously persisted pages/chunks.
@@ -54,6 +55,8 @@ class StructuredDocument:
     parser_version: str
     truncated: bool = False
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    # Optional WRAP sidecar. Production parsers leave this None (zero IR rows).
+    evidence_ir: dict[str, Any] | None = None
 
 
 def _mk_page(page_number: int, *, text: str | None, has_images: bool, error: str | None) -> PageResult:

@@ -1,0 +1,50 @@
+{
+  "schema": "ben.evidence_ir.v1",
+  "pages": [
+    {
+      "page_index": {
+        "mark": "NATIVE",
+        "value": 0
+      },
+      "header": {
+        "mark": "NATIVE",
+        "value": "QT-2024-1847"
+      },
+      "footer": {
+        "mark": "UNAVAILABLE",
+        "value": null
+      },
+      "blocks": [
+        {
+          "type": {
+            "mark": "NATIVE",
+            "value": "header"
+          },
+          "text": "QT-2024-1847",
+          "bbox": {
+            "mark": "NATIVE",
+            "value": [
+              66,
+              61,
+              166,
+              81
+            ]
+          },
+          "table_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "block_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "confidence": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          }
+        }
+      ],
+      "tables": []
+    }
+  ]
+}

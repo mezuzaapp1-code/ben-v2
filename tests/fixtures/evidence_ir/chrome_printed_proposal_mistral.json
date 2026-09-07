@@ -1,0 +1,519 @@
+{
+  "schema": "ben.evidence_ir.v1",
+  "pages": [
+    {
+      "page_index": {
+        "mark": "NATIVE",
+        "value": 0
+      },
+      "header": {
+        "mark": "UNAVAILABLE",
+        "value": null
+      },
+      "footer": {
+        "mark": "UNAVAILABLE",
+        "value": null
+      },
+      "blocks": [
+        {
+          "type": {
+            "mark": "NATIVE",
+            "value": "title"
+          },
+          "text": "# הצעת מחיר מספר QT-2024-1847",
+          "bbox": {
+            "mark": "NATIVE",
+            "value": [
+              292,
+              71,
+              652,
+              100
+            ]
+          },
+          "table_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "block_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "confidence": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          }
+        },
+        {
+          "type": {
+            "mark": "NATIVE",
+            "value": "text"
+          },
+          "text": "לכבוד: חברת אלפא בע\"מ",
+          "bbox": {
+            "mark": "NATIVE",
+            "value": [
+              494,
+              110,
+              652,
+              129
+            ]
+          },
+          "table_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "block_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "confidence": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          }
+        },
+        {
+          "type": {
+            "mark": "NATIVE",
+            "value": "text"
+          },
+          "text": "דוא\"ל: purchasing@alpha.co.il",
+          "bbox": {
+            "mark": "NATIVE",
+            "value": [
+              447,
+              135,
+              652,
+              153
+            ]
+          },
+          "table_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "block_id": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          },
+          "confidence": {
+            "mark": "UNAVAILABLE",
+            "value": null
+          }
+        }
+      ],
+      "tables": [
+        {
+          "table_id": {
+            "mark": "NATIVE",
+            "value": "tbl-0.html"
+          },
+          "html": {
+            "mark": "NATIVE",
+            "value": "<table><thead><tr><th>פריט</th><th>מק\"ט</th><th>כמות</th><th>סה\"כ</th></tr></thead><tr><td>שרת יישום Application Server Pro</td><td>SKU-APP-440</td><td>2</td><td>₪186,400.00</td></tr><tr><td>רישוי שנתי Support &amp; Updates</td><td>SKU-SUP-12M</td><td>1</td><td>₪74,560.00</td></tr><tr><td>התקנה והדרכה</td><td>SVC-IMPL</td><td>1</td><td>₪45,273.60</td></tr></table>"
+          },
+          "rows": [
+            {
+              "row": {
+                "mark": "BEN-DERIVED",
+                "value": 0
+              },
+              "cells": [
+                {
+                  "row": {
+                    "mark": "BEN-DERIVED",
+                    "value": 0
+                  },
+                  "col": {
+                    "mark": "BEN-DERIVED",
+                    "value": 0
+                  },
+                  "text": "פריט",
+                  "is_header": {
+                    "mark": "BEN-DERIVED",
+                    "value": true
+                  },
+                  "bbox": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  },
+                  "confidence": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  }
+                },
+                {
+                  "row": {
+                    "mark": "BEN-DERIVED",
+                    "value": 0
+                  },
+                  "col": {
+                    "mark": "BEN-DERIVED",
+                    "value": 1
+                  },
+                  "text": "מק\"ט",
+                  "is_header": {
+                    "mark": "BEN-DERIVED",
+                    "value": true
+                  },
+                  "bbox": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  },
+                  "confidence": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  }
+                },
+                {
+                  "row": {
+                    "mark": "BEN-DERIVED",
+                    "value": 0
+                  },
+                  "col": {
+                    "mark": "BEN-DERIVED",
+                    "value": 2
+                  },
+                  "text": "כמות",
+                  "is_header": {
+                    "mark": "BEN-DERIVED",
+                    "value": true
+                  },
+                  "bbox": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  },
+                  "confidence": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  }
+                },
+                {
+                  "row": {
+                    "mark": "BEN-DERIVED",
+                    "value": 0
+                  },
+                  "col": {
+                    "mark": "BEN-DERIVED",
+                    "value": 3
+                  },
+                  "text": "סה\"כ",
+                  "is_header": {
+                    "mark": "BEN-DERIVED",
+                    "value": true
+                  },
+                  "bbox": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  },
+                  "confidence": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  }
+                }
+              ]
+            },
+            {
+              "row": {
+                "mark": "BEN-DERIVED",
+                "value": 1
+              },
+              "cells": [
+                {
+                  "row": {
+                    "mark": "BEN-DERIVED",
+                    "value": 1
+                  },
+                  "col": {
+                    "mark": "BEN-DERIVED",
+                    "value": 0
+                  },
+                  "text": "שרת יישום Application Server Pro",
+                  "is_header": {
+                    "mark": "BEN-DERIVED",
+                    "value": false
+                  },
+                  "bbox": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  },
+                  "confidence": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  }
+                },
+                {
+                  "row": {
+                    "mark": "BEN-DERIVED",
+                    "value": 1
+                  },
+                  "col": {
+                    "mark": "BEN-DERIVED",
+                    "value": 1
+                  },
+                  "text": "SKU-APP-440",
+                  "is_header": {
+                    "mark": "BEN-DERIVED",
+                    "value": false
+                  },
+                  "bbox": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  },
+                  "confidence": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  }
+                },
+                {
+                  "row": {
+                    "mark": "BEN-DERIVED",
+                    "value": 1
+                  },
+                  "col": {
+                    "mark": "BEN-DERIVED",
+                    "value": 2
+                  },
+                  "text": "2",
+                  "is_header": {
+                    "mark": "BEN-DERIVED",
+                    "value": false
+                  },
+                  "bbox": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  },
+                  "confidence": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  }
+                },
+                {
+                  "row": {
+                    "mark": "BEN-DERIVED",
+                    "value": 1
+                  },
+                  "col": {
+                    "mark": "BEN-DERIVED",
+                    "value": 3
+                  },
+                  "text": "₪186,400.00",
+                  "is_header": {
+                    "mark": "BEN-DERIVED",
+                    "value": false
+                  },
+                  "bbox": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  },
+                  "confidence": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  }
+                }
+              ]
+            },
+            {
+              "row": {
+                "mark": "BEN-DERIVED",
+                "value": 2
+              },
+              "cells": [
+                {
+                  "row": {
+                    "mark": "BEN-DERIVED",
+                    "value": 2
+                  },
+                  "col": {
+                    "mark": "BEN-DERIVED",
+                    "value": 0
+                  },
+                  "text": "רישוי שנתי Support & Updates",
+                  "is_header": {
+                    "mark": "BEN-DERIVED",
+                    "value": false
+                  },
+                  "bbox": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  },
+                  "confidence": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  }
+                },
+                {
+                  "row": {
+                    "mark": "BEN-DERIVED",
+                    "value": 2
+                  },
+                  "col": {
+                    "mark": "BEN-DERIVED",
+                    "value": 1
+                  },
+                  "text": "SKU-SUP-12M",
+                  "is_header": {
+                    "mark": "BEN-DERIVED",
+                    "value": false
+                  },
+                  "bbox": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  },
+                  "confidence": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  }
+                },
+                {
+                  "row": {
+                    "mark": "BEN-DERIVED",
+                    "value": 2
+                  },
+                  "col": {
+                    "mark": "BEN-DERIVED",
+                    "value": 2
+                  },
+                  "text": "1",
+                  "is_header": {
+                    "mark": "BEN-DERIVED",
+                    "value": false
+                  },
+                  "bbox": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  },
+                  "confidence": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  }
+                },
+                {
+                  "row": {
+                    "mark": "BEN-DERIVED",
+                    "value": 2
+                  },
+                  "col": {
+                    "mark": "BEN-DERIVED",
+                    "value": 3
+                  },
+                  "text": "₪74,560.00",
+                  "is_header": {
+                    "mark": "BEN-DERIVED",
+                    "value": false
+                  },
+                  "bbox": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  },
+                  "confidence": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  }
+                }
+              ]
+            },
+            {
+              "row": {
+                "mark": "BEN-DERIVED",
+                "value": 3
+              },
+              "cells": [
+                {
+                  "row": {
+                    "mark": "BEN-DERIVED",
+                    "value": 3
+                  },
+                  "col": {
+                    "mark": "BEN-DERIVED",
+                    "value": 0
+                  },
+                  "text": "התקנה והדרכה",
+                  "is_header": {
+                    "mark": "BEN-DERIVED",
+                    "value": false
+                  },
+                  "bbox": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  },
+                  "confidence": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  }
+                },
+                {
+                  "row": {
+                    "mark": "BEN-DERIVED",
+                    "value": 3
+                  },
+                  "col": {
+                    "mark": "BEN-DERIVED",
+                    "value": 1
+                  },
+                  "text": "SVC-IMPL",
+                  "is_header": {
+                    "mark": "BEN-DERIVED",
+                    "value": false
+                  },
+                  "bbox": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  },
+                  "confidence": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  }
+                },
+                {
+                  "row": {
+                    "mark": "BEN-DERIVED",
+                    "value": 3
+                  },
+                  "col": {
+                    "mark": "BEN-DERIVED",
+                    "value": 2
+                  },
+                  "text": "1",
+                  "is_header": {
+                    "mark": "BEN-DERIVED",
+                    "value": false
+                  },
+                  "bbox": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  },
+                  "confidence": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  }
+                },
+                {
+                  "row": {
+                    "mark": "BEN-DERIVED",
+                    "value": 3
+                  },
+                  "col": {
+                    "mark": "BEN-DERIVED",
+                    "value": 3
+                  },
+                  "text": "₪45,273.60",
+                  "is_header": {
+                    "mark": "BEN-DERIVED",
+                    "value": false
+                  },
+                  "bbox": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  },
+                  "confidence": {
+                    "mark": "UNAVAILABLE",
+                    "value": null
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
