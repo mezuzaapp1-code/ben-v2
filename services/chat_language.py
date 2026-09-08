@@ -121,9 +121,8 @@ def strip_non_instruction_for_detection(message: str) -> str:
     return sample
 
 
-def detect_language_code(message: str) -> str | None:
-    """Infer en/he from the current-turn instruction surface; None if unclear."""
-    sample = strip_non_instruction_for_detection(message)
+def _score_hebrew_latin(sample: str) -> str | None:
+    """Shared en/he script scoring. None when mixed or too short."""
     he_score = len(_HEBREW_LETTER_RE.findall(sample))
     en_score = len(_LATIN_LETTER_RE.findall(sample))
     total = he_score + en_score
@@ -138,6 +137,20 @@ def detect_language_code(message: str) -> str | None:
     if en_ratio >= DOMINANCE:
         return "en"
     return None
+
+
+def detect_language_code(message: str) -> str | None:
+    """Infer en/he from the current-turn instruction surface; None if unclear."""
+    return _score_hebrew_latin(strip_non_instruction_for_detection(message))
+
+
+def detect_document_language_code(text: str) -> str | None:
+    """Infer en/he from raw document/pack text; not the chat instruction surface.
+
+    Used by Initial Read. Does not apply CURRENT_TURN_LANGUAGE_RULE or strip
+    quoted/file excerpts as non-authoritative — the pack *is* the document.
+    """
+    return _score_hebrew_latin(strip_code_regions_for_detection(text or ""))
 
 
 def resolve_response_language(

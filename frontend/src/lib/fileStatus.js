@@ -488,7 +488,6 @@ export function sourcesCount(evidence) {
 
 export function canShowSources(message) {
   if (!isStandardChatAssistant(message)) return false
-  if (String(message?.source_event || '').trim() === FILE_INITIAL_READ_EVENT) return false
   return sourcesCount(message?.response_evidence) > 0
 }
 
