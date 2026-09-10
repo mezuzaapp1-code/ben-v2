@@ -5,7 +5,7 @@
 **API:** `https://ben-v2-production.up.railway.app`  
 **Method:** Railway project token (read-only CLI + public HTTP). No Railway writes, deploys, variable changes, volume mutations, SSH key adds, or POST drain from this agent.
 
-**Status: GATE A INCOMPLETE.** Production flags, idle eligible-runner cadence, and runner **stats gauges** are observed. Path A vs B fingerprint still requires `BEN_GATE_A_CANARY_BEARER`. **Do not start Gate B.**
+**Status: GATE A BLOCKED.** Canary JWT expired before upload. Stats and flags remain observed. **Do not start Gate B.**
 
 Secrets are reported as PRESENT / ABSENT / ON / OFF / UNSET only. Values are not printed.
 
@@ -153,7 +153,7 @@ Unsigned files API cannot do this (401).
 | Gate 4A chunk FTS? | **OFF** (flag unset, no workspace allowlist) |
 | Evidence IR writes? | **OFF** |
 | Runner claiming? | **Eligible-only**; eligible queue idle (`no_eligible_job`); generic due depth **2**, failed **3**, succeeded_24h **0** |
-| **PRODUCTION PATH** | **INFERRED B, NOT FINGERPRINTED** |
+| **PRODUCTION PATH** | **UNKNOWN** (flags still infer B; canary JWT expired, no upload) |
 | Gate B (retry → structured) priority | **UNDETERMINED** until canary |
 
 ---
@@ -165,4 +165,4 @@ Unsigned files API cannot do this (401).
 - No production DB writes; no `DATABASE_URL` dumps.
 - No Gate B implementation.
 
-**Next:** inject `BEN_GATE_A_CANARY_BEARER` (Clerk session JWT from a signed-in production BEN tab; do not paste in chat). Until the canary, Gate A stays incomplete.
+**Next:** re-inject a fresh `BEN_GATE_A_CANARY_BEARER` and resume within ~60s. Next gate is still **Gate A canary**, not Gate B.
