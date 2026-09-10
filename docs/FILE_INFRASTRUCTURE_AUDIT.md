@@ -14,11 +14,12 @@
 |------|--------|
 | `prototypes/ben_quote/` | **Absent** from this repository (no `prototypes/` directory, no `ben_quote` string) |
 | Production File Library | Present, gated, and test-covered on `main` |
-| Production Railway env values | **INFERRED** — not read in this session |
-| Live production upload/drain smoke | **NOT VERIFIED** |
+| Production Railway env values | **OBSERVED** 2026-09-10 — see `docs/GATE_A_PRODUCTION_TRUTH.md` |
+| Live production upload/drain smoke | **NOT VERIFIED** (canary Bearer still absent; no POST drain from agent) |
 
 **VERIFIED** means the statement is grounded in current files, tests, or migrations.  
-**INFERRED** means production runtime (Railway flags, volume mount, cron schedule) was not observed.
+**OBSERVED** means production Railway/HTTP was read in Gate A (see `docs/GATE_A_PRODUCTION_TRUTH.md`).  
+**INFERRED** means a production conclusion is consistent with observations but not fingerprinted (e.g. Path B without a canary).
 
 ---
 
@@ -26,7 +27,7 @@
 
 BEN-V2 already has a **tenant-scoped File Library** that is distinct from News and from the older SQLite knowledge-upload path. It is not a prototype: it has Postgres tables, FORCE RLS, authenticated HTTP APIs, a durable job ledger, structured extraction, chat injection, and a File Library UI.
 
-The as-built system is a **layered gate stack** (V1 library → Gates 1–4A → upload intelligence → Initial Read) with **fail-closed flags**. Default code paths still favor the **legacy synchronous extractor** unless `BEN_DOC_PROCESSING_ENABLED` is on. Chunk FTS (Gate 4A) is also fail-closed OFF and still requires a workspace UUID allowlist.
+The as-built system is a **layered gate stack** (V1 library → Gates 1–4A → upload intelligence → Initial Read) with **fail-closed flags**. Code defaults still favor the **legacy synchronous extractor** unless `BEN_DOC_PROCESSING_ENABLED` is on. **Production has that flag ON** (plus runner + upload-wake + durable `/data`); Path B is inferred, not canary-fingerprinted. Chunk FTS (Gate 4A) is fail-closed OFF in both code default and production.
 
 The largest structural facts:
 
@@ -329,7 +330,7 @@ Almost all processing/retrieval flags are **fail-closed OFF**.
 | `BEN_DOC_CHUNK_MAX_CHARS` | 1500 | Chunk size | **No** |
 | `BEN_WORKER_ID` | `web-{hex}` | Drain worker id | **No** |
 
-**INFERRED:** which of these are set on Railway. Code defaults imply that **unless production explicitly turned flags on**, uploads still process **synchronously inside the web request** via Path A.
+**Production (2026-09-10, Railway token, values not printed):** `BEN_DOC_PROCESSING_ENABLED`, `BEN_DOC_RUNNER_ENABLED`, `BEN_DOC_UPLOAD_WAKE_ENABLED`, and `BEN_REQUIRE_DURABLE_FILE_ROOT` are **ON**. `BEN_PROJECTS_DATA_DIR=/data/projects` with volume mount `/data`. Gate 4A and IR-write flags **unset**. Cron secret **PRESENT** on the service. Full packet: `docs/GATE_A_PRODUCTION_TRUTH.md`. Path B is **inferred, not fingerprinted** (no canary).
 
 ---
 
@@ -423,8 +424,8 @@ Severity here is engineering/ops, not the historical R-ID register (which also d
 
 These are recommendations from this audit, not implemented in this change.
 
-1. **Operator truth:** Document (or confirm) production values of `BEN_DOC_PROCESSING_ENABLED`, runner/wake, cron secret presence, `BEN_REQUIRE_DURABLE_FILE_ROOT`, volume mount, and Gate 4A allowlist. Until that is confirmed, treat async structured extraction as **possibly off** in production.
-2. **Unify retry with drain.** `POST .../retry` should enqueue/re-run structured extraction, not `process_file`, when the durable path is the production processor.
+1. **Operator truth (partial):** Production flags, volume mount, cron shape, and idle runner cadence are in `docs/GATE_A_PRODUCTION_TRUTH.md`. Still blocked: GET runner stats (cron secret in agent env) and one throwaway canary upload (Clerk Bearer). Until the canary, treat Path B as **inferred, not fingerprinted**.
+2. **Unify retry with drain.** `POST .../retry` should enqueue/re-run structured extraction, not `process_file`, when the durable path is the production processor. **Do not start this (Gate B) until Gate A is accepted.**
 3. **Pick one upload product for “files in a project.”** Either fold knowledge-stream uploads into `WorkspaceFile`, or keep them but document and UI-separate them so they cannot be mistaken for File Library.
 4. **Update normative docs:** `SYSTEM_BOUNDARIES.md` (File Library layer), `DATA_GOVERNANCE.md` (tables + FS + retention), `BEN_SYSTEM_MAP.md` (request lifecycle), `SECURITY_BASELINE.md` / `PROJECT_STATE.md` (Gate A).
 5. **Add missing `.env.example` entries** for the master processing flag, cron secret (name only), and durable root.

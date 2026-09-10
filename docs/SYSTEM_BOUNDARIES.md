@@ -107,7 +107,7 @@ Future: org policies, role hats, approval workflows. **Must not** be implied by 
 ## File Library layer
 
 **Location:** `services/workspace_files/*`, `routers/workspace_files.py`, `routers/document_processing.py`  
-**Audit (as-built, 2026-09-10):** `docs/FILE_INFRASTRUCTURE_AUDIT.md`
+**Audit (as-built, 2026-09-10):** `docs/FILE_INFRASTRUCTURE_AUDIT.md`. **Production flags (read-only):** `docs/GATE_A_PRODUCTION_TRUTH.md`.
 
 Canonical user-upload store is `ben.workspace_files` (Workspace == Project). Domain-isolated from News.
 

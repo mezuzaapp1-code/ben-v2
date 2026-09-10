@@ -18,7 +18,8 @@ Done means: an as-built inventory, dual-path map, adjacent-store map, docs-drift
 
 | File | Change type |
 |------|-------------|
-| `docs/FILE_INFRASTRUCTURE_AUDIT.md` | added |
+| `docs/FILE_INFRASTRUCTURE_AUDIT.md` | added / updated with production flag observations |
+| `docs/GATE_A_PRODUCTION_TRUTH.md` | added (read-only Railway observations) |
 | `docs/TASK_REPORT_FILE_INFRASTRUCTURE_AUDIT.md` | added |
 | `docs/SYSTEM_BOUNDARIES.md` | modified (File Library layer + pointer) |
 | `docs/DATA_GOVERNANCE.md` | modified (workspace files row) |
@@ -68,9 +69,13 @@ cd frontend && node scripts/test-files-lifecycle-ux-truth.mjs
 
 `test_security_gate_a.py::test_health_and_ready_remain_public` was executed once and **FAIL**ed with `ConnectionRefusedError` to `127.0.0.1:5432` (no local Postgres in this environment). That check is environment, not File Library logic. It is **not** treated as an audit-doc failure.
 
-### Production smoke
+### Production smoke (read-only, 2026-09-10)
 
-NOT EXECUTED — Railway env flags not read.
+Railway project token: PRESENT. Cron secret and canary Bearer: ABSENT in the agent.
+
+Observed without writes: `/health` 200 (`8c2bbd18…`), `/ready` 200 (`031_workspace_file_evidence_ir`), unsigned files 401, runner stats without header **401** (secret configured). Production flags ON for processing/runner/wake/durable root. Runner cron every 5 minutes logs `no_eligible_job`. Volume file listing blocked (no SSH keys; keys not added). No POST drain from this agent.
+
+Packet: `docs/GATE_A_PRODUCTION_TRUTH.md`.
 
 ## 7. Verification Results
 
@@ -80,9 +85,10 @@ NOT EXECUTED — Railway env flags not read.
 | File Library code/schema present on `main` | PASS | Migrations 022–031, routers, tests |
 | File Library contract pytest subset | PASS | 144 passed, 52 skipped |
 | Frontend files honesty/lifecycle scripts | PASS | both `OK` |
-| Production flag values | NOT VERIFIED | Not observed |
-| Live upload/drain | NOT VERIFIED | Docs-only change |
-| `/health` `/ready` public (Gate A suite) | NOT VERIFIED | local Postgres refused |
+| Production flag values | OBSERVED | See `docs/GATE_A_PRODUCTION_TRUTH.md` (ON/OFF/PRESENT only) |
+| Live upload/drain canary | NOT VERIFIED | Needs `BEN_GATE_A_CANARY_BEARER`; no POST drain from agent |
+| `/health` `/ready` (production) | PASS | 200; SHA + migration head match deploy |
+| Runner stats GET | BLOCKED | Needs cron secret in agent env (prod returns 401 without it) |
 
 ### VERIFIED vs INFERRED
 
@@ -93,7 +99,7 @@ NOT EXECUTED — Railway env flags not read.
 | Drain executors run `run_structured_extraction` | VERIFIED |
 | Chat injection on stream chat only | VERIFIED |
 | `prototypes/ben_quote` absent | VERIFIED |
-| Production `BEN_DOC_PROCESSING_ENABLED` value | INFERRED |
+| Production `BEN_DOC_PROCESSING_ENABLED` value | OBSERVED ON |
 
 ## 8. Git Status
 
@@ -105,11 +111,11 @@ Audit does not change production behavior. Recommended runtime follow-ups (retry
 
 ## 10. Recommended Next Step
 
-Confirm production flag/volume/cron values, then decide whether retry should call structured extraction instead of `process_file`.
+Inject `BEN_DOC_PROCESSING_CRON_SECRET` into the agent (GET runner stats only) and optional `BEN_GATE_A_CANARY_BEARER` for one throwaway TXT upload+delete. Do not start Gate B until that packet is accepted.
 
 ## 11. Ready Status
 
-READY WITH WARNINGS — docs/audit only; production file flags and live drain cadence not observed.
+GATE A INCOMPLETE — flags and idle runner cadence observed; stats gauges and Path A/B fingerprint still blocked. No Railway writes.
 
 ---
 
