@@ -5,7 +5,7 @@
 **API:** `https://ben-v2-production.up.railway.app`  
 **Method:** Railway project token (read-only CLI + public HTTP). No Railway writes, deploys, variable changes, volume mutations, SSH key adds, or POST drain from this agent.
 
-**Status: GATE A INCOMPLETE.** Production flags and idle runner cadence are observed. Queue gauges and Path A vs B fingerprint still require additional secrets. **Do not start Gate B.**
+**Status: GATE A INCOMPLETE.** Production flags, idle eligible-runner cadence, and runner **stats gauges** are observed. Path A vs B fingerprint still requires `BEN_GATE_A_CANARY_BEARER`. **Do not start Gate B.**
 
 Secrets are reported as PRESENT / ABSENT / ON / OFF / UNSET only. Values are not printed.
 
@@ -16,7 +16,7 @@ Secrets are reported as PRESENT / ABSENT / ON / OFF / UNSET only. Values are not
 | Secret in agent env | State |
 |---------------------|--------|
 | `RAILWAY_TOKEN` | **PRESENT** (project-scoped; `railway whoami` → Unauthorized, `railway status` works) |
-| `BEN_DOC_PROCESSING_CRON_SECRET` | **ABSENT** |
+| `BEN_DOC_PROCESSING_CRON_SECRET` | **PRESENT** (used only for GET runner stats; value not printed) |
 | `BEN_GATE_A_CANARY_BEARER` / `CANARY_BEARER` | **ABSENT** |
 
 Railway project: **empowering-quietude** · environment **production**.  
@@ -34,7 +34,8 @@ Services: **ben-v2** Online; **Postgres** Online; cron **curl** and **ben-doc-in
 |-------|--------|
 | `GET /health` | **200** `status=healthy`, `version=8c2bbd18…`, `checks.database=ok`, `enforce_auth=false`, `clerk_secret_configured=true`. Health does **not** expose file-processing flags. |
 | `GET /ready` | **200** `ready=true`, `migration_head=031_workspace_file_evidence_ir` |
-| `GET /api/internal/documents/processing/runner/stats` (no cron header) | **401** `Invalid or missing document-processing cron secret` — secret **is configured** in the running app (503 would mean unset) |
+| `GET /api/internal/documents/processing/runner/stats` (no cron header) | **401** |
+| `GET /api/internal/documents/processing/runner/stats` (cron header from agent env) | **200** — see §1.7 |
 | `GET /api/workspaces/{uuid}/files` unsigned | **401** Unauthorized (Gate A) |
 | `GET` runner drain URL | **405** Method Not Allowed (POST-only; this agent did not POST) |
 
@@ -52,7 +53,7 @@ Services: **ben-v2** Online; **Postgres** Online; cron **curl** and **ben-doc-in
 | `RAILWAY_VOLUME_MOUNT_PATH` | **PRESENT** `/data` |
 | `BEN_WORKSPACE_CHUNK_RETRIEVAL` | **ABSENT** (Gate 4A fail-closed **OFF**) |
 | `BEN_WORKSPACE_CHUNK_RETRIEVAL_WORKSPACE_IDS` | **ABSENT** |
-| `BEN_DOC_PROCESSING_CRON_SECRET` | **PRESENT** on the Railway service (not in this agent) |
+| `BEN_DOC_PROCESSING_CRON_SECRET` | **PRESENT** on the Railway service and in this agent |
 | `BEN_DOC_RUNNER_FILE_IDS` | **PRESENT**, count=1 (env allowlist exists; claim path is persisted eligibility, not this list) |
 | `BEN_DOC_RUNNER_WORKSPACE_IDS` | **ABSENT** |
 | `BEN_DOC_UPLOAD_WAKE_CONCURRENCY` | **ABSENT** (code default 2) |
@@ -97,19 +98,32 @@ Cron service logs (last 40 each): start/stop only; no curl error bodies.
 
 **Not observed.** `railway volume files list / -v ben-v2-volume` → `No SSH keys found.` Adding Railway SSH keys would be a write. Stopped.
 
+### 1.7 Runner stats (authenticated GET only, 2026-09-10)
+
+`GET /api/internal/documents/processing/runner/stats` with `X-BEN-Doc-Processing-Cron-Secret` from the agent env. **No POST drain.** Secret not printed.
+
+| Field | Value |
+|-------|--------|
+| `claim_policy` | `eligible` |
+| `runner_enabled` | `true` |
+| `file_ids` | count **1** (`2b595b7e-88e5-4c45-9841-c639450520bb`) — this is the Railway env allowlist, **not** the claim path |
+| `workspace_ids` | `[]` |
+| `due_queue_depth` | **2** (all `queued` and due now, not filtered by `runner_eligible`) |
+| `oldest_due_queued_age_s` | **2637039.9** (~30.5 days) |
+| `running_count` | **0** |
+| `failed_count` | **3** |
+| `retry_count` | **0** |
+| `succeeded_24h` | **0** |
+
+Read with `no_eligible_job` cron logs: the **eligible** claim queue is empty, while **2** historical due jobs sit in the generic queued set (migration `027` left pre-existing queued rows `runner_eligible=false`). Cron `limit=1` runner drain will not pick them. This agent did not drain, requeue, or otherwise mutate those rows.
+
 ---
 
 ## 2. What still requires extra secrets
 
-### 2.1 `BEN_DOC_PROCESSING_CRON_SECRET` (inject into this agent env; do not paste in chat)
+### 2.1 `BEN_DOC_PROCESSING_CRON_SECRET`
 
-Read-only **GET** (do not POST drain):
-
-`GET /api/internal/documents/processing/runner/stats`
-
-Expected gauges (no document text): `claim_policy`, `runner_enabled`, `due_queue_depth`, `oldest_due_queued_age_s`, `running_count`, `failed_count`, `retry_count`, `succeeded_24h`, plus configured file/workspace id lists.
-
-Without this, queue depth / failed / retry / 24h success remain **UNKNOWN**. Idle `no_eligible_job` logs are not a substitute for those gauges.
+**Done** for this agent (GET stats only). Do not POST drain.
 
 ### 2.2 `BEN_GATE_A_CANARY_BEARER` (Clerk Bearer for a throwaway workspace)
 
@@ -134,9 +148,9 @@ Unsigned files API cannot do this (401).
 | Durable bytes root? | **YES** (`BEN_REQUIRE_DURABLE_FILE_ROOT=ON`, `BEN_PROJECTS_DATA_DIR=/data/projects`, volume `/data`) |
 | Gate 4A chunk FTS? | **OFF** (flag unset, no workspace allowlist) |
 | Evidence IR writes? | **OFF** |
-| Runner claiming? | **Eligible-only**, idle (`no_eligible_job`) |
+| Runner claiming? | **Eligible-only**; eligible queue idle (`no_eligible_job`); generic due depth **2**, failed **3**, succeeded_24h **0** |
 | **PRODUCTION PATH** | **INFERRED B, NOT FINGERPRINTED** |
-| Gate B (retry → structured) priority | **UNDETERMINED** until canary + stats |
+| Gate B (retry → structured) priority | **UNDETERMINED** until canary |
 
 ---
 
@@ -147,4 +161,4 @@ Unsigned files API cannot do this (401).
 - No production DB writes; no `DATABASE_URL` dumps.
 - No Gate B implementation.
 
-**Next:** inject cron secret (stats GET) and optional canary bearer; then finish the A packet. Until then Gate A stays incomplete.
+**Next:** inject `BEN_GATE_A_CANARY_BEARER` (Clerk session JWT from a signed-in production BEN tab; do not paste in chat). Until the canary, Gate A stays incomplete.

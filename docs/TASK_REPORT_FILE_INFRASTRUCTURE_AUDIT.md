@@ -88,7 +88,7 @@ Packet: `docs/GATE_A_PRODUCTION_TRUTH.md`.
 | Production flag values | OBSERVED | See `docs/GATE_A_PRODUCTION_TRUTH.md` (ON/OFF/PRESENT only) |
 | Live upload/drain canary | NOT VERIFIED | Needs `BEN_GATE_A_CANARY_BEARER`; no POST drain from agent |
 | `/health` `/ready` (production) | PASS | 200; SHA + migration head match deploy |
-| Runner stats GET | BLOCKED | Needs cron secret in agent env (prod returns 401 without it) |
+| Runner stats GET | PASS | `claim_policy=eligible`, due=2, failed=3, succeeded_24h=0; no POST drain |
 
 ### VERIFIED vs INFERRED
 
@@ -111,7 +111,7 @@ Audit does not change production behavior. Recommended runtime follow-ups (retry
 
 ## 10. Recommended Next Step
 
-Inject `BEN_DOC_PROCESSING_CRON_SECRET` into the agent (GET runner stats only) and optional `BEN_GATE_A_CANARY_BEARER` for one throwaway TXT upload+delete. Do not start Gate B until that packet is accepted.
+Inject `BEN_GATE_A_CANARY_BEARER` from a signed-in production Clerk session (copy `Authorization` / `Clerk.session.getToken()`; do not paste in chat). Do not start Gate B until that packet is accepted.
 
 ## 11. Ready Status
 
