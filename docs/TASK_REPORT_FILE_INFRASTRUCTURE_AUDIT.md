@@ -45,7 +45,28 @@ Read-only inspection of `services/workspace_files/*`, `routers/workspace_files.p
 
 ### Runtime / API
 
-NOT EXECUTED — docs-only; no production smoke of upload/drain.
+```bash
+python3 -m pytest tests/test_workspace_files_v1.py \
+  tests/test_file_lifecycle_stage.py \
+  tests/test_news_files_domain_separation.py \
+  tests/test_files_auto_ingest_eligibility.py \
+  tests/test_image_only_lifecycle.py \
+  tests/test_unicode_filename_preserve.py \
+  tests/test_workspace_files_durable_storage.py \
+  tests/test_document_intelligence_gate3b.py \
+  tests/test_document_intelligence_gate3c.py \
+  tests/test_document_intelligence_gate3d.py \
+  tests/test_document_intelligence_gate4a.py \
+  tests/test_files_status_honesty.py \
+  tests/test_workspace_files_chat_context.py \
+  tests/test_files_used_files_durability.py --tb=line
+# 144 passed, 52 skipped
+
+cd frontend && node scripts/test-files-status-honesty.mjs
+cd frontend && node scripts/test-files-lifecycle-ux-truth.mjs
+```
+
+`test_security_gate_a.py::test_health_and_ready_remain_public` was executed once and **FAIL**ed with `ConnectionRefusedError` to `127.0.0.1:5432` (no local Postgres in this environment). That check is environment, not File Library logic. It is **not** treated as an audit-doc failure.
 
 ### Production smoke
 
@@ -55,10 +76,13 @@ NOT EXECUTED — Railway env flags not read.
 
 | Check | Result | Notes |
 |-------|--------|-------|
-| `prototypes/ben_quote` in this repo | PASS | Absent (grep + tree) |
+| `prototypes/ben_quote` in this repo | PASS | Absent (tree + ripgrep) |
 | File Library code/schema present on `main` | PASS | Migrations 022–031, routers, tests |
+| File Library contract pytest subset | PASS | 144 passed, 52 skipped |
+| Frontend files honesty/lifecycle scripts | PASS | both `OK` |
 | Production flag values | NOT VERIFIED | Not observed |
 | Live upload/drain | NOT VERIFIED | Docs-only change |
+| `/health` `/ready` public (Gate A suite) | NOT VERIFIED | local Postgres refused |
 
 ### VERIFIED vs INFERRED
 
