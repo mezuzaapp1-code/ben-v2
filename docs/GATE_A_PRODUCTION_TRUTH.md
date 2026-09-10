@@ -127,6 +127,10 @@ Read with `no_eligible_job` cron logs: the **eligible** claim queue is empty, wh
 
 ### 2.2 `BEN_GATE_A_CANARY_BEARER` (Clerk Bearer for a throwaway workspace)
 
+**Attempted 2026-09-10 21:09 UTC.** Token was PRESENT but **already expired** (`exp` 820s in the past; Clerk session JWT lifetime 60s). `GET /api/projects` with that Bearer returned **401**. **No canary file was uploaded.** No drain POST, no Railway changes.
+
+Re-inject a freshly copied production session JWT and resume within the ~60s lifetime. Do not paste the token in chat. Do not use `scripts/clerk_session_bearer.py`.
+
 Required to fingerprint **PRODUCTION PATH A vs B** on a real upload:
 
 1. Tiny `canary-gate-a.txt` into a disposable workspace.
