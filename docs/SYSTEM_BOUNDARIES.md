@@ -1,6 +1,6 @@
 # System Boundaries
 
-**Last updated:** 2026-06-06
+**Last updated:** 2026-09-10
 
 What each layer **may** and **may not** do. When in doubt, do not cross boundaries without updating this doc.
 
@@ -101,6 +101,25 @@ Future: org policies, role hats, approval workflows. **Must not** be implied by 
 | Toolbar, threads UI, provider meta | Backend routing rules |
 | Send `provider_id` on chat and ad-hoc | Impersonate provider brands |
 | Council stream UI (chunk/done) | Expert-phase timers or synthesis buttons |
+
+---
+
+## File Library layer
+
+**Location:** `services/workspace_files/*`, `routers/workspace_files.py`, `routers/document_processing.py`  
+**Audit (as-built, 2026-09-10):** `docs/FILE_INFRASTRUCTURE_AUDIT.md`
+
+Canonical user-upload store is `ben.workspace_files` (Workspace == Project). Domain-isolated from News.
+
+| May | May not |
+|-----|---------|
+| Persist uploads under `projects_root()/_workspace_files/` keyed by org + workspace | Write News tables (`SourceDocumentVersion`, `NewsArticle`, …) |
+| Tenant-bind via Gate A (Clerk / beta) — never shared anonymous org | Trust `ENFORCE_AUTH=false` for file CRUD |
+| Drain extraction via cron-secret internal routes | Run Initial Read LLM on the extraction drain |
+| Inject READY text into **standard streaming chat** only (Gate 3D prefixes or flag-gated Gate 4A FTS) | Inject File Library into council / `expert_opinion` or non-stream `handle_chat` |
+| Record used-files / response evidence on the chat envelope | Dump all READY files when source restriction fails (fail closed to empty) |
+
+Do not reuse `services/knowledge_store.py` (SQLite project knowledge uploads) as File Library persistence. That path is adjacent, not canonical.
 
 ---
 

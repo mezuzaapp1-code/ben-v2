@@ -30,6 +30,7 @@ This document complements `docs/BEN_RUNTIME_CONTRACTS.md` and `docs/BEN_SYSTEM_M
 | **Synthesis object** | `ben.knowledge_objects` | `org_id` | **Not thread-linked in v1** | `type=synthesis`, `content` = synthesis JSON; optional parallel to thread |
 | **Cognitive events** | `ben.cognitive_events` | `org_id` | `thread_id` FK | Schema exists; **runtime does not write in v1** |
 | **Relationships** | `ben.relationships` | `org_id` | via KO ids | Schema exists; **runtime unused in v1** |
+| **Workspace files (File Library)** | `ben.workspace_files` + pages/chunks/jobs; bytes on `_workspace_files/` | `org_id` + `workspace_id` (Project) | optional `source_chat_id` | Canonical user uploads. See `docs/FILE_INFRASTRUCTURE_AUDIT.md`. Not News. |
 | **Runtime / idempotency** | In-process only | `tenant_hash` + route | N/A | Not durable; lost on restart / per replica |
 | **Diagnostics** | Logs + `/runtime/snapshot` | `tenant_hash` only | N/A | **No prompts, no message bodies** |
 
