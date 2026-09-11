@@ -81,11 +81,22 @@ async def _file(conn, fid):
     )
 
 
-async def _latest_job(conn, fid):
+async def _latest_extraction_job(conn, fid):
     return await conn.fetchrow(
         "SELECT status, job_type, attempts, extraction_version, chunking_version "
-        "FROM ben.document_processing_jobs WHERE file_id=$1 ORDER BY created_at DESC, id DESC LIMIT 1",
+        "FROM ben.document_processing_jobs "
+        "WHERE file_id=$1 AND job_type = $2 "
+        "ORDER BY created_at DESC, id DESC LIMIT 1",
         fid,
+        JOB_TYPE_FILE_EXTRACTION,
+    )
+
+
+async def _extraction_job_count(conn, fid):
+    return await conn.fetchval(
+        "SELECT count(*) FROM ben.document_processing_jobs WHERE file_id=$1 AND job_type=$2",
+        fid,
+        JOB_TYPE_FILE_EXTRACTION,
     )
 
 
@@ -181,7 +192,7 @@ async def test_retry_after_path_b_ready_preserves_pages_and_chunks(fresh_engine,
         out = await file_service.retry_file(org_id=org, workspace_id=ws, file_id=fid)
         after = await _file(conn, fid)
         pages2, chunks2 = await _pages(conn, fid), await _chunks(conn, fid)
-        job = await _latest_job(conn, fid)
+        job = await _latest_extraction_job(conn, fid)
 
         assert out["status"] == "ready"
         assert after["status"] == "ready"
@@ -193,9 +204,7 @@ async def test_retry_after_path_b_ready_preserves_pages_and_chunks(fresh_engine,
         assert after["chunking_version"] == before["chunking_version"]
         assert job["status"] == "succeeded"
         assert job["job_type"] == JOB_TYPE_FILE_EXTRACTION
-        assert await conn.fetchval(
-            "SELECT count(*) FROM ben.document_processing_jobs WHERE file_id=$1", fid
-        ) == 2
+        assert await _extraction_job_count(conn, fid) == 2
     finally:
         await conn.execute("DELETE FROM ben.projects WHERE id=$1", ws)
         await conn.close()
@@ -223,7 +232,7 @@ async def test_retry_failed_structured_file_creates_pages_and_chunks(fresh_engin
         assert failed["failure_code"] == "missing_bytes"
         assert await _pages(conn, fid) == 0
         assert await _chunks(conn, fid) == 0
-        failed_job = await _latest_job(conn, fid)
+        failed_job = await _latest_extraction_job(conn, fid)
         assert failed_job["status"] == "failed"
 
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -231,7 +240,7 @@ async def test_retry_failed_structured_file_creates_pages_and_chunks(fresh_engin
         out = await file_service.retry_file(org_id=org, workspace_id=ws, file_id=fid)
         after = await _file(conn, fid)
         pages, chunks = await _pages(conn, fid), await _chunks(conn, fid)
-        job = await _latest_job(conn, fid)
+        job = await _latest_extraction_job(conn, fid)
 
         assert out["status"] == "ready"
         assert after["status"] == "ready"
@@ -289,7 +298,7 @@ async def test_retry_image_only_stays_ready_empty_text_not_failed(fresh_engine, 
         fid = uuid.UUID(p["id"])
         out1 = await file_service.retry_file(org_id=org, workspace_id=ws, file_id=fid)
         f1 = await _file(conn, fid)
-        job1 = await _latest_job(conn, fid)
+        job1 = await _latest_extraction_job(conn, fid)
         assert out1["status"] == "ready"
         assert f1["status"] == "ready"
         assert f1["extracted_text"] == ""
