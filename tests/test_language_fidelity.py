@@ -109,6 +109,32 @@ def test_assemble_chat_system_is_shared_not_provider_specific():
     assert "grok" not in system.lower()
 
 
+def test_document_language_detector_does_not_change_chat_instruction_rules():
+    """Initial Read scores pack text; /chat still ignores document body in the wrapper."""
+    from services.chat_language import detect_document_language_code
+    from services.workspace_files.initial_read import (
+        _INITIAL_READ_INSTRUCTIONS,
+        _INITIAL_READ_SYSTEM,
+        system_for_pack_text,
+    )
+
+    assert "file excerpts" in CURRENT_TURN_LANGUAGE_RULE
+    wrapped = f"{_INITIAL_READ_INSTRUCTIONS}\n\n{_HE}"
+    assert detect_language_code(wrapped) == "en"
+    assert detect_document_language_code(_HE) == "he"
+    assert detect_document_language_code(_EN) == "en"
+    mixed = "abcdabcd" + "אבגדהוזחט"
+    assert detect_document_language_code(mixed) is None
+    hebrew_system = system_for_pack_text(_HE)
+    assert "Respond in Hebrew" in hebrew_system
+    assert hebrew_system.startswith(_INITIAL_READ_SYSTEM)
+    assert system_for_pack_text(_EN) == _INITIAL_READ_SYSTEM
+    assert system_for_pack_text(mixed) == _INITIAL_READ_SYSTEM
+    chat_system = assemble_chat_system(_HE, None)
+    assert CURRENT_TURN_LANGUAGE_RULE in chat_system
+    assert detect_language_code(wrapped) == "en"
+
+
 @contextmanager
 def _stream_patches(tid, fake_stream, *, history_text: str | None = None):
     async def ctx(_org, _tid, live):

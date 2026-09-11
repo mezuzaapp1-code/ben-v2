@@ -54,8 +54,17 @@ assert(
     kind: 'chat',
     response_evidence: sample,
     source_event: FILE_INITIAL_READ_EVENT,
+  }) === true,
+  'Initial Read with response_evidence shows Sources'
+)
+assert(
+  canShowSources({
+    role: 'assistant',
+    kind: 'chat',
+    source_event: FILE_INITIAL_READ_EVENT,
+    used_files: [{ id: FILE_A, name: 'A.pdf' }],
   }) === false,
-  'Initial Read never gets Sources'
+  'legacy Initial Read without response_evidence has no Sources'
 )
 assert(
   canShowSources({ role: 'assistant', kind: 'adhoc_expert', response_evidence: sample }) === false,
@@ -266,6 +275,15 @@ assert(
     used_files: [{ id: FILE_A, name: 'A.pdf' }],
   }) === false,
   'legacy used_files-only messages still have no Sources'
+)
+assert(
+  canShowSources({
+    role: 'assistant',
+    kind: 'chat',
+    source_event: FILE_INITIAL_READ_EVENT,
+    used_files: [{ id: FILE_A, name: 'A.pdf' }],
+  }) === false,
+  'legacy Initial Read used_files fallback remains when no evidence'
 )
 assert(preview.includes('fetchWorkspaceFileBlob'), 'open uses authenticated blob path')
 assert(preview.includes('#page='), 'page open uses fragment')

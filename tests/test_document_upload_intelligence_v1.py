@@ -697,6 +697,7 @@ async def test_initial_read_persists_grounded_chat_message(monkeypatch):
     from services.workspace_files import initial_read
     from services.workspace_files.initial_read_pack import PackChunk as PC
 
+    chunk_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
     claimed = types.SimpleNamespace(
         id=FILE_A,
         source_chat_id=CHAT_ID,
@@ -715,8 +716,8 @@ async def test_initial_read_persists_grounded_chat_message(monkeypatch):
             return_value=[
                 PC(
                     file_id=FILE_A,
-                    chunk_id=uuid.uuid4(),
-                    page_number=1,
+                    chunk_id=chunk_id,
+                    page_number=2,
                     document_chunk_index=0,
                     page_chunk_index=0,
                     text="The proposal budget is $12M on page one.",
@@ -732,7 +733,7 @@ async def test_initial_read_persists_grounded_chat_message(monkeypatch):
         "route_request",
         AsyncMock(
             return_value={
-                "content": "This is a proposal. Finding: budget is $12M (page 1).",
+                "content": "This is a proposal. Finding: budget is $12M (page 99).",
                 "model_used": "test-model",
                 "cost_usd": 0.0,
                 "provider_used": "gpt",
@@ -778,6 +779,263 @@ async def test_initial_read_persists_grounded_chat_message(monkeypatch):
     assert "file_overview" not in persisted["encoded"]
     assert '"kind": "chat"' in persisted["encoded"]
     assert "proposal" in decoded["content"].lower()
+    ev = decoded["response_evidence"]
+    assert ev["retrieval_mode"] == "chunks"
+    assert len(ev["sources"]) == 1
+    assert ev["sources"][0]["source_id"] == str(FILE_A)
+    assert ev["evidence"][0]["chunk_id"] == str(chunk_id)
+    assert ev["evidence"][0]["page"] == 2
+    assert "page 99" not in ev["evidence"][0]["excerpt"]
+    assert ev["evidence"][0]["excerpt"] == "The proposal budget is $12M on page one."
+
+
+def _ir_pg(persisted: dict):
+    class _Pg:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def execute(self, *a, **k):
+            return MagicMock()
+
+        def add(self, obj):
+            persisted["pg_content"] = obj.content
+
+        async def commit(self):
+            persisted["pg_committed"] = True
+
+    return _Pg()
+
+
+@pytest.mark.asyncio
+async def test_initial_read_hebrew_pack_appends_hebrew_instruction(monkeypatch):
+    from services.workspace_files import initial_read
+    from services.workspace_files.initial_read_pack import PackChunk as PC
+
+    he = "זהו הסבר מפורט על הנושא בשפה העברית לצורכי בדיקה של מערכת הזיהוי האוטומטי."
+    claimed = types.SimpleNamespace(
+        id=FILE_A,
+        source_chat_id=CHAT_ID,
+        display_name="מסמך.pdf",
+        original_filename="מסמך.pdf",
+        page_count=2,
+        extraction_status="complete",
+        extracted_text="legacy unused",
+    )
+    captured: dict = {}
+
+    async def fake_route(message, tenant_id, tier, *, system=None, **_k):
+        captured["system"] = system
+        captured["message"] = message
+        return {"content": "סקירה", "model_used": "test-model", "cost_usd": 0.0, "provider_used": "gpt"}
+
+    monkeypatch.setattr(initial_read, "claim_initial_read", AsyncMock(return_value=claimed))
+    monkeypatch.setattr(initial_read, "sqlite_has_initial_read", lambda *_a, **_k: False)
+    monkeypatch.setattr(
+        initial_read,
+        "load_pack_chunks",
+        AsyncMock(
+            return_value=[
+                PC(
+                    file_id=FILE_A,
+                    chunk_id=uuid.uuid4(),
+                    page_number=1,
+                    document_chunk_index=0,
+                    page_chunk_index=0,
+                    text=he,
+                    char_count=len(he),
+                    page_char_count=len(he),
+                )
+            ]
+        ),
+    )
+    monkeypatch.setattr(initial_read, "page_coverage", AsyncMock(return_value=(2, 0)))
+    monkeypatch.setattr(initial_read, "route_request", fake_route)
+    persisted: dict = {}
+    monkeypatch.setattr(
+        initial_read,
+        "persist_assistant_message_sqlite",
+        lambda *_a, **_k: persisted.setdefault("ok", True),
+    )
+    monkeypatch.setattr(initial_read, "_mark_initial_read", AsyncMock())
+    monkeypatch.setattr(initial_read, "get_db_session", lambda: _ir_pg(persisted))
+
+    out = await initial_read.run_initial_read(ORG_A, WS_A, FILE_A)
+    assert out["outcome"] == "ok"
+    assert captured["message"].startswith(initial_read._INITIAL_READ_INSTRUCTIONS)
+    assert "Respond in Hebrew" in captured["system"]
+    assert "Respond in English" not in captured["system"]
+
+
+@pytest.mark.asyncio
+async def test_initial_read_english_pack_keeps_english_system(monkeypatch):
+    from services.workspace_files import initial_read
+    from services.workspace_files.initial_read_pack import PackChunk as PC
+
+    en = "This is an English paragraph that explains the topic in enough detail for language detection."
+    claimed = types.SimpleNamespace(
+        id=FILE_A,
+        source_chat_id=CHAT_ID,
+        display_name="A.pdf",
+        original_filename="A.pdf",
+        page_count=1,
+        extraction_status="complete",
+        extracted_text="legacy unused",
+    )
+    captured: dict = {}
+
+    async def fake_route(message, tenant_id, tier, *, system=None, **_k):
+        captured["system"] = system
+        return {"content": "Overview", "model_used": "test-model", "cost_usd": 0.0, "provider_used": "gpt"}
+
+    monkeypatch.setattr(initial_read, "claim_initial_read", AsyncMock(return_value=claimed))
+    monkeypatch.setattr(initial_read, "sqlite_has_initial_read", lambda *_a, **_k: False)
+    monkeypatch.setattr(
+        initial_read,
+        "load_pack_chunks",
+        AsyncMock(
+            return_value=[
+                PC(
+                    file_id=FILE_A,
+                    chunk_id=uuid.uuid4(),
+                    page_number=1,
+                    document_chunk_index=0,
+                    page_chunk_index=0,
+                    text=en,
+                    char_count=len(en),
+                    page_char_count=len(en),
+                )
+            ]
+        ),
+    )
+    monkeypatch.setattr(initial_read, "page_coverage", AsyncMock(return_value=(1, 0)))
+    monkeypatch.setattr(initial_read, "route_request", fake_route)
+    persisted: dict = {}
+    monkeypatch.setattr(initial_read, "persist_assistant_message_sqlite", lambda *_a, **_k: 1)
+    monkeypatch.setattr(initial_read, "_mark_initial_read", AsyncMock())
+    monkeypatch.setattr(initial_read, "get_db_session", lambda: _ir_pg(persisted))
+
+    out = await initial_read.run_initial_read(ORG_A, WS_A, FILE_A)
+    assert out["outcome"] == "ok"
+    assert captured["system"] == initial_read._INITIAL_READ_SYSTEM
+    assert "Respond in Hebrew" not in captured["system"]
+
+
+@pytest.mark.asyncio
+async def test_initial_read_mixed_pack_preserves_current_system(monkeypatch):
+    from services.workspace_files import initial_read
+    from services.workspace_files.initial_read_pack import PackChunk as PC
+
+    mixed = "abcdabcdאבגדהוזחט"
+    claimed = types.SimpleNamespace(
+        id=FILE_A,
+        source_chat_id=CHAT_ID,
+        display_name="mixed.pdf",
+        original_filename="mixed.pdf",
+        page_count=1,
+        extraction_status="complete",
+        extracted_text="legacy unused",
+    )
+    captured: dict = {}
+
+    async def fake_route(message, tenant_id, tier, *, system=None, **_k):
+        captured["system"] = system
+        return {"content": "Overview", "model_used": "test-model", "cost_usd": 0.0, "provider_used": "gpt"}
+
+    monkeypatch.setattr(initial_read, "claim_initial_read", AsyncMock(return_value=claimed))
+    monkeypatch.setattr(initial_read, "sqlite_has_initial_read", lambda *_a, **_k: False)
+    monkeypatch.setattr(
+        initial_read,
+        "load_pack_chunks",
+        AsyncMock(
+            return_value=[
+                PC(
+                    file_id=FILE_A,
+                    chunk_id=uuid.uuid4(),
+                    page_number=1,
+                    document_chunk_index=0,
+                    page_chunk_index=0,
+                    text=mixed,
+                    char_count=len(mixed),
+                    page_char_count=len(mixed),
+                )
+            ]
+        ),
+    )
+    monkeypatch.setattr(initial_read, "page_coverage", AsyncMock(return_value=(1, 0)))
+    monkeypatch.setattr(initial_read, "route_request", fake_route)
+    persisted: dict = {}
+    monkeypatch.setattr(initial_read, "persist_assistant_message_sqlite", lambda *_a, **_k: 1)
+    monkeypatch.setattr(initial_read, "_mark_initial_read", AsyncMock())
+    monkeypatch.setattr(initial_read, "get_db_session", lambda: _ir_pg(persisted))
+
+    out = await initial_read.run_initial_read(ORG_A, WS_A, FILE_A)
+    assert out["outcome"] == "ok"
+    assert captured["system"] == initial_read._INITIAL_READ_SYSTEM
+
+
+@pytest.mark.asyncio
+async def test_initial_read_prefix_fallback_evidence_has_no_page(monkeypatch):
+    from services.workspace_files import initial_read
+
+    prefix = "Legacy extracted text about QT-2024-1847 without page rows."
+    claimed = types.SimpleNamespace(
+        id=FILE_A,
+        source_chat_id=CHAT_ID,
+        display_name="legacy.pdf",
+        original_filename="legacy.pdf",
+        page_count=4,
+        extraction_status="legacy",
+        extracted_text=prefix,
+    )
+    monkeypatch.setattr(initial_read, "claim_initial_read", AsyncMock(return_value=claimed))
+    monkeypatch.setattr(initial_read, "sqlite_has_initial_read", lambda *_a, **_k: False)
+    monkeypatch.setattr(initial_read, "load_pack_chunks", AsyncMock(return_value=[]))
+    monkeypatch.setattr(initial_read, "page_coverage", AsyncMock(return_value=(0, 0)))
+    monkeypatch.setattr(
+        initial_read,
+        "route_request",
+        AsyncMock(
+            return_value={
+                "content": "Overview of the legacy file (page 7).",
+                "model_used": "test-model",
+                "cost_usd": 0.0,
+                "provider_used": "gpt",
+            }
+        ),
+    )
+    persisted: dict = {}
+    monkeypatch.setattr(
+        initial_read,
+        "persist_assistant_message_sqlite",
+        lambda *_a, encoded_content=None, **_k: persisted.update(encoded=encoded_content) or 1,
+    )
+    monkeypatch.setattr(initial_read, "_mark_initial_read", AsyncMock())
+    monkeypatch.setattr(initial_read, "get_db_session", lambda: _ir_pg(persisted))
+
+    out = await initial_read.run_initial_read(ORG_A, WS_A, FILE_A)
+    assert out["outcome"] == "ok"
+    decoded = decode_message("assistant", persisted["encoded"])
+    ev = decoded["response_evidence"]
+    assert ev["retrieval_mode"] == "prefix_fallback"
+    assert len(ev["sources"]) == 1
+    assert ev["sources"][0]["source_id"] == str(FILE_A)
+    assert "page" not in ev["evidence"][0]
+    assert "chunk_id" not in ev["evidence"][0]
+    assert ev["evidence"][0]["evidence_id"] == f"prefix:{FILE_A}"
+    assert ev["evidence"][0]["excerpt"] == prefix
+    assert "page 7" not in ev["evidence"][0]["excerpt"]
+
+
+def test_initial_read_does_not_parse_model_citations_for_provenance() -> None:
+    src = (ROOT / "services" / "workspace_files" / "initial_read.py").read_text(encoding="utf-8")
+    assert "response_evidence_from_pack(" in src
+    body = src.split("async def run_initial_read", 1)[1].split("async def _run_scheduled", 1)[0]
+    assert "response_evidence_from_pack(" in body
+    assert "re.search" not in body
+    assert "json.loads(content" not in body
 
 
 @pytest.mark.asyncio

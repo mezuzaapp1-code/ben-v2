@@ -11,6 +11,7 @@ from sqlalchemy import func, select, text, update
 from database.connection import get_db_session
 from database.models import Message, WorkspaceFile, WorkspaceFileChunk, WorkspaceFilePage
 from database.thread_store import list_thread_messages
+from services.chat_language import build_language_instruction, detect_document_language_code
 from services.chat_prompt import GLOBAL_CHAT_SYSTEM
 from services.message_format import decode_message, encode_chat_assistant
 from services.model_gateway import route_request
@@ -21,6 +22,10 @@ from services.workspace_files.initial_read_pack import (
     PackChunk,
     render_pack_evidence,
     select_representative_chunks,
+)
+from services.workspace_files.response_evidence import (
+    EvidenceUnit,
+    build_response_evidence,
 )
 from services.workspace_files.job_queue import (
     JOB_TYPE_FILE_INITIAL_READ,
@@ -77,6 +82,56 @@ _INITIAL_READ_INSTRUCTIONS = (
     "4. Reliable metadata (filename, page count) when given.\n"
     "Keep it brief. Do not ask the user to restate the filename."
 )
+
+
+def system_for_pack_text(pack_text: str) -> str:
+    """Hebrew-dominant pack gets the existing Hebrew instruction; otherwise unchanged."""
+    if detect_document_language_code(pack_text) == "he":
+        return _INITIAL_READ_SYSTEM + "\n\n" + build_language_instruction("he")
+    return _INITIAL_READ_SYSTEM
+
+
+def pack_language_text(*, chunks: list[PackChunk], prefix: str = "") -> str:
+    """Text actually injected as document body — not the English task wrapper."""
+    bodies = [(c.text or "").strip() for c in chunks if (c.text or "").strip()]
+    if bodies:
+        return "\n".join(bodies)
+    return (prefix or "").strip()
+
+
+def response_evidence_from_pack(
+    *,
+    file_id: uuid.UUID,
+    display_name: str,
+    chunks: list[PackChunk],
+    prefix: str = "",
+) -> dict[str, Any] | None:
+    """Provenance from the injected pack only. Never from model citations."""
+    name = display_name or "file"
+    if chunks:
+        units = [
+            EvidenceUnit(
+                source_id=str(file_id),
+                display_name=name,
+                excerpt=c.text or "",
+                chunk_id=str(c.chunk_id) if c.chunk_id else None,
+                page=c.page_number,
+            )
+            for c in chunks
+        ]
+        return build_response_evidence(retrieval_mode="chunks", units=units)
+    if (prefix or "").strip():
+        return build_response_evidence(
+            retrieval_mode="prefix_fallback",
+            units=[
+                EvidenceUnit(
+                    source_id=str(file_id),
+                    display_name=name,
+                    excerpt=prefix,
+                )
+            ],
+        )
+    return None
 
 
 async def _set_org(session, org_id: uuid.UUID) -> None:
@@ -263,9 +318,11 @@ async def run_initial_read(org_id: uuid.UUID, workspace_id: uuid.UUID, file_id: 
         chunks = await load_pack_chunks(org_id, workspace_id, file_id)
         selected = select_representative_chunks(chunks)
         extracted, needs_ocr = await page_coverage(org_id, workspace_id, file_id)
+        display_name = claimed.display_name or claimed.original_filename or "file"
+        prefix = ""
         if selected:
             evidence = render_pack_evidence(
-                display_name=claimed.display_name or claimed.original_filename,
+                display_name=display_name,
                 file_id=claimed.id,
                 page_count=claimed.page_count,
                 extraction_status=claimed.extraction_status or "",
@@ -276,7 +333,7 @@ async def run_initial_read(org_id: uuid.UUID, workspace_id: uuid.UUID, file_id: 
         else:
             prefix = _fallback_prefix_text(claimed.extracted_text)
             evidence = render_pack_evidence(
-                display_name=claimed.display_name or claimed.original_filename,
+                display_name=display_name,
                 file_id=claimed.id,
                 page_count=claimed.page_count,
                 extraction_status=claimed.extraction_status or "legacy",
@@ -292,12 +349,13 @@ async def run_initial_read(org_id: uuid.UUID, workspace_id: uuid.UUID, file_id: 
                     "Acknowledge the upload using filename and page metadata only."
                 )
 
+        pack_text = pack_language_text(chunks=selected, prefix=prefix)
         user_message = f"{_INITIAL_READ_INSTRUCTIONS}\n\n{evidence}"
         result = await route_request(
             user_message,
             tenant_id=str(org_id),
             tier="free",
-            system=_INITIAL_READ_SYSTEM,
+            system=system_for_pack_text(pack_text),
         )
         content = str((result or {}).get("content") or "").strip()
         if not content:
@@ -306,7 +364,7 @@ async def run_initial_read(org_id: uuid.UUID, workspace_id: uuid.UUID, file_id: 
         used = [
             {
                 "id": str(claimed.id),
-                "name": claimed.display_name or claimed.original_filename or "file",
+                "name": display_name,
             }
         ]
         encoded = encode_chat_assistant(
@@ -318,6 +376,12 @@ async def run_initial_read(org_id: uuid.UUID, workspace_id: uuid.UUID, file_id: 
             used_files=used,
             source_event=FILE_INITIAL_READ_EVENT,
             source_file_id=str(claimed.id),
+            response_evidence=response_evidence_from_pack(
+                file_id=claimed.id,
+                display_name=display_name,
+                chunks=selected,
+                prefix=prefix,
+            ),
         )
         persist_assistant_message_sqlite(
             thread_id,
