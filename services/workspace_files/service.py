@@ -371,6 +371,42 @@ async def process_file(
         return payload
 
 
+async def retry_file(
+    *,
+    org_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    file_id: uuid.UUID,
+) -> dict[str, Any]:
+    """Customer retry uses the upload-ON job ledger + scoped structured drain.
+
+    Enqueues ``file_extraction`` (same type as upload-ON) and awaits
+    ``drain_document_processing_job_for_file``. Never calls the legacy
+    extractor and never runs structured extraction outside that drain.
+    """
+    await _require_workspace(org_id, workspace_id)
+    async with get_db_session() as session:
+        await _set_org(session, org_id)
+        row = await session.get(WorkspaceFile, file_id)
+        if row is None or row.org_id != org_id or row.workspace_id != workspace_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+        await enqueue_document_processing_job(
+            org_id,
+            workspace_id,
+            file_id,
+            job_type=JOB_TYPE_FILE_EXTRACTION,
+            session=session,
+        )
+        await session.commit()
+
+    from services.workspace_files.drain import drain_document_processing_job_for_file
+
+    await drain_document_processing_job_for_file(
+        file_id,
+        worker_id=f"retry-{uuid.uuid4().hex[:8]}",
+    )
+    return await get_file(org_id=org_id, workspace_id=workspace_id, file_id=file_id)
+
+
 async def _notify_process_outcome(
     org_id: uuid.UUID, workspace_id: uuid.UUID, file_id: uuid.UUID, *, ready: bool
 ) -> None:

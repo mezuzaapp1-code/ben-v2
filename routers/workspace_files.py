@@ -150,7 +150,7 @@ async def retry_workspace_file(
         route_operation="POST /api/workspaces/{workspace_id}/files/{file_id}/retry",
     )
     async with measure(subsystem="workspace_files", operation="retry"):
-        return await file_service.process_file(
+        return await file_service.retry_file(
             org_id=_org_from_ctx(ctx),
             workspace_id=workspace_id,
             file_id=file_id,
