@@ -393,8 +393,12 @@ def encode_adhoc_expert(
     cost_usd: float = 0.0,
     sequence: int | None = None,
     display_content: str | None = None,
+    used_files: Any = None,
+    response_evidence: Any = None,
 ) -> str:
     display = display_content or build_adhoc_expert_display_text(provider_id, model, response)
+    clean_used = _sanitize_used_files(used_files)
+    clean_evidence = sanitize_response_evidence(response_evidence)
     payload: dict[str, Any] = {
         "ben": 1,
         "kind": "adhoc_expert",
@@ -411,6 +415,10 @@ def encode_adhoc_expert(
         payload["model"] = model
     if sequence is not None:
         payload["sequence"] = sequence
+    if clean_used:
+        payload["used_files"] = clean_used
+    if clean_evidence:
+        payload["response_evidence"] = clean_evidence
     return json.dumps(payload, ensure_ascii=False)
 
 
@@ -536,6 +544,12 @@ def decode_message(role: str, content: str) -> dict[str, Any]:
             }
             if data.get("sequence") is not None:
                 out_adhoc["sequence"] = int(data.get("sequence"))
+            used_files = _sanitize_used_files(data.get("used_files"))
+            if used_files:
+                out_adhoc["used_files"] = used_files
+            evidence = sanitize_response_evidence(data.get("response_evidence"))
+            if evidence:
+                out_adhoc["response_evidence"] = evidence
             return out_adhoc
         if kind == "adhoc_synthesis":
             syn = data.get("synthesis")

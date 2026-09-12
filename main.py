@@ -1014,6 +1014,10 @@ class AdhocExpertBody(BaseModel):
         max_length=128,
         description="Client-generated idempotency token for safe retries",
     )
+    project_id: str | None = Field(
+        None,
+        description="Active project UUID for Workspace File evidence (same as chat)",
+    )
 
 
 @app.post("/api/threads/{thread_id}/adhoc/expert/stream")
@@ -1036,6 +1040,12 @@ async def api_adhoc_expert_stream(request: Request, thread_id: str, body: AdhocE
     # Gate 2: Switchboard compute activation must not block Add Opinion.
     org_id = uuid.UUID(ctx.tenant_id)
     message_type = "panel" if str(body.opinion_mode or "single").strip().lower() == "panel" else "expert_consult"
+    expert_project_id = None
+    if body.project_id:
+        try:
+            expert_project_id = uuid.UUID(str(body.project_id).strip())
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid project_id") from exc
     stream_fn = stream_expert_opinion if body.anchor_message_id is not None else stream_adhoc_expert
     stream_kwargs: dict = {
         "session_id": sid,
@@ -1048,6 +1058,7 @@ async def api_adhoc_expert_stream(request: Request, thread_id: str, body: AdhocE
             anchor_message_id=body.anchor_message_id,
             opinion_request=body.opinion_request,
             message_type=message_type,
+            project_id=expert_project_id,
         )
     return StreamingResponse(
         stream_fn(org_id, tid, **stream_kwargs),
@@ -1075,6 +1086,12 @@ async def api_adhoc_expert(request: Request, thread_id: str, body: AdhocExpertBo
     # Gate 2: Switchboard compute activation must not block Add Opinion.
     org_id = uuid.UUID(ctx.tenant_id)
     message_type = "panel" if str(body.opinion_mode or "single").strip().lower() == "panel" else "expert_consult"
+    expert_project_id = None
+    if body.project_id:
+        try:
+            expert_project_id = uuid.UUID(str(body.project_id).strip())
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid project_id") from exc
     async with measure(subsystem="adhoc", operation="POST /api/threads/{id}/adhoc/expert"):
         if body.anchor_message_id is not None:
             return await run_expert_opinion(
@@ -1087,6 +1104,7 @@ async def api_adhoc_expert(request: Request, thread_id: str, body: AdhocExpertBo
                 anchor_message_id=body.anchor_message_id,
                 opinion_request=body.opinion_request,
                 message_type=message_type,
+                project_id=expert_project_id,
             )
         return await run_adhoc_expert(
             org_id,

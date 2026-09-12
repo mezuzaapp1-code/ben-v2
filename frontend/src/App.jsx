@@ -120,6 +120,7 @@ import {
   patchFileUploadRow,
   unavailableChatNote,
   usedFilesFromDoneEvent,
+  responseEvidenceFromDoneEvent,
   canShowSources,
   sourcesCount,
 } from './lib/fileStatus.js'
@@ -1862,6 +1863,7 @@ function App() {
           tier,
           anchorMessageId,
           opinionMode,
+          projectId: activeProjectId || undefined,
           headers,
         })) {
           if (event.type === 'chunk') {
@@ -1889,6 +1891,8 @@ function App() {
               sqlite_message_id: event.sqlite_message_id ?? null,
               message_type: event.message_type ?? (opinionMode === 'panel' ? 'panel' : 'expert_consult'),
               expert_status: null,
+              used_files: usedFilesFromDoneEvent(event),
+              response_evidence: responseEvidenceFromDoneEvent(event),
             })
           } else if (event.type === 'error') {
             updateThreadMessageAt(tid, insertIndex, {
@@ -1910,6 +1914,7 @@ function App() {
     },
     [
       activeId,
+      activeProjectId,
       buildAppHeaders,
       insertThreadMessageAfter,
       loading,

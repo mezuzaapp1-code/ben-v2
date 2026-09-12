@@ -43,6 +43,7 @@ export async function* postAdhocExpertStream({
   anchorMessageId = null,
   opinionMode = 'single',
   opinionRequest = null,
+  projectId = null,
   headers,
   signal,
 }) {
@@ -54,6 +55,7 @@ export async function* postAdhocExpertStream({
     opinion_mode: opinionMode,
     opinion_request: opinionRequest ?? undefined,
   }
+  if (projectId) body.project_id = projectId
   const controller = new AbortController()
   if (signal) {
     if (signal.aborted) controller.abort()

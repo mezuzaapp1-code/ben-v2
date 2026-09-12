@@ -487,7 +487,9 @@ export function sourcesCount(evidence) {
 }
 
 export function canShowSources(message) {
-  if (!isStandardChatAssistant(message)) return false
+  const chatAssistant = isStandardChatAssistant(message)
+  const adhocExpert = Boolean(message) && message.role === 'assistant' && message.kind === 'adhoc_expert'
+  if (!chatAssistant && !adhocExpert) return false
   if (String(message?.source_event || '').trim() === FILE_INITIAL_READ_EVENT) return false
   return sourcesCount(message?.response_evidence) > 0
 }

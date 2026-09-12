@@ -58,8 +58,25 @@ assert(
   'Initial Read never gets Sources'
 )
 assert(
-  canShowSources({ role: 'assistant', kind: 'adhoc_expert', response_evidence: sample }) === false,
-  'Add Opinion never gets Sources'
+  canShowSources({ role: 'assistant', kind: 'adhoc_expert', response_evidence: sample }) === true,
+  'Add Opinion with evidence envelope shows Sources'
+)
+assert(
+  canShowSources({ role: 'assistant', kind: 'adhoc_expert' }) === false,
+  'old Add Opinion without evidence hides Sources'
+)
+assert(
+  canShowSources({ role: 'assistant', kind: 'adhoc_expert', response_evidence: null }) === false,
+  'Add Opinion with no eligible evidence hides Sources'
+)
+assert(
+  canShowSources({
+    role: 'assistant',
+    kind: 'adhoc_expert',
+    response_evidence: sample,
+    source_event: FILE_INITIAL_READ_EVENT,
+  }) === false,
+  'Initial Read remains unavailable on Add Opinion'
 )
 assert(canShowSources({ role: 'assistant', kind: 'chat' }) === false, 'no evidence → no Sources')
 assert(
@@ -182,6 +199,8 @@ assert(
 )
 
 const app = readFileSync(join(root, 'src/App.jsx'), 'utf8')
+const adhoc = readFileSync(join(root, 'src/api/adhoc.js'), 'utf8')
+const fileStatus = readFileSync(join(root, 'src/lib/fileStatus.js'), 'utf8')
 const panel = readFileSync(join(root, 'src/components/SourcesPanel.jsx'), 'utf8')
 const panelCss = readFileSync(join(root, 'src/components/SourcesPanel.css'), 'utf8')
 const preview = readFileSync(join(root, 'src/lib/workspaceFilePreview.js'), 'utf8')
@@ -192,6 +211,18 @@ assert(app.includes('sourcesPanel'), 'panel state exists')
 assert(app.includes('messageKey'), 'panel is bound to a response')
 assert(app.includes('!canShowSources(m) && m.used_files'), 'historical Used files remain when no evidence')
 assert(app.includes('Sources ({sourcesN})'), 'Sources (N) label')
+
+const expertFn = app.slice(app.indexOf('const handleExpertOpinion'), app.indexOf('const adoptPersistedThread'))
+assert(expertFn.includes('projectId: activeProjectId'), 'Add Opinion passes active project id')
+assert(expertFn.includes('usedFilesFromDoneEvent(event)'), 'Add Opinion done maps workspace_files_used')
+assert(expertFn.includes('responseEvidenceFromDoneEvent(event)'), 'Add Opinion done maps response_evidence')
+assert(adhoc.includes('if (projectId) body.project_id = projectId'), 'adhoc stream sends optional project_id')
+const stdFn = fileStatus.slice(
+  fileStatus.indexOf('export function isStandardChatAssistant'),
+  fileStatus.indexOf('export function unavailableChatNote')
+)
+assert(stdFn.includes("kind === 'chat'"), 'isStandardChatAssistant still recognizes chat')
+assert(!stdFn.includes('adhoc_expert'), 'isStandardChatAssistant remains chat-only')
 assert(panel.includes('Open source') && panel.includes('Open page'), 'panel has open actions')
 assert(panel.includes('item.page != null'), 'page label is conditional')
 assert(panelCss.includes('.sources-panel'), 'panel has dedicated CSS')
