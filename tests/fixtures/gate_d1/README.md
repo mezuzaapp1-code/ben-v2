@@ -15,3 +15,6 @@ Run (requires production credentials in the environment, never committed):
 python3 scripts/run_gate_d1_prod_canary.py
 python3 -m pytest tests/test_gate_d1_canary.py -q
 ```
+
+Production canary (2026-09-12, SHA `44ef277`): **PASS**, rollout **NOT YET**.
+See `gate_d1_report.md` and `canary_result.json`.

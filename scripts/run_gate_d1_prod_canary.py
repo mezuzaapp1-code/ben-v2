@@ -115,7 +115,17 @@ def _revert_canary_vars() -> dict[str, Any]:
             check=True,
         )
         deleted.append(key)
-    return {"deleted": deleted}
+    # Variable delete updates config only. Redeploy the existing production
+    # image so the running process drops the canary allowlist. Same SHA.
+    redeploy = subprocess.run(
+        [RAIL, "redeploy", "--service", "ben-v2", "-y"],
+        capture_output=True,
+        text=True,
+    )
+    return {
+        "deleted": deleted,
+        "redeploy_exit": redeploy.returncode,
+    }
 
 
 async def _health() -> dict:

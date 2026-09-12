@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from pathlib import Path
 
 from services.workspace_files.chunk_retriever import chunk_retrieval_enabled
 from tests.gate_d1.decision import decide_gate_d1
@@ -161,3 +162,17 @@ def test_decide_fail_when_control_uses_fts():
     )
     assert decision["status"] == "FAIL"
     assert decision["rollout"] == "NO"
+
+
+def test_committed_canary_result_is_isolated_pass():
+    payload = json.loads(
+        (Path(__file__).resolve().parents[0] / "fixtures" / "gate_d1" / "canary_result.json").read_text()
+    )
+    assert payload["status"] == "PASS"
+    assert payload["rollout"] == "NOT YET"
+    assert payload["fts_actually_used"] is True
+    assert payload["retrieval_mode_observed"] == "chunks"
+    assert payload["decisive_span_recall"] == "42/43"
+    assert payload["mrl"] == "1/50"
+    assert payload["non_canary_workspace_unaffected"] == "PASS"
+    assert payload["cleanup"]["allowlist_reverted"] is True
