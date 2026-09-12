@@ -58,21 +58,24 @@ def _mint_bearer() -> str:
         env=env,
         text=True,
     )
-    secret = json.loads(raw).get("CLERK_SECRET_KEY") or ""
+    secret = str(json.loads(raw).get("CLERK_SECRET_KEY") or "").strip().strip('"').strip("'")
     if not secret:
         raise RuntimeError("CLERK_SECRET_KEY missing from production service vars")
     from clerk_backend_api import Clerk
     from clerk_backend_api.models.getuserlistop import GetUserListRequest
 
-    with Clerk(bearer_auth=secret) as clerk:
-        users = clerk.users.list(request=GetUserListRequest(limit=1))
-        if not users:
-            raise RuntimeError("no Clerk users")
-        session = clerk.sessions.create(request={"user_id": users[0].id})
-        token = clerk.sessions.create_token(session_id=session.id, expires_in_seconds=3600)
-        jwt = getattr(token, "jwt", None) or (token.get("jwt") if isinstance(token, dict) else None)
-        if not jwt:
-            raise RuntimeError("clerk jwt missing")
+    try:
+        with Clerk(bearer_auth=secret) as clerk:
+            users = clerk.users.list(request=GetUserListRequest(limit=1))
+            if not users:
+                raise RuntimeError("no Clerk users")
+            session = clerk.sessions.create(request={"user_id": users[0].id})
+            token = clerk.sessions.create_token(session_id=session.id, expires_in_seconds=3600)
+            jwt = getattr(token, "jwt", None) or (token.get("jwt") if isinstance(token, dict) else None)
+            if not jwt:
+                raise RuntimeError("clerk jwt missing")
+    except Exception as exc:
+        raise RuntimeError(f"clerk mint failed: {type(exc).__name__}") from None
     bearer = f"Bearer {jwt}"
     BEARER_PATH.write_text(bearer, encoding="utf-8")
     BEARER_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)
