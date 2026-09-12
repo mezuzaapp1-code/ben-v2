@@ -1,0 +1,1873 @@
+{
+  "gate_p_status": "PARTIAL",
+  "gold": {
+    "document": "ben_gold_supply_agreement.pdf",
+    "pages": 18,
+    "questions": 50,
+    "answerable": 43,
+    "unanswerable": 7,
+    "position_bands": {
+      "EARLY": "pages 1-6",
+      "MIDDLE": "pages 7-12",
+      "LATE": "pages 13-18",
+      "SPAN": "decisive evidence in more than one band"
+    },
+    "position_counts": {
+      "EARLY": 23,
+      "MIDDLE": 8,
+      "LATE": 14,
+      "SPAN": 4,
+      "NONE": 1
+    }
+  },
+  "capability_matrix": [
+    {
+      "provider": "OPENAI",
+      "current_ben_integration": "OpenAIProvider Chat Completions only (openai); canonical gpt-5.5-instant -> API gpt-4o-mini; gpt-5.5-pro -> API gpt-4o; multimodal parts are ['image/gif', 'image/jpeg', 'image/jpg', 'image/png', 'image/webp']; no Files API, no Responses API, no file_search tool in adapter.",
+      "direct_pdf_document_input": "YES at provider API (Responses input_file / Chat Completions type=file). NO in current BEN adapter (pdf_in_ben=False).",
+      "provider_retrieval_file_search": "YES at provider API (Responses file_search + vector store). NO in current BEN adapter. Requires creating a vector store.",
+      "citation_evidence_support": "File Search annotations/search_results can be requested via include=. Native input_file does not expose retrieved chunks.",
+      "existing_credentials_usable": false,
+      "additional_setup_required": "Native PDF: isolated Responses call only. File Search: ephemeral vector store + file upload (not present in BEN).",
+      "safe_to_benchmark_now": false,
+      "blocked_reason": "OPENAI_API_KEY not injected in this environment"
+    },
+    {
+      "provider": "ANTHROPIC / CLAUDE",
+      "current_ben_integration": "AnthropicProvider Messages API (anthropic); canonical claude-sonnet-4.6 / claude-opus-4.8 -> API claude-sonnet-4-6; image blocks only; production ANTHROPIC_CHAT_MAX_TOKENS default 1024; no document blocks, no Files API beta header.",
+      "direct_pdf_document_input": "YES at provider API (Messages document source base64/url/file_id, citations.enabled). NO in current BEN adapter.",
+      "provider_retrieval_file_search": "NO applicable API-level retrieval product. Files API is upload/reuse only. Project RAG exists on claude.ai consumer projects, not the Messages API. CLAUDE_PROVIDER_RETRIEVAL is not an available API mode.",
+      "citation_evidence_support": "YES for native PDF when citations.enabled=true (page_location + cited_text).",
+      "existing_credentials_usable": false,
+      "additional_setup_required": "Isolated Messages document block; no extra infra.",
+      "safe_to_benchmark_now": false,
+      "blocked_reason": "ANTHROPIC_API_KEY not injected in this environment"
+    },
+    {
+      "provider": "GOOGLE / GEMINI",
+      "current_ben_integration": "GeminiProvider generateContent (google); canonical gemini-3.5-flash -> API gemini-2.5-flash; inlineData images only; no Files API upload, no File Search store.",
+      "direct_pdf_document_input": "YES at provider API (inlineData application/pdf or Files API file_data). NO in current BEN adapter.",
+      "provider_retrieval_file_search": "YES at provider API (File Search store + fileSearch tool). NO in current BEN adapter. Requires creating a File Search store.",
+      "citation_evidence_support": "File Search can return page_number on retrieved_context / grounding. Native PDF does not expose retrieved chunks.",
+      "existing_credentials_usable": false,
+      "additional_setup_required": "Native PDF: isolated generateContent inline PDF. File Search: File Search store + import (not present in BEN).",
+      "safe_to_benchmark_now": false,
+      "blocked_reason": "GOOGLE_API_KEY / GEMINI_API_KEY not injected in this environment"
+    },
+    {
+      "provider": "GROK / XAI",
+      "current_ben_integration": "XAIProvider Chat Completions (xai); canonical grok-4.6 -> API grok-4.6; OpenAI-compatible image_url only; search/tools omitted (HTTP 410). No Files API, no Responses attachment_search.",
+      "direct_pdf_document_input": "YES at provider API (Responses input_file file_id/file_url; agentic attachment_search on grok-4.6). Chat Completions used by BEN does not accept PDF parts. NO in current BEN adapter.",
+      "provider_retrieval_file_search": "Implicit attachment_search when files are attached on Responses. Collections/semantic search exist on Files API. Neither is wired in BEN.",
+      "citation_evidence_support": "attachment_search output can be requested; not exposed by BEN adapter.",
+      "existing_credentials_usable": false,
+      "additional_setup_required": "Isolated Files upload + Responses API.",
+      "safe_to_benchmark_now": false,
+      "blocked_reason": "XAI_API_KEY not injected in this environment"
+    },
+    {
+      "provider": "BEN local (prefix / FTS)",
+      "current_ben_integration": "Gate 3D prefix_fallback PER_FILE_MAX_CHARS=2000; Gate 4A chunk_retrieval_enabled default=False; no embeddings, no vector DB, no provider file tools.",
+      "direct_pdf_document_input": "Local pypdf extraction then 2000-char prefix.",
+      "provider_retrieval_file_search": "Local Postgres chunk FTS exists behind allowlist flag (default OFF).",
+      "citation_evidence_support": "Prefix path: page numbers not on evidence units. FTS path: chunk page attributes are observable.",
+      "existing_credentials_usable": true,
+      "additional_setup_required": "FTS live Postgres path needs DB + flag+allowlist. Isolated lexical simulation needs no extra setup.",
+      "safe_to_benchmark_now": true,
+      "blocked_reason": null
+    }
+  ],
+  "modes": {
+    "BEN_PREFIX_2000": {
+      "mode": "BEN_PREFIX_2000",
+      "status": "MEASURED",
+      "source": "Gate M current default prefix_fallback (FTS OFF)",
+      "summary": {
+        "methodology": "extractive_from_injected_prefix",
+        "questions": 50,
+        "answerable": 43,
+        "unanswerable": 7,
+        "answer_correctness": "27/50",
+        "answer_correctness_n": 27,
+        "decisive_span_recall": "21/43",
+        "decisive_span_recall_n": 21,
+        "mrl": 22,
+        "mrl_rate": 44.0,
+        "unanswerable_precision": "7/7",
+        "citation_page_accuracy": "not_observable",
+        "early": "19/20",
+        "middle": "1/6",
+        "late": "0/13",
+        "span": "0/4",
+        "early_any": "19/24",
+        "middle_any": "1/6",
+        "late_any": "0/17",
+        "exceptions": "1/5",
+        "multi_hop": "1/6",
+        "global": "2/5",
+        "table": "3/6",
+        "failure_frontier": {
+          "CONTEXT_LOSS": 11,
+          "EXCEPTION_MISSED": 4,
+          "MODEL_REASONING_FAILURE": 1,
+          "MULTI_HOP": 4,
+          "GLOBAL_QUESTION": 3
+        },
+        "mean_latency_ms": 0.22,
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null,
+        "per_file_max_chars": 2000,
+        "extracted_chars": 4221,
+        "prefix_chars": 2000,
+        "retrieval_mode_observed": "off"
+      },
+      "processes_entire_pdf": false,
+      "performs_retrieval": false,
+      "retrieved_chunks_observable": true,
+      "citations_observable": false,
+      "preserves_page_layout": false,
+      "row_count": 50
+    },
+    "BEN_EXISTING_FTS": {
+      "mode": "BEN_EXISTING_FTS",
+      "status": "MEASURED_ISOLATED",
+      "summary": {
+        "methodology": "extractive_from_isolated_fts_chunks",
+        "questions": 50,
+        "answerable": 43,
+        "unanswerable": 7,
+        "answer_correctness": "48/50",
+        "answer_correctness_n": 48,
+        "decisive_span_recall": "42/43",
+        "decisive_span_recall_n": 42,
+        "mrl": 1,
+        "mrl_rate": 2.0,
+        "unanswerable_precision": "7/7",
+        "citation_page_accuracy": "not_observable",
+        "early": "18/20",
+        "middle": "6/6",
+        "late": "13/13",
+        "span": "4/4",
+        "early_any": "22/24",
+        "middle_any": "6/6",
+        "late_any": "17/17",
+        "exceptions": "5/5",
+        "multi_hop": "5/6",
+        "global": "5/5",
+        "table": "6/6",
+        "failure_frontier": {
+          "CONTEXT_LOSS": 1,
+          "MODEL_REASONING_FAILURE": 1
+        },
+        "mean_latency_ms": 0.98,
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null,
+        "chunk_count": 18,
+        "chunking_version": 1,
+        "chunk_max_chars": 1500,
+        "postgres_fts": false,
+        "production_flag": "off"
+      },
+      "row_count": 50
+    },
+    "OPENAI_NATIVE_DOCUMENT": {
+      "mode": "OPENAI_NATIVE_DOCUMENT",
+      "status": "BLOCKED",
+      "blocked_reason": "OPENAI_API_KEY missing",
+      "summary": {
+        "methodology": "not_run",
+        "questions": 50,
+        "answer_correctness": "BLOCKED",
+        "decisive_span_recall": "BLOCKED",
+        "mrl": "BLOCKED",
+        "unanswerable_precision": "BLOCKED",
+        "early": "BLOCKED",
+        "middle": "BLOCKED",
+        "late": "BLOCKED",
+        "exceptions": "BLOCKED",
+        "multi_hop": "BLOCKED",
+        "global": "BLOCKED",
+        "table": "BLOCKED",
+        "mean_latency_ms": null,
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null
+      },
+      "row_count": 0
+    },
+    "OPENAI_FILE_SEARCH": {
+      "mode": "OPENAI_FILE_SEARCH",
+      "status": "BLOCKED",
+      "blocked_reason": "OPENAI_API_KEY missing; also requires ephemeral vector store not present in BEN",
+      "summary": {
+        "methodology": "not_run",
+        "questions": 50,
+        "answer_correctness": "BLOCKED",
+        "decisive_span_recall": "BLOCKED",
+        "mrl": "BLOCKED",
+        "unanswerable_precision": "BLOCKED",
+        "early": "BLOCKED",
+        "middle": "BLOCKED",
+        "late": "BLOCKED",
+        "exceptions": "BLOCKED",
+        "multi_hop": "BLOCKED",
+        "global": "BLOCKED",
+        "table": "BLOCKED",
+        "mean_latency_ms": null,
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null
+      },
+      "row_count": 0
+    },
+    "CLAUDE_NATIVE_DOCUMENT": {
+      "mode": "CLAUDE_NATIVE_DOCUMENT",
+      "status": "BLOCKED",
+      "blocked_reason": "ANTHROPIC_API_KEY missing",
+      "summary": {
+        "methodology": "not_run",
+        "questions": 50,
+        "answer_correctness": "BLOCKED",
+        "decisive_span_recall": "BLOCKED",
+        "mrl": "BLOCKED",
+        "unanswerable_precision": "BLOCKED",
+        "early": "BLOCKED",
+        "middle": "BLOCKED",
+        "late": "BLOCKED",
+        "exceptions": "BLOCKED",
+        "multi_hop": "BLOCKED",
+        "global": "BLOCKED",
+        "table": "BLOCKED",
+        "mean_latency_ms": null,
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null
+      },
+      "row_count": 0
+    },
+    "CLAUDE_PROVIDER_RETRIEVAL": {
+      "mode": "CLAUDE_PROVIDER_RETRIEVAL",
+      "status": "BLOCKED",
+      "blocked_reason": "No applicable Anthropic API retrieval product for this document QA task. Files API is upload/reuse. Project RAG is claude.ai-only.",
+      "summary": {
+        "methodology": "not_run",
+        "questions": 50,
+        "answer_correctness": "BLOCKED",
+        "decisive_span_recall": "BLOCKED",
+        "mrl": "BLOCKED",
+        "unanswerable_precision": "BLOCKED",
+        "early": "BLOCKED",
+        "middle": "BLOCKED",
+        "late": "BLOCKED",
+        "exceptions": "BLOCKED",
+        "multi_hop": "BLOCKED",
+        "global": "BLOCKED",
+        "table": "BLOCKED",
+        "mean_latency_ms": null,
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null
+      },
+      "row_count": 0
+    },
+    "GEMINI_NATIVE_PDF": {
+      "mode": "GEMINI_NATIVE_PDF",
+      "status": "BLOCKED",
+      "blocked_reason": "GOOGLE_API_KEY / GEMINI_API_KEY missing",
+      "summary": {
+        "methodology": "not_run",
+        "questions": 50,
+        "answer_correctness": "BLOCKED",
+        "decisive_span_recall": "BLOCKED",
+        "mrl": "BLOCKED",
+        "unanswerable_precision": "BLOCKED",
+        "early": "BLOCKED",
+        "middle": "BLOCKED",
+        "late": "BLOCKED",
+        "exceptions": "BLOCKED",
+        "multi_hop": "BLOCKED",
+        "global": "BLOCKED",
+        "table": "BLOCKED",
+        "mean_latency_ms": null,
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null
+      },
+      "row_count": 0
+    },
+    "GEMINI_FILE_SEARCH": {
+      "mode": "GEMINI_FILE_SEARCH",
+      "status": "BLOCKED",
+      "blocked_reason": "GOOGLE_API_KEY missing; also requires a File Search store not present in BEN",
+      "summary": {
+        "methodology": "not_run",
+        "questions": 50,
+        "answer_correctness": "BLOCKED",
+        "decisive_span_recall": "BLOCKED",
+        "mrl": "BLOCKED",
+        "unanswerable_precision": "BLOCKED",
+        "early": "BLOCKED",
+        "middle": "BLOCKED",
+        "late": "BLOCKED",
+        "exceptions": "BLOCKED",
+        "multi_hop": "BLOCKED",
+        "global": "BLOCKED",
+        "table": "BLOCKED",
+        "mean_latency_ms": null,
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null
+      },
+      "row_count": 0
+    },
+    "GROK_NATIVE_DOCUMENT": {
+      "mode": "GROK_NATIVE_DOCUMENT",
+      "status": "BLOCKED",
+      "blocked_reason": "XAI_API_KEY missing",
+      "summary": {
+        "methodology": "not_run",
+        "questions": 50,
+        "answer_correctness": "BLOCKED",
+        "decisive_span_recall": "BLOCKED",
+        "mrl": "BLOCKED",
+        "unanswerable_precision": "BLOCKED",
+        "early": "BLOCKED",
+        "middle": "BLOCKED",
+        "late": "BLOCKED",
+        "exceptions": "BLOCKED",
+        "multi_hop": "BLOCKED",
+        "global": "BLOCKED",
+        "table": "BLOCKED",
+        "mean_latency_ms": null,
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null
+      },
+      "row_count": 0
+    }
+  },
+  "verdict": {
+    "best_overall": "BEN_EXISTING_FTS",
+    "best_retrieval": "BEN_EXISTING_FTS",
+    "best_full_document_reasoning": "BLOCKED \u2014 no provider native-document run in this environment",
+    "best_cost_performance": "BEN_EXISTING_FTS (local, $0 provider spend)",
+    "best_exception_detection": "BEN_EXISTING_FTS",
+    "document_position_effect": "Prefix EARLY=19/20 MIDDLE=1/6 LATE=0/13. Isolated FTS EARLY=18/20 MIDDLE=6/6 LATE=13/13. Provider native-document position effect is unmeasured without API keys.",
+    "important_finding": "Gate M's 2000-character prefix is a position filter, not a comprehension filter: EARLY 19/20, MIDDLE 1/6, LATE 0/13. Isolated Gate 4A lexical FTS flips that to LATE 13/13 and EXCEPTION 5/5 without embeddings, at $0 provider cost. Residual FTS misses are lexical paraphrase (M09, recovered by prefix) and extractive multi-hop arithmetic (M33, evidence present). Native provider PDF/File Search APIs exist, but this Cloud Agent environment does not inject OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, or XAI_API_KEY, so those modes are BLOCKED rather than estimated.",
+    "ben_architectural_implication": "Do not wait for one retrieval strategy. Measured evidence supports routing: local FTS as the default for this single-file lexical/exception workload; prefix as a cheap early-page complement when FTS hits the wrong pages; native full-document context as later escalation once provider keys and PDF adapters are available. Not implemented in this gate.",
+    "should_gate_d_still_proceed": "YES",
+    "why": "Provider native-document quality is still unknown in this environment, while isolated FTS already attacks the measured Gate M failure (late/exception context loss) using code BEN already has behind a fail-closed flag. Gate D should remain the local retrieval gate; it should not be replaced by an unmeasured provider PDF adapter.",
+    "smallest_next_step": "Inject existing Railway provider keys into the BEN Document Benchmark environment, re-run Gate P live modes C/E/G only (native document, no File Search stores), then decide whether Gate D FTS allowlisting is sufficient or whether a later adapter gate should add native PDF escalation.",
+    "classifications": {
+      "BEN_PREFIX_2000": "FALLBACK",
+      "BEN_EXISTING_FTS": "USE",
+      "OPENAI_NATIVE_DOCUMENT": "BLOCKED",
+      "OPENAI_FILE_SEARCH": "BLOCKED",
+      "CLAUDE_NATIVE_DOCUMENT": "BLOCKED",
+      "CLAUDE_PROVIDER_RETRIEVAL": "BLOCKED",
+      "GEMINI_NATIVE_PDF": "BLOCKED",
+      "GEMINI_FILE_SEARCH": "BLOCKED",
+      "GROK_NATIVE_DOCUMENT": "BLOCKED"
+    },
+    "injected_secret_names": [
+      "MISTRAL_API_KEY",
+      "BEN_DOC_PROCESSING_CRON_SECRET",
+      "BEN_GATE_A_CANARY_BEARER",
+      "RAILWAY_TOKEN"
+    ],
+    "live_provider_modes_run": [],
+    "residuals": {
+      "fts_failures": [
+        {
+          "question_id": "M09",
+          "category": "LEXICAL_VARIATION",
+          "position": "EARLY",
+          "failure_category": "CONTEXT_LOSS",
+          "selected_pages": [
+            7,
+            11
+          ],
+          "decisive_in_injected": false
+        },
+        {
+          "question_id": "M33",
+          "category": "MULTI_HOP",
+          "position": "EARLY",
+          "failure_category": "MODEL_REASONING_FAILURE",
+          "selected_pages": [
+            4,
+            3,
+            17,
+            1
+          ],
+          "decisive_in_injected": true
+        }
+      ],
+      "prefix_late_or_span_failures": [
+        "M06",
+        "M07",
+        "M14",
+        "M21",
+        "M23",
+        "M24",
+        "M25",
+        "M26",
+        "M30",
+        "M31",
+        "M32",
+        "M34",
+        "M35",
+        "M36",
+        "M38",
+        "M39",
+        "M41"
+      ],
+      "notes": [
+        "M09 is a lexical-paraphrase miss: Gate 4A tokens from 'Where must the goods be delivered?' do not overlap the page-2 locator 'named delivery place is 12 HaMelacha Street'. Prefix recovered it because it is early.",
+        "M33 retrieves quantity and price pages, but extractive scoring requires the computed product 425000, which is not a source span. That is not a retrieval miss."
+      ]
+    }
+  },
+  "production_invariants": {
+    "PER_FILE_MAX_CHARS_unchanged": true,
+    "chunk_fts_not_enabled_globally": true,
+    "no_embeddings_added": true,
+    "no_provider_adapter_changes": true,
+    "gate_d_not_started": true
+  },
+  "mode_rows_compact": {
+    "BEN_PREFIX_2000": [
+      {
+        "question_id": "M01",
+        "category": "SIMPLE_LOCAL",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M02",
+        "category": "SIMPLE_LOCAL",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M03",
+        "category": "SIMPLE_LOCAL",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M04",
+        "category": "SIMPLE_LOCAL",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M05",
+        "category": "SIMPLE_LOCAL",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M06",
+        "category": "SIMPLE_LOCAL",
+        "position": "LATE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M07",
+        "category": "SIMPLE_LOCAL",
+        "position": "LATE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M08",
+        "category": "SIMPLE_LOCAL",
+        "position": "MIDDLE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M09",
+        "category": "LEXICAL_VARIATION",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M10",
+        "category": "LEXICAL_VARIATION",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M11",
+        "category": "LEXICAL_VARIATION",
+        "position": "MIDDLE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M12",
+        "category": "LEXICAL_VARIATION",
+        "position": "MIDDLE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M13",
+        "category": "LEXICAL_VARIATION",
+        "position": "MIDDLE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M14",
+        "category": "LEXICAL_VARIATION",
+        "position": "LATE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M15",
+        "category": "NUMERIC",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M16",
+        "category": "NUMERIC",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M17",
+        "category": "NUMERIC",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M18",
+        "category": "NUMERIC",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M19",
+        "category": "NUMERIC",
+        "position": "MIDDLE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M20",
+        "category": "NUMERIC",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M21",
+        "category": "NUMERIC",
+        "position": "LATE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M22",
+        "category": "EXCEPTION",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M23",
+        "category": "EXCEPTION",
+        "position": "LATE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "EXCEPTION_MISSED",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M24",
+        "category": "EXCEPTION",
+        "position": "LATE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "EXCEPTION_MISSED",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M25",
+        "category": "EXCEPTION",
+        "position": "LATE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "EXCEPTION_MISSED",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M26",
+        "category": "EXCEPTION",
+        "position": "LATE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "EXCEPTION_MISSED",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M27",
+        "category": "TABLE",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M28",
+        "category": "TABLE",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M29",
+        "category": "TABLE",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M30",
+        "category": "TABLE",
+        "position": "LATE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M31",
+        "category": "TABLE",
+        "position": "LATE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M32",
+        "category": "TABLE",
+        "position": "LATE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M33",
+        "category": "MULTI_HOP",
+        "position": "EARLY",
+        "pass": false,
+        "mrl": false,
+        "failure_category": "MODEL_REASONING_FAILURE",
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M34",
+        "category": "MULTI_HOP",
+        "position": "SPAN",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "MULTI_HOP",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M35",
+        "category": "MULTI_HOP",
+        "position": "SPAN",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "MULTI_HOP",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M36",
+        "category": "MULTI_HOP",
+        "position": "LATE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "MULTI_HOP",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M37",
+        "category": "MULTI_HOP",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M38",
+        "category": "MULTI_HOP",
+        "position": "SPAN",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "MULTI_HOP",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M39",
+        "category": "GLOBAL",
+        "position": "SPAN",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "GLOBAL_QUESTION",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M40",
+        "category": "GLOBAL",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M41",
+        "category": "GLOBAL",
+        "position": "LATE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "GLOBAL_QUESTION",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M42",
+        "category": "GLOBAL",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M43",
+        "category": "GLOBAL",
+        "position": "MIDDLE",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "GLOBAL_QUESTION",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M44",
+        "category": "NEGATIVE",
+        "position": "MIDDLE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M45",
+        "category": "NEGATIVE",
+        "position": "MIDDLE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M46",
+        "category": "NEGATIVE",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M47",
+        "category": "NEGATIVE",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M48",
+        "category": "NEGATIVE",
+        "position": "NONE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M49",
+        "category": "NEGATIVE",
+        "position": "LATE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      },
+      {
+        "question_id": "M50",
+        "category": "NEGATIVE",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": null
+      }
+    ],
+    "BEN_EXISTING_FTS": [
+      {
+        "question_id": "M01",
+        "category": "SIMPLE_LOCAL",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          1,
+          2,
+          6,
+          10
+        ]
+      },
+      {
+        "question_id": "M02",
+        "category": "SIMPLE_LOCAL",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          1,
+          2,
+          10,
+          6
+        ]
+      },
+      {
+        "question_id": "M03",
+        "category": "SIMPLE_LOCAL",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          10,
+          1,
+          2,
+          6
+        ]
+      },
+      {
+        "question_id": "M04",
+        "category": "SIMPLE_LOCAL",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          1,
+          2,
+          5,
+          6
+        ]
+      },
+      {
+        "question_id": "M05",
+        "category": "SIMPLE_LOCAL",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          2,
+          1,
+          6,
+          7
+        ]
+      },
+      {
+        "question_id": "M06",
+        "category": "SIMPLE_LOCAL",
+        "position": "LATE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          15,
+          14
+        ]
+      },
+      {
+        "question_id": "M07",
+        "category": "SIMPLE_LOCAL",
+        "position": "LATE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          15
+        ]
+      },
+      {
+        "question_id": "M08",
+        "category": "SIMPLE_LOCAL",
+        "position": "MIDDLE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          10,
+          1,
+          5,
+          6
+        ]
+      },
+      {
+        "question_id": "M09",
+        "category": "LEXICAL_VARIATION",
+        "position": "EARLY",
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          7,
+          11
+        ]
+      },
+      {
+        "question_id": "M10",
+        "category": "LEXICAL_VARIATION",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          6,
+          5,
+          7,
+          14
+        ]
+      },
+      {
+        "question_id": "M11",
+        "category": "LEXICAL_VARIATION",
+        "position": "MIDDLE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          7,
+          8,
+          18,
+          1
+        ]
+      },
+      {
+        "question_id": "M12",
+        "category": "LEXICAL_VARIATION",
+        "position": "MIDDLE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          11
+        ]
+      },
+      {
+        "question_id": "M13",
+        "category": "LEXICAL_VARIATION",
+        "position": "MIDDLE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          2,
+          12,
+          6,
+          7
+        ]
+      },
+      {
+        "question_id": "M14",
+        "category": "LEXICAL_VARIATION",
+        "position": "LATE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          18,
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "question_id": "M15",
+        "category": "NUMERIC",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          3,
+          9
+        ]
+      },
+      {
+        "question_id": "M16",
+        "category": "NUMERIC",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          3,
+          2,
+          4
+        ]
+      },
+      {
+        "question_id": "M17",
+        "category": "NUMERIC",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          3,
+          17,
+          1,
+          9
+        ]
+      },
+      {
+        "question_id": "M18",
+        "category": "NUMERIC",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          2,
+          5,
+          16,
+          13
+        ]
+      },
+      {
+        "question_id": "M19",
+        "category": "NUMERIC",
+        "position": "MIDDLE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          9,
+          8,
+          3,
+          4
+        ]
+      },
+      {
+        "question_id": "M20",
+        "category": "NUMERIC",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          4,
+          8
+        ]
+      },
+      {
+        "question_id": "M21",
+        "category": "NUMERIC",
+        "position": "LATE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          18,
+          2
+        ]
+      },
+      {
+        "question_id": "M22",
+        "category": "EXCEPTION",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          5,
+          14
+        ]
+      },
+      {
+        "question_id": "M23",
+        "category": "EXCEPTION",
+        "position": "LATE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          5,
+          14
+        ]
+      },
+      {
+        "question_id": "M24",
+        "category": "EXCEPTION",
+        "position": "LATE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          14,
+          5,
+          11,
+          2
+        ]
+      },
+      {
+        "question_id": "M25",
+        "category": "EXCEPTION",
+        "position": "LATE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          14,
+          5,
+          3,
+          4
+        ]
+      },
+      {
+        "question_id": "M26",
+        "category": "EXCEPTION",
+        "position": "LATE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          14,
+          5,
+          8,
+          18
+        ]
+      },
+      {
+        "question_id": "M27",
+        "category": "TABLE",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          4,
+          3,
+          9,
+          13
+        ]
+      },
+      {
+        "question_id": "M28",
+        "category": "TABLE",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          4,
+          3,
+          9,
+          13
+        ]
+      },
+      {
+        "question_id": "M29",
+        "category": "TABLE",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          4,
+          3,
+          9,
+          13
+        ]
+      },
+      {
+        "question_id": "M30",
+        "category": "TABLE",
+        "position": "LATE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          16,
+          2,
+          5,
+          7
+        ]
+      },
+      {
+        "question_id": "M31",
+        "category": "TABLE",
+        "position": "LATE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          16,
+          2,
+          13,
+          5
+        ]
+      },
+      {
+        "question_id": "M32",
+        "category": "TABLE",
+        "position": "LATE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          16,
+          2,
+          5,
+          7
+        ]
+      },
+      {
+        "question_id": "M33",
+        "category": "MULTI_HOP",
+        "position": "EARLY",
+        "pass": false,
+        "mrl": false,
+        "failure_category": "MODEL_REASONING_FAILURE",
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          4,
+          3,
+          17,
+          1
+        ]
+      },
+      {
+        "question_id": "M34",
+        "category": "MULTI_HOP",
+        "position": "SPAN",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          17,
+          13,
+          2,
+          3
+        ]
+      },
+      {
+        "question_id": "M35",
+        "category": "MULTI_HOP",
+        "position": "SPAN",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          13,
+          4,
+          17,
+          2
+        ]
+      },
+      {
+        "question_id": "M36",
+        "category": "MULTI_HOP",
+        "position": "LATE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          13,
+          4,
+          5,
+          16
+        ]
+      },
+      {
+        "question_id": "M37",
+        "category": "MULTI_HOP",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          6
+        ]
+      },
+      {
+        "question_id": "M38",
+        "category": "MULTI_HOP",
+        "position": "SPAN",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          15,
+          1,
+          2,
+          6
+        ]
+      },
+      {
+        "question_id": "M39",
+        "category": "GLOBAL",
+        "position": "SPAN",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          5,
+          14
+        ]
+      },
+      {
+        "question_id": "M40",
+        "category": "GLOBAL",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          4,
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "question_id": "M41",
+        "category": "GLOBAL",
+        "position": "LATE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          2,
+          16
+        ]
+      },
+      {
+        "question_id": "M42",
+        "category": "GLOBAL",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          1,
+          3,
+          10,
+          17
+        ]
+      },
+      {
+        "question_id": "M43",
+        "category": "GLOBAL",
+        "position": "MIDDLE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          1,
+          7,
+          12,
+          15
+        ]
+      },
+      {
+        "question_id": "M44",
+        "category": "NEGATIVE",
+        "position": "MIDDLE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          8,
+          4,
+          9,
+          11
+        ]
+      },
+      {
+        "question_id": "M45",
+        "category": "NEGATIVE",
+        "position": "MIDDLE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          10,
+          1,
+          2
+        ]
+      },
+      {
+        "question_id": "M46",
+        "category": "NEGATIVE",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          6,
+          1,
+          2,
+          10
+        ]
+      },
+      {
+        "question_id": "M47",
+        "category": "NEGATIVE",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          4,
+          3,
+          13
+        ]
+      },
+      {
+        "question_id": "M48",
+        "category": "NEGATIVE",
+        "position": "NONE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": []
+      },
+      {
+        "question_id": "M49",
+        "category": "NEGATIVE",
+        "position": "LATE",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": true,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          2,
+          16
+        ]
+      },
+      {
+        "question_id": "M50",
+        "category": "NEGATIVE",
+        "position": "EARLY",
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "decisive_in_injected": false,
+        "decisive_recall_status": "observed",
+        "model_answer_ok": null,
+        "selected_pages": [
+          4
+        ]
+      }
+    ],
+    "OPENAI_NATIVE_DOCUMENT": [],
+    "OPENAI_FILE_SEARCH": [],
+    "CLAUDE_NATIVE_DOCUMENT": [],
+    "CLAUDE_PROVIDER_RETRIEVAL": [],
+    "GEMINI_NATIVE_PDF": [],
+    "GEMINI_FILE_SEARCH": [],
+    "GROK_NATIVE_DOCUMENT": []
+  },
+  "files": [
+    "/opt/cursor/artifacts/GATE_P_REPORT.md",
+    "/workspace/tasks/research/gate_p/GATE_P_REPORT.md",
+    "/workspace/tests/fixtures/gate_p/GATE_P_REPORT.md",
+    "tests/gate_p/",
+    "scripts/run_gate_p_benchmark.py",
+    "tests/test_gate_p_provider_benchmark.py",
+    "tasks/research/gate_p/GATE_P_REPORT.md"
+  ],
+  "tests": "pytest tests/test_gate_p_provider_benchmark.py tests/test_gate_m_gold_benchmark.py \u2014 12 passed; python3 scripts/run_gate_p_benchmark.py \u2014 PARTIAL (provider keys absent)"
+}
