@@ -113,7 +113,7 @@
           "MULTI_HOP": 4,
           "GLOBAL_QUESTION": 3
         },
-        "mean_latency_ms": 0.24,
+        "mean_latency_ms": 0.22,
         "input_tokens": null,
         "output_tokens": null,
         "approx_cost_usd": null,
@@ -160,7 +160,7 @@
           "CONTEXT_LOSS": 1,
           "MODEL_REASONING_FAILURE": 1
         },
-        "mean_latency_ms": 0.99,
+        "mean_latency_ms": 0.98,
         "input_tokens": null,
         "output_tokens": null,
         "approx_cost_usd": null,
@@ -1863,6 +1863,11 @@
   "files": [
     "/opt/cursor/artifacts/GATE_P_REPORT.md",
     "/workspace/tasks/research/gate_p/GATE_P_REPORT.md",
-    "/workspace/tests/fixtures/gate_p/GATE_P_REPORT.md"
-  ]
+    "/workspace/tests/fixtures/gate_p/GATE_P_REPORT.md",
+    "tests/gate_p/",
+    "scripts/run_gate_p_benchmark.py",
+    "tests/test_gate_p_provider_benchmark.py",
+    "tasks/research/gate_p/GATE_P_REPORT.md"
+  ],
+  "tests": "pytest tests/test_gate_p_provider_benchmark.py tests/test_gate_m_gold_benchmark.py \u2014 12 passed; python3 scripts/run_gate_p_benchmark.py \u2014 PARTIAL (provider keys absent)"
 }

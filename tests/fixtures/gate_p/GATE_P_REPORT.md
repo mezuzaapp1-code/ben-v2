@@ -31,7 +31,7 @@ embeddings, and provider adapters were not changed.
 - Multi-hop: 1/6
 - Global: 2/5
 - Table: 3/6
-- Latency: 0.24 ms mean
+- Latency: 0.22 ms mean
 - Tokens in/out: n/a / n/a
 - Approx cost: n/a
 - Failure frontier: {'CONTEXT_LOSS': 11, 'EXCEPTION_MISSED': 4, 'MODEL_REASONING_FAILURE': 1, 'MULTI_HOP': 4, 'GLOBAL_QUESTION': 3}
@@ -50,7 +50,7 @@ embeddings, and provider adapters were not changed.
 - Multi-hop: 5/6
 - Global: 5/5
 - Table: 6/6
-- Latency: 0.99 ms mean
+- Latency: 0.98 ms mean
 - Tokens in/out: n/a / n/a
 - Approx cost: n/a
 - Failure frontier: {'CONTEXT_LOSS': 1, 'MODEL_REASONING_FAILURE': 1}
@@ -192,8 +192,8 @@ embeddings, and provider adapters were not changed.
 
 | Mode | Answer Correctness | Decisive Recall | MRL | Unanswerable | Early | Middle | Late | Exceptions | Multi-hop | Global | Latency | Tokens | Cost |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| BEN_PREFIX_2000 | 27/50 | 21/43 | 22 (44.0%) | 7/7 | 19/20 | 1/6 | 0/13 | 1/5 | 1/6 | 2/5 | 0.24 | n/a | n/a |
-| BEN_EXISTING_FTS | 48/50 | 42/43 | 1 (2.0%) | 7/7 | 18/20 | 6/6 | 13/13 | 5/5 | 5/6 | 5/5 | 0.99 | n/a | n/a |
+| BEN_PREFIX_2000 | 27/50 | 21/43 | 22 (44.0%) | 7/7 | 19/20 | 1/6 | 0/13 | 1/5 | 1/6 | 2/5 | 0.22 | n/a | n/a |
+| BEN_EXISTING_FTS | 48/50 | 42/43 | 1 (2.0%) | 7/7 | 18/20 | 6/6 | 13/13 | 5/5 | 5/6 | 5/5 | 0.98 | n/a | n/a |
 | OPENAI_NATIVE_DOCUMENT | BLOCKED | BLOCKED | BLOCKED (n/a%) | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | n/a | n/a | n/a |
 | OPENAI_FILE_SEARCH | BLOCKED | BLOCKED | BLOCKED (n/a%) | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | n/a | n/a | n/a |
 | CLAUDE_NATIVE_DOCUMENT | BLOCKED | BLOCKED | BLOCKED (n/a%) | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED | n/a | n/a | n/a |
@@ -303,10 +303,14 @@ embeddings, and provider adapters were not changed.
 - `/opt/cursor/artifacts/GATE_P_REPORT.md`
 - `/workspace/tasks/research/gate_p/GATE_P_REPORT.md`
 - `/workspace/tests/fixtures/gate_p/GATE_P_REPORT.md`
+- `tests/gate_p/`
+- `scripts/run_gate_p_benchmark.py`
+- `tests/test_gate_p_provider_benchmark.py`
+- `tasks/research/gate_p/GATE_P_REPORT.md`
 
 ## TESTS
 
-see runner output
+pytest tests/test_gate_p_provider_benchmark.py tests/test_gate_m_gold_benchmark.py — 12 passed; python3 scripts/run_gate_p_benchmark.py — PARTIAL (provider keys absent)
 
 STOP.
 

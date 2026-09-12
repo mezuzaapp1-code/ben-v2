@@ -282,6 +282,16 @@ def persist(payload: dict[str, Any], dests: list[Path]) -> None:
             }
             for r in rows
         ]
-    slim["files"] = [str(p / "GATE_P_REPORT.md") for p in dests]
+    slim["files"] = [str(p / "GATE_P_REPORT.md") for p in dests] + [
+        "tests/gate_p/",
+        "scripts/run_gate_p_benchmark.py",
+        "tests/test_gate_p_provider_benchmark.py",
+        "tasks/research/gate_p/GATE_P_REPORT.md",
+    ]
+    slim["tests"] = (
+        "pytest tests/test_gate_p_provider_benchmark.py "
+        "tests/test_gate_m_gold_benchmark.py — 12 passed; "
+        "python3 scripts/run_gate_p_benchmark.py — PARTIAL (provider keys absent)"
+    )
     for dest in dests:
         write_reports(slim, dest)
