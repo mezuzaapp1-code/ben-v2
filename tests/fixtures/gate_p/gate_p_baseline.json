@@ -1,0 +1,4041 @@
+{
+  "gate_status": "PARTIAL",
+  "gold": {
+    "document": "BEN Gold Supply Agreement",
+    "pages": 18,
+    "questions": 50,
+    "answerable": 43,
+    "unanswerable": 7
+  },
+  "capability_matrix": [
+    {
+      "provider": "OpenAI",
+      "current_ben_integration": "Chat Completions adapter (gpt-5.5-instant / gpt-5.5-pro); multimodal user parts are images only (['image/gif', 'image/jpeg', 'image/jpg', 'image/png', 'image/webp']). No Responses API, no input_file, no file_search in BEN adapters.",
+      "direct_pdf_document_input": "Provider API: yes via Responses input_file (PDF text+page images on vision models). BEN integration: no.",
+      "provider_retrieval_file_search": "Provider API: yes, Responses file_search + vector stores. BEN integration: no.",
+      "citation_evidence_support": "file_search annotations / include=file_search_call.results. Native input_file does not expose retrieved chunks.",
+      "existing_credentials_usable": false,
+      "additional_setup_required": "None beyond OPENAI_API_KEY for isolated benchmark. File Search also creates a temporary vector store.",
+      "safe_to_benchmark_now": false,
+      "blocked_reason": "OPENAI_API_KEY not present in this environment",
+      "ben_models": {
+        "fast": "gpt-5.5-instant",
+        "reasoning": "gpt-5.5-pro"
+      }
+    },
+    {
+      "provider": "Anthropic / Claude",
+      "current_ben_integration": "Messages adapter (claude-sonnet-4.6 / claude-opus-4.8); image blocks only. No document/PDF content blocks in BEN adapters.",
+      "direct_pdf_document_input": "Provider API: yes, Messages document block (base64 / URL / Files API) with optional citations. BEN integration: no.",
+      "provider_retrieval_file_search": "No hosted File Search product comparable to OpenAI/Gemini. Files API is storage for document blocks, not retrieval. CLAUDE_PROVIDER_RETRIEVAL is not an applicable provider capability.",
+      "citation_evidence_support": "Native PDF citations (page-indexed) when citations.enabled=true on the document block.",
+      "existing_credentials_usable": false,
+      "additional_setup_required": "None beyond ANTHROPIC_API_KEY for native document. Files API beta header only if uploading.",
+      "safe_to_benchmark_now": false,
+      "blocked_reason": "ANTHROPIC_API_KEY not present in this environment",
+      "ben_models": {
+        "fast": "claude-sonnet-4.6",
+        "flagship": "claude-opus-4.8"
+      }
+    },
+    {
+      "provider": "Google / Gemini",
+      "current_ben_integration": "generateContent adapter (gemini-3.5-flash); inlineData images only. application/pdf is not a BEN vision media type, so chat never sends PDFs.",
+      "direct_pdf_document_input": "Provider API: yes, generateContent inlineData/file_data application/pdf (native document vision). BEN integration: no.",
+      "provider_retrieval_file_search": "Provider API: yes, File Search stores + file_search tool. BEN integration: no.",
+      "citation_evidence_support": "File Search grounding citations. Native PDF does not expose retrieved chunks.",
+      "existing_credentials_usable": false,
+      "additional_setup_required": "None beyond GOOGLE_API_KEY for native PDF. File Search creates a temporary store.",
+      "safe_to_benchmark_now": false,
+      "blocked_reason": "GOOGLE_API_KEY not present in this environment",
+      "ben_models": {
+        "fast": "gemini-3.5-flash"
+      }
+    },
+    {
+      "provider": "Grok / xAI",
+      "current_ben_integration": "Chat Completions adapter (grok-4.3 / grok-4.6); images only. xAI document attachments require the Responses API, which BEN does not call.",
+      "direct_pdf_document_input": "Provider API: yes via Responses input_file (file_id or file_url), which activates attachment_search. BEN Chat Completions path: no.",
+      "provider_retrieval_file_search": "Implicit attachment_search when files are attached on Responses. Not exposed on BEN's Chat Completions client.",
+      "citation_evidence_support": "Not documented as observable retrieved chunks on Chat Completions.",
+      "existing_credentials_usable": false,
+      "additional_setup_required": "XAI_API_KEY plus Responses API (not BEN's current adapter).",
+      "safe_to_benchmark_now": false,
+      "blocked_reason": "XAI_API_KEY not present in this environment",
+      "ben_models": {
+        "fast": "grok-4.3",
+        "flagship": "grok-4.6"
+      }
+    }
+  ],
+  "modes": {
+    "BEN_PREFIX_2000": {
+      "summary": {
+        "mode": "BEN_PREFIX_2000",
+        "status": "measured",
+        "questions": 50,
+        "answer_correctness": "27/50",
+        "answer_correctness_n": 27,
+        "decisive_span_recall": "21/43",
+        "mrl": 22,
+        "mrl_rate": 44.0,
+        "unanswerable_precision": "7/7",
+        "citation_page_accuracy": "NOT_OBSERVABLE",
+        "early": "19/20",
+        "middle": "1/6",
+        "late": "0/17",
+        "exceptions": "1/5",
+        "multi_hop": "1/6",
+        "global": "2/5",
+        "table": "3/6",
+        "failure_frontier": {
+          "CONTEXT_LOSS": 11,
+          "EXCEPTION_MISSED": 4,
+          "MULTI_HOP": 4,
+          "GLOBAL_QUESTION": 3,
+          "MODEL_REASONING_FAILURE": 1
+        },
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null,
+        "retrieval_kind": "prefix",
+        "processes_entire_pdf": false,
+        "performs_retrieval": false,
+        "retrieved_chunks_observable": true,
+        "citations_observable": false,
+        "preserves_page_layout": false,
+        "model_id": "extractive-oracle-over-prefix",
+        "source": "committed Gate M baseline (not rerun)",
+        "per_file_max_chars": 2000,
+        "extracted_chars": 4221,
+        "prefix_chars": 2000,
+        "retrieval_mode_observed": "off"
+      },
+      "row_count": 50
+    },
+    "BEN_EXISTING_FTS": {
+      "summary": {
+        "mode": "BEN_EXISTING_FTS",
+        "status": "measured",
+        "questions": 50,
+        "answer_correctness": "48/50",
+        "answer_correctness_n": 48,
+        "decisive_span_recall": "42/43",
+        "mrl": 1,
+        "mrl_rate": 2.0,
+        "unanswerable_precision": "7/7",
+        "citation_page_accuracy": "42/43",
+        "early": "18/20",
+        "middle": "6/6",
+        "late": "17/17",
+        "exceptions": "5/5",
+        "multi_hop": "5/6",
+        "global": "5/5",
+        "table": "6/6",
+        "failure_frontier": {
+          "RANKING_FAILURE": 1,
+          "MODEL_REASONING_FAILURE": 1
+        },
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null,
+        "retrieval_kind": "fts",
+        "processes_entire_pdf": false,
+        "performs_retrieval": true,
+        "retrieved_chunks_observable": true,
+        "citations_observable": true,
+        "preserves_page_layout": false,
+        "model_id": "extractive-oracle-over-fts-chunks",
+        "chunk_count": 18,
+        "flag_scope": "throwaway workspace allowlist in this process only"
+      },
+      "row_count": 50
+    },
+    "OPENAI_NATIVE_DOCUMENT": {
+      "summary": {
+        "mode": "OPENAI_NATIVE_DOCUMENT",
+        "status": "blocked",
+        "blocked_reason": "OPENAI_API_KEY not present in this environment",
+        "answer_correctness": "n/a",
+        "decisive_span_recall": "NOT_OBSERVABLE",
+        "mrl": null,
+        "unanswerable_precision": "n/a",
+        "citation_page_accuracy": "NOT_OBSERVABLE",
+        "early": "n/a",
+        "middle": "n/a",
+        "late": "n/a",
+        "exceptions": "n/a",
+        "multi_hop": "n/a",
+        "global": "n/a",
+        "table": "n/a",
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null,
+        "processes_entire_pdf": true,
+        "performs_retrieval": false,
+        "retrieved_chunks_observable": false,
+        "citations_observable": false,
+        "model_id": "gpt-5.5-instant"
+      },
+      "row_count": 0
+    },
+    "OPENAI_FILE_SEARCH": {
+      "summary": {
+        "mode": "OPENAI_FILE_SEARCH",
+        "status": "blocked",
+        "blocked_reason": "OPENAI_API_KEY not present in this environment",
+        "answer_correctness": "n/a",
+        "decisive_span_recall": "NOT_OBSERVABLE",
+        "mrl": null,
+        "unanswerable_precision": "n/a",
+        "citation_page_accuracy": "NOT_OBSERVABLE",
+        "early": "n/a",
+        "middle": "n/a",
+        "late": "n/a",
+        "exceptions": "n/a",
+        "multi_hop": "n/a",
+        "global": "n/a",
+        "table": "n/a",
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null,
+        "processes_entire_pdf": false,
+        "performs_retrieval": true,
+        "retrieved_chunks_observable": true,
+        "citations_observable": true,
+        "model_id": "gpt-5.5-instant"
+      },
+      "row_count": 0
+    },
+    "CLAUDE_NATIVE_DOCUMENT": {
+      "summary": {
+        "mode": "CLAUDE_NATIVE_DOCUMENT",
+        "status": "blocked",
+        "blocked_reason": "ANTHROPIC_API_KEY not present in this environment",
+        "answer_correctness": "n/a",
+        "decisive_span_recall": "NOT_OBSERVABLE",
+        "mrl": null,
+        "unanswerable_precision": "n/a",
+        "citation_page_accuracy": "NOT_OBSERVABLE",
+        "early": "n/a",
+        "middle": "n/a",
+        "late": "n/a",
+        "exceptions": "n/a",
+        "multi_hop": "n/a",
+        "global": "n/a",
+        "table": "n/a",
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null,
+        "processes_entire_pdf": true,
+        "performs_retrieval": false,
+        "retrieved_chunks_observable": false,
+        "citations_observable": true,
+        "model_id": "claude-sonnet-4.6"
+      },
+      "row_count": 0
+    },
+    "CLAUDE_PROVIDER_RETRIEVAL": {
+      "summary": {
+        "mode": "CLAUDE_PROVIDER_RETRIEVAL",
+        "status": "blocked",
+        "blocked_reason": "Anthropic has no hosted File Search / retrieval API comparable to OpenAI or Gemini; Files API is document storage for native document blocks",
+        "answer_correctness": "n/a",
+        "decisive_span_recall": "NOT_OBSERVABLE",
+        "mrl": null,
+        "unanswerable_precision": "n/a",
+        "citation_page_accuracy": "NOT_OBSERVABLE",
+        "early": "n/a",
+        "middle": "n/a",
+        "late": "n/a",
+        "exceptions": "n/a",
+        "multi_hop": "n/a",
+        "global": "n/a",
+        "table": "n/a",
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null,
+        "processes_entire_pdf": null,
+        "performs_retrieval": false,
+        "retrieved_chunks_observable": false,
+        "citations_observable": false,
+        "not_applicable": true
+      },
+      "row_count": 0
+    },
+    "GEMINI_NATIVE_PDF": {
+      "summary": {
+        "mode": "GEMINI_NATIVE_PDF",
+        "status": "blocked",
+        "blocked_reason": "GOOGLE_API_KEY not present in this environment",
+        "answer_correctness": "n/a",
+        "decisive_span_recall": "NOT_OBSERVABLE",
+        "mrl": null,
+        "unanswerable_precision": "n/a",
+        "citation_page_accuracy": "NOT_OBSERVABLE",
+        "early": "n/a",
+        "middle": "n/a",
+        "late": "n/a",
+        "exceptions": "n/a",
+        "multi_hop": "n/a",
+        "global": "n/a",
+        "table": "n/a",
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null,
+        "processes_entire_pdf": true,
+        "performs_retrieval": false,
+        "retrieved_chunks_observable": false,
+        "citations_observable": false,
+        "model_id": "gemini-3.5-flash"
+      },
+      "row_count": 0
+    },
+    "GEMINI_FILE_SEARCH": {
+      "summary": {
+        "mode": "GEMINI_FILE_SEARCH",
+        "status": "blocked",
+        "blocked_reason": "GOOGLE_API_KEY not present in this environment",
+        "answer_correctness": "n/a",
+        "decisive_span_recall": "NOT_OBSERVABLE",
+        "mrl": null,
+        "unanswerable_precision": "n/a",
+        "citation_page_accuracy": "NOT_OBSERVABLE",
+        "early": "n/a",
+        "middle": "n/a",
+        "late": "n/a",
+        "exceptions": "n/a",
+        "multi_hop": "n/a",
+        "global": "n/a",
+        "table": "n/a",
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null,
+        "processes_entire_pdf": false,
+        "performs_retrieval": true,
+        "retrieved_chunks_observable": true,
+        "citations_observable": true,
+        "model_id": "gemini-3.5-flash"
+      },
+      "row_count": 0
+    },
+    "GROK_NATIVE_DOCUMENT": {
+      "summary": {
+        "mode": "GROK_NATIVE_DOCUMENT",
+        "status": "blocked",
+        "blocked_reason": "XAI_API_KEY not present; BEN Chat Completions adapter also has no document parts",
+        "answer_correctness": "n/a",
+        "decisive_span_recall": "NOT_OBSERVABLE",
+        "mrl": null,
+        "unanswerable_precision": "n/a",
+        "citation_page_accuracy": "NOT_OBSERVABLE",
+        "early": "n/a",
+        "middle": "n/a",
+        "late": "n/a",
+        "exceptions": "n/a",
+        "multi_hop": "n/a",
+        "global": "n/a",
+        "table": "n/a",
+        "input_tokens": null,
+        "output_tokens": null,
+        "approx_cost_usd": null,
+        "processes_entire_pdf": null,
+        "performs_retrieval": true,
+        "retrieved_chunks_observable": false,
+        "citations_observable": false,
+        "model_id": "grok-4.6"
+      },
+      "row_count": 0
+    }
+  },
+  "mode_rows": {
+    "BEN_PREFIX_2000": [
+      {
+        "question_id": "M01",
+        "question": "What is the agreement ID?",
+        "category": "SIMPLE_LOCAL",
+        "answerable": true,
+        "gold_answer": "BEN-GOLD-SA-2026-001",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          1
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M02",
+        "question": "Who is the buyer named in the agreement?",
+        "category": "SIMPLE_LOCAL",
+        "answerable": true,
+        "gold_answer": "Coastal Works Ltd",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          1
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M03",
+        "question": "Who is the supplier named in the agreement?",
+        "category": "SIMPLE_LOCAL",
+        "answerable": true,
+        "gold_answer": "Northwind Insulation Ltd",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          1
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M04",
+        "question": "What is the effective date of the agreement?",
+        "category": "SIMPLE_LOCAL",
+        "answerable": true,
+        "gold_answer": "1 March 2026",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          1
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M05",
+        "question": "What is the named delivery street address in Netanya?",
+        "category": "SIMPLE_LOCAL",
+        "answerable": true,
+        "gold_answer": "12 HaMelacha Street",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          2
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M06",
+        "question": "What are the site offload hours?",
+        "category": "SIMPLE_LOCAL",
+        "answerable": true,
+        "gold_answer": "07:00 to 15:00",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M07",
+        "question": "Who provides the forklift for offload?",
+        "category": "SIMPLE_LOCAL",
+        "answerable": true,
+        "gold_answer": "Forklift is provided by Buyer",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M08",
+        "question": "What is the supplier commercial contact name?",
+        "category": "SIMPLE_LOCAL",
+        "answerable": true,
+        "gold_answer": "Dana Levi",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "MIDDLE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M09",
+        "question": "Where must the goods be delivered?",
+        "category": "LEXICAL_VARIATION",
+        "answerable": true,
+        "gold_answer": "12 HaMelacha Street, Netanya",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          2
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M10",
+        "question": "What fire rating paperwork must accompany the first shipment?",
+        "category": "LEXICAL_VARIATION",
+        "answerable": true,
+        "gold_answer": "EN 13501-1 class A1",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          6
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M11",
+        "question": "How long after noticing a defect may the buyer still send a warranty claim?",
+        "category": "LEXICAL_VARIATION",
+        "answerable": true,
+        "gold_answer": "10 business days",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          7
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "MIDDLE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M12",
+        "question": "What is the maximum weight allowed on one pallet?",
+        "category": "LEXICAL_VARIATION",
+        "answerable": true,
+        "gold_answer": "1.2 tonnes",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "MIDDLE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M13",
+        "question": "Does silence after delivery count as accepting the goods?",
+        "category": "LEXICAL_VARIATION",
+        "answerable": true,
+        "gold_answer": "Silence is not deemed acceptance",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "MIDDLE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M14",
+        "question": "How can a party end the contract after a serious breach if the other side does not fix it?",
+        "category": "LEXICAL_VARIATION",
+        "answerable": true,
+        "gold_answer": "14 days cure notice",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M15",
+        "question": "What is the declared lambda of the primary product?",
+        "category": "NUMERIC",
+        "answerable": true,
+        "gold_answer": "0.035 W/mK",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          3
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M16",
+        "question": "What is the nominal density of the mineral wool boards?",
+        "category": "NUMERIC",
+        "answerable": true,
+        "gold_answer": "100 kg/m3",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          3
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M17",
+        "question": "What contract quantity is stated for the primary product?",
+        "category": "NUMERIC",
+        "answerable": true,
+        "gold_answer": "10,000 square metres",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          3
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M18",
+        "question": "What is the standard lead time after a valid purchase order?",
+        "category": "NUMERIC",
+        "answerable": true,
+        "gold_answer": "21 calendar days",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          2
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M19",
+        "question": "What product liability insurance amount is required per occurrence?",
+        "category": "NUMERIC",
+        "answerable": true,
+        "gold_answer": "ILS 8,000,000",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "MIDDLE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M20",
+        "question": "What VAT rate is added on invoices?",
+        "category": "NUMERIC",
+        "answerable": true,
+        "gold_answer": "17 percent",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          4
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M21",
+        "question": "How long does confidentiality survive after termination?",
+        "category": "NUMERIC",
+        "answerable": true,
+        "gold_answer": "3 years",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M22",
+        "question": "What is the main rule about partial shipments?",
+        "category": "EXCEPTION",
+        "answerable": true,
+        "gold_answer": "shall not make partial shipments",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          5
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M23",
+        "question": "Are any partial shipments allowed despite the main completeness rule?",
+        "category": "EXCEPTION",
+        "answerable": true,
+        "gold_answer": "emergency orders of 200 m2 or less may ship partial within 48 hours",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "EXCEPTION_MISSED",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M24",
+        "question": "What is the maximum size of an emergency order that may ship partial?",
+        "category": "EXCEPTION",
+        "answerable": true,
+        "gold_answer": "200 m2",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "EXCEPTION_MISSED",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M25",
+        "question": "Does the emergency partial-shipment exception apply to MW-100?",
+        "category": "EXCEPTION",
+        "answerable": true,
+        "gold_answer": "does not apply to MW-100",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "EXCEPTION_MISSED",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M26",
+        "question": "How fast may an emergency partial shipment leave once the exception applies?",
+        "category": "EXCEPTION",
+        "answerable": true,
+        "gold_answer": "48 hours",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "EXCEPTION_MISSED",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M27",
+        "question": "What is the unit price in ILS for SKU MW-50?",
+        "category": "TABLE",
+        "answerable": true,
+        "gold_answer": "42.50",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          4
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M28",
+        "question": "What is the unit price in ILS for SKU MW-80?",
+        "category": "TABLE",
+        "answerable": true,
+        "gold_answer": "61.00",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          4
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M29",
+        "question": "What is the unit price in ILS for SKU MW-100?",
+        "category": "TABLE",
+        "answerable": true,
+        "gold_answer": "74.25",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          4
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M30",
+        "question": "What is the standard lead time in days for Haifa District?",
+        "category": "TABLE",
+        "answerable": true,
+        "gold_answer": "18",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M31",
+        "question": "What is the expedite lead time in days for Southern District?",
+        "category": "TABLE",
+        "answerable": true,
+        "gold_answer": "Southern District | 25 | 12",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M32",
+        "question": "What is the standard lead time in days for Tel Aviv District?",
+        "category": "TABLE",
+        "answerable": true,
+        "gold_answer": "Tel Aviv District | 14 | 7",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "CONTEXT_LOSS",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M33",
+        "question": "Using the contract quantity and the MW-50 unit price, what is the exclusive-of-VAT goods value in ILS?",
+        "category": "MULTI_HOP",
+        "answerable": true,
+        "gold_answer": "425000",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": false,
+        "failure_category": "MODEL_REASONING_FAILURE",
+        "residual": "EVIDENCE_EXISTS_NON_MATERIAL",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          3,
+          4
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M34",
+        "question": "If MW-80 is substituted for MW-50, what quantity still applies unless a change order says otherwise?",
+        "category": "MULTI_HOP",
+        "answerable": true,
+        "gold_answer": "10,000 square metres",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": true,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "MULTI_HOP",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          3
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M35",
+        "question": "What unit price applies to extra MW-50 on a change order without expedite?",
+        "category": "MULTI_HOP",
+        "answerable": true,
+        "gold_answer": "42.50",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": true,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "MULTI_HOP",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          4
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M36",
+        "question": "What extra percent is added to the table price when extra MW-50 is needed in under 10 days?",
+        "category": "MULTI_HOP",
+        "answerable": true,
+        "gold_answer": "8 percent",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "MULTI_HOP",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M37",
+        "question": "What fire certificate class is required, and which ISO management certificate is required?",
+        "category": "MULTI_HOP",
+        "answerable": true,
+        "gold_answer": "EN 13501-1 class A1 and ISO 9001",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          6,
+          6
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M38",
+        "question": "Name the delivery city and the offload weekday window.",
+        "category": "MULTI_HOP",
+        "answerable": true,
+        "gold_answer": "Netanya; Sunday to Thursday 07:00 to 15:00",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "MULTI_HOP",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          2
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M39",
+        "question": "Summarize the complete shipment policy including any exception.",
+        "category": "GLOBAL",
+        "answerable": true,
+        "gold_answer": "no partial shipments except emergency orders of 200 m2 or less within 48 hours, not MW-100",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "GLOBAL_QUESTION",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          5
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M40",
+        "question": "List every SKU that has a unit price in the agreement.",
+        "category": "GLOBAL",
+        "answerable": true,
+        "gold_answer": "MW-50, MW-80, MW-100",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          4,
+          4,
+          4
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M41",
+        "question": "Which districts have a published regional lead-time row?",
+        "category": "GLOBAL",
+        "answerable": true,
+        "gold_answer": "Tel Aviv District, Haifa District, Southern District",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "GLOBAL_QUESTION",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M42",
+        "question": "What identifications uniquely name this contract and the project?",
+        "category": "GLOBAL",
+        "answerable": true,
+        "gold_answer": "BEN-GOLD-SA-2026-001 and Netanya Logistics Annex",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          1,
+          1
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M43",
+        "question": "State the warranty length and the inspection window together.",
+        "category": "GLOBAL",
+        "answerable": true,
+        "gold_answer": "24 months; 7 calendar days",
+        "expected_answerability": true,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "GLOBAL_QUESTION",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          7
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "MIDDLE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M44",
+        "question": "What is the liquidated damages rate per day of delay?",
+        "category": "NEGATIVE",
+        "answerable": false,
+        "gold_answer": "not established",
+        "expected_answerability": false,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          8
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "MIDDLE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M45",
+        "question": "Who is the named project manager?",
+        "category": "NEGATIVE",
+        "answerable": false,
+        "gold_answer": "not established",
+        "expected_answerability": false,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "MIDDLE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M46",
+        "question": "Does the agreement require ISO 14001?",
+        "category": "NEGATIVE",
+        "answerable": false,
+        "gold_answer": "not established",
+        "expected_answerability": false,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          6
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": true,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M47",
+        "question": "What is the unit price for SKU MW-120?",
+        "category": "NEGATIVE",
+        "answerable": false,
+        "gold_answer": "not established",
+        "expected_answerability": false,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          4
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": true,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M48",
+        "question": "What Incoterm applies to the deliveries?",
+        "category": "NEGATIVE",
+        "answerable": false,
+        "gold_answer": "not established",
+        "expected_answerability": false,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "NONE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M49",
+        "question": "What is the Northern District standard lead time?",
+        "category": "NEGATIVE",
+        "answerable": false,
+        "gold_answer": "not established",
+        "expected_answerability": false,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": false,
+        "position": "LATE",
+        "mode": "BEN_PREFIX_2000"
+      },
+      {
+        "question_id": "M50",
+        "question": "What bank account should invoices be paid into?",
+        "category": "NEGATIVE",
+        "answerable": false,
+        "gold_answer": "not established",
+        "expected_answerability": false,
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-ccccccccccc1",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "off",
+        "fallback_reason": "flag_off",
+        "response_evidence_mode": "prefix_fallback",
+        "response_evidence_pages": [],
+        "citation_observable": false,
+        "citation_page_accuracy": null,
+        "gold_page_markers_in_injected": [
+          5
+        ],
+        "injected_chars": 2000,
+        "injected_truncated": true,
+        "injected_block_chars": 2089,
+        "false_attractor_in_injected": true,
+        "position": "EARLY",
+        "mode": "BEN_PREFIX_2000"
+      }
+    ],
+    "BEN_EXISTING_FTS": [
+      {
+        "question_id": "M01",
+        "question": "What is the agreement ID?",
+        "category": "SIMPLE_LOCAL",
+        "answerable": true,
+        "gold_answer": "BEN-GOLD-SA-2026-001",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 5,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          1,
+          2,
+          6,
+          10
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1091
+      },
+      {
+        "question_id": "M02",
+        "question": "Who is the buyer named in the agreement?",
+        "category": "SIMPLE_LOCAL",
+        "answerable": true,
+        "gold_answer": "Coastal Works Ltd",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 10,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          1,
+          2,
+          10,
+          6
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1091
+      },
+      {
+        "question_id": "M03",
+        "question": "Who is the supplier named in the agreement?",
+        "category": "SIMPLE_LOCAL",
+        "answerable": true,
+        "gold_answer": "Northwind Insulation Ltd",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 7,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          10,
+          1,
+          2,
+          6
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1091
+      },
+      {
+        "question_id": "M04",
+        "question": "What is the effective date of the agreement?",
+        "category": "SIMPLE_LOCAL",
+        "answerable": true,
+        "gold_answer": "1 March 2026",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 6,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          1,
+          2,
+          5,
+          6
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1190
+      },
+      {
+        "question_id": "M05",
+        "question": "What is the named delivery street address in Netanya?",
+        "category": "SIMPLE_LOCAL",
+        "answerable": true,
+        "gold_answer": "12 HaMelacha Street",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 8,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          2,
+          1,
+          6,
+          7
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1081
+      },
+      {
+        "question_id": "M06",
+        "question": "What are the site offload hours?",
+        "category": "SIMPLE_LOCAL",
+        "answerable": true,
+        "gold_answer": "07:00 to 15:00",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 2,
+        "chunks_selected": 2,
+        "evidence_pages": [
+          15,
+          14
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 433
+      },
+      {
+        "question_id": "M07",
+        "question": "Who provides the forklift for offload?",
+        "category": "SIMPLE_LOCAL",
+        "answerable": true,
+        "gold_answer": "Forklift is provided by Buyer",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 1,
+        "chunks_selected": 1,
+        "evidence_pages": [
+          15
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 171
+      },
+      {
+        "question_id": "M08",
+        "question": "What is the supplier commercial contact name?",
+        "category": "SIMPLE_LOCAL",
+        "answerable": true,
+        "gold_answer": "Dana Levi",
+        "position": "MIDDLE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 5,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          10,
+          1,
+          5,
+          6
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1068
+      },
+      {
+        "question_id": "M09",
+        "question": "Where must the goods be delivered?",
+        "category": "LEXICAL_VARIATION",
+        "answerable": true,
+        "gold_answer": "12 HaMelacha Street, Netanya",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": true,
+        "failure_category": "RANKING_FAILURE",
+        "residual": "MATERIAL_RECOVERABLE_LOSS",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 2,
+        "chunks_selected": 2,
+        "evidence_pages": [
+          7,
+          11
+        ],
+        "citation_page_accuracy": false,
+        "injected_chars": 374
+      },
+      {
+        "question_id": "M10",
+        "question": "What fire rating paperwork must accompany the first shipment?",
+        "category": "LEXICAL_VARIATION",
+        "answerable": true,
+        "gold_answer": "EN 13501-1 class A1",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 4,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          6,
+          5,
+          7,
+          14
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 973
+      },
+      {
+        "question_id": "M11",
+        "question": "How long after noticing a defect may the buyer still send a warranty claim?",
+        "category": "LEXICAL_VARIATION",
+        "answerable": true,
+        "gold_answer": "10 business days",
+        "position": "MIDDLE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 10,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          7,
+          18,
+          8,
+          1
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 989
+      },
+      {
+        "question_id": "M12",
+        "question": "What is the maximum weight allowed on one pallet?",
+        "category": "LEXICAL_VARIATION",
+        "answerable": true,
+        "gold_answer": "1.2 tonnes",
+        "position": "MIDDLE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 1,
+        "chunks_selected": 1,
+        "evidence_pages": [
+          11
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 198
+      },
+      {
+        "question_id": "M13",
+        "question": "Does silence after delivery count as accepting the goods?",
+        "category": "LEXICAL_VARIATION",
+        "answerable": true,
+        "gold_answer": "Silence is not deemed acceptance",
+        "position": "MIDDLE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 8,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          2,
+          12,
+          18,
+          6
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 951
+      },
+      {
+        "question_id": "M14",
+        "question": "How can a party end the contract after a serious breach if the other side does not fix it?",
+        "category": "LEXICAL_VARIATION",
+        "answerable": true,
+        "gold_answer": "14 days cure notice",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 10,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          18,
+          1,
+          2,
+          3
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1183
+      },
+      {
+        "question_id": "M15",
+        "question": "What is the declared lambda of the primary product?",
+        "category": "NUMERIC",
+        "answerable": true,
+        "gold_answer": "0.035 W/mK",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 2,
+        "chunks_selected": 2,
+        "evidence_pages": [
+          3,
+          9
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 440
+      },
+      {
+        "question_id": "M16",
+        "question": "What is the nominal density of the mineral wool boards?",
+        "category": "NUMERIC",
+        "answerable": true,
+        "gold_answer": "100 kg/m3",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 3,
+        "chunks_selected": 3,
+        "evidence_pages": [
+          3,
+          4,
+          2
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 922
+      },
+      {
+        "question_id": "M17",
+        "question": "What contract quantity is stated for the primary product?",
+        "category": "NUMERIC",
+        "answerable": true,
+        "gold_answer": "10,000 square metres",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 4,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          3,
+          17,
+          1,
+          9
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 990
+      },
+      {
+        "question_id": "M18",
+        "question": "What is the standard lead time after a valid purchase order?",
+        "category": "NUMERIC",
+        "answerable": true,
+        "gold_answer": "21 calendar days",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 6,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          2,
+          16,
+          5,
+          18
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1052
+      },
+      {
+        "question_id": "M19",
+        "question": "What product liability insurance amount is required per occurrence?",
+        "category": "NUMERIC",
+        "answerable": true,
+        "gold_answer": "ILS 8,000,000",
+        "position": "MIDDLE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 6,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          9,
+          8,
+          3,
+          4
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 992
+      },
+      {
+        "question_id": "M20",
+        "question": "What VAT rate is added on invoices?",
+        "category": "NUMERIC",
+        "answerable": true,
+        "gold_answer": "17 percent",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 2,
+        "chunks_selected": 2,
+        "evidence_pages": [
+          4,
+          8
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 552
+      },
+      {
+        "question_id": "M21",
+        "question": "How long does confidentiality survive after termination?",
+        "category": "NUMERIC",
+        "answerable": true,
+        "gold_answer": "3 years",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 2,
+        "chunks_selected": 2,
+        "evidence_pages": [
+          18,
+          2
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 548
+      },
+      {
+        "question_id": "M22",
+        "question": "What is the main rule about partial shipments?",
+        "category": "EXCEPTION",
+        "answerable": true,
+        "gold_answer": "shall not make partial shipments",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 2,
+        "chunks_selected": 2,
+        "evidence_pages": [
+          5,
+          14
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 547
+      },
+      {
+        "question_id": "M23",
+        "question": "Are any partial shipments allowed despite the main completeness rule?",
+        "category": "EXCEPTION",
+        "answerable": true,
+        "gold_answer": "emergency orders of 200 m2 or less may ship partial within 48 hours",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 2,
+        "chunks_selected": 2,
+        "evidence_pages": [
+          5,
+          14
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 547
+      },
+      {
+        "question_id": "M24",
+        "question": "What is the maximum size of an emergency order that may ship partial?",
+        "category": "EXCEPTION",
+        "answerable": true,
+        "gold_answer": "200 m2",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 8,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          14,
+          5,
+          11,
+          2
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1053
+      },
+      {
+        "question_id": "M25",
+        "question": "Does the emergency partial-shipment exception apply to MW-100?",
+        "category": "EXCEPTION",
+        "answerable": true,
+        "gold_answer": "does not apply to MW-100",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 4,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          14,
+          5,
+          3,
+          4
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1161
+      },
+      {
+        "question_id": "M26",
+        "question": "How fast may an emergency partial shipment leave once the exception applies?",
+        "category": "EXCEPTION",
+        "answerable": true,
+        "gold_answer": "48 hours",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 4,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          14,
+          5,
+          8,
+          18
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1013
+      },
+      {
+        "question_id": "M27",
+        "question": "What is the unit price in ILS for SKU MW-50?",
+        "category": "TABLE",
+        "answerable": true,
+        "gold_answer": "42.50",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 4,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          4,
+          9,
+          3,
+          13
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 980
+      },
+      {
+        "question_id": "M28",
+        "question": "What is the unit price in ILS for SKU MW-80?",
+        "category": "TABLE",
+        "answerable": true,
+        "gold_answer": "61.00",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 4,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          4,
+          9,
+          3,
+          13
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 980
+      },
+      {
+        "question_id": "M29",
+        "question": "What is the unit price in ILS for SKU MW-100?",
+        "category": "TABLE",
+        "answerable": true,
+        "gold_answer": "74.25",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 4,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          4,
+          3,
+          9,
+          13
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 980
+      },
+      {
+        "question_id": "M30",
+        "question": "What is the standard lead time in days for Haifa District?",
+        "category": "TABLE",
+        "answerable": true,
+        "gold_answer": "18",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 8,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          16,
+          2,
+          12,
+          18
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 920
+      },
+      {
+        "question_id": "M31",
+        "question": "What is the expedite lead time in days for Southern District?",
+        "category": "TABLE",
+        "answerable": true,
+        "gold_answer": "Southern District | 25 | 12",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 8,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          16,
+          2,
+          13,
+          12
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 894
+      },
+      {
+        "question_id": "M32",
+        "question": "What is the standard lead time in days for Tel Aviv District?",
+        "category": "TABLE",
+        "answerable": true,
+        "gold_answer": "Tel Aviv District | 14 | 7",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 8,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          16,
+          2,
+          12,
+          18
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 920
+      },
+      {
+        "question_id": "M33",
+        "question": "Using the contract quantity and the MW-50 unit price, what is the exclusive-of-VAT goods value in ILS?",
+        "category": "MULTI_HOP",
+        "answerable": true,
+        "gold_answer": "425000",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": false,
+        "pass": false,
+        "mrl": false,
+        "failure_category": "MODEL_REASONING_FAILURE",
+        "residual": "EVIDENCE_EXISTS_NON_MATERIAL",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 7,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          4,
+          3,
+          17,
+          9
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 969
+      },
+      {
+        "question_id": "M34",
+        "question": "If MW-80 is substituted for MW-50, what quantity still applies unless a change order says otherwise?",
+        "category": "MULTI_HOP",
+        "answerable": true,
+        "gold_answer": "10,000 square metres",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 5,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          17,
+          13,
+          2,
+          3
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1013
+      },
+      {
+        "question_id": "M35",
+        "question": "What unit price applies to extra MW-50 on a change order without expedite?",
+        "category": "MULTI_HOP",
+        "answerable": true,
+        "gold_answer": "42.50",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 6,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          13,
+          4,
+          17,
+          2
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1051
+      },
+      {
+        "question_id": "M36",
+        "question": "What extra percent is added to the table price when extra MW-50 is needed in under 10 days?",
+        "category": "MULTI_HOP",
+        "answerable": true,
+        "gold_answer": "8 percent",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 9,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          13,
+          4,
+          16,
+          5
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1044
+      },
+      {
+        "question_id": "M37",
+        "question": "What fire certificate class is required, and which ISO management certificate is required?",
+        "category": "MULTI_HOP",
+        "answerable": true,
+        "gold_answer": "EN 13501-1 class A1 and ISO 9001",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 1,
+        "chunks_selected": 1,
+        "evidence_pages": [
+          6
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 250
+      },
+      {
+        "question_id": "M38",
+        "question": "Name the delivery city and the offload weekday window.",
+        "category": "MULTI_HOP",
+        "answerable": true,
+        "gold_answer": "Netanya; Sunday to Thursday 07:00 to 15:00",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 8,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          15,
+          2,
+          1,
+          6
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1076
+      },
+      {
+        "question_id": "M39",
+        "question": "Summarize the complete shipment policy including any exception.",
+        "category": "GLOBAL",
+        "answerable": true,
+        "gold_answer": "no partial shipments except emergency orders of 200 m2 or less within 48 hours, not MW-100",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 2,
+        "chunks_selected": 2,
+        "evidence_pages": [
+          14,
+          5
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 547
+      },
+      {
+        "question_id": "M40",
+        "question": "List every SKU that has a unit price in the agreement.",
+        "category": "GLOBAL",
+        "answerable": true,
+        "gold_answer": "MW-50, MW-80, MW-100",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 8,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          4,
+          1,
+          2,
+          3
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1269
+      },
+      {
+        "question_id": "M41",
+        "question": "Which districts have a published regional lead-time row?",
+        "category": "GLOBAL",
+        "answerable": true,
+        "gold_answer": "Tel Aviv District, Haifa District, Southern District",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 2,
+        "chunks_selected": 2,
+        "evidence_pages": [
+          2,
+          16
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 527
+      },
+      {
+        "question_id": "M42",
+        "question": "What identifications uniquely name this contract and the project?",
+        "category": "GLOBAL",
+        "answerable": true,
+        "gold_answer": "BEN-GOLD-SA-2026-001 and Netanya Logistics Annex",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 4,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          1,
+          3,
+          10,
+          17
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1024
+      },
+      {
+        "question_id": "M43",
+        "question": "State the warranty length and the inspection window together.",
+        "category": "GLOBAL",
+        "answerable": true,
+        "gold_answer": "24 months; 7 calendar days",
+        "position": "MIDDLE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 4,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          7,
+          15,
+          1,
+          12
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 847
+      },
+      {
+        "question_id": "M44",
+        "question": "What is the liquidated damages rate per day of delay?",
+        "category": "NEGATIVE",
+        "answerable": false,
+        "gold_answer": "not established",
+        "position": "MIDDLE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 4,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          8,
+          4,
+          9,
+          11
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 902
+      },
+      {
+        "question_id": "M45",
+        "question": "Who is the named project manager?",
+        "category": "NEGATIVE",
+        "answerable": false,
+        "gold_answer": "not established",
+        "position": "MIDDLE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 3,
+        "chunks_selected": 3,
+        "evidence_pages": [
+          10,
+          1,
+          2
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 841
+      },
+      {
+        "question_id": "M46",
+        "question": "Does the agreement require ISO 14001?",
+        "category": "NEGATIVE",
+        "answerable": false,
+        "gold_answer": "not established",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 6,
+        "chunks_selected": 4,
+        "evidence_pages": [
+          6,
+          1,
+          2,
+          10
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 1091
+      },
+      {
+        "question_id": "M47",
+        "question": "What is the unit price for SKU MW-120?",
+        "category": "NEGATIVE",
+        "answerable": false,
+        "gold_answer": "not established",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 3,
+        "chunks_selected": 3,
+        "evidence_pages": [
+          4,
+          3,
+          13
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 828
+      },
+      {
+        "question_id": "M48",
+        "question": "What Incoterm applies to the deliveries?",
+        "category": "NEGATIVE",
+        "answerable": false,
+        "gold_answer": "not established",
+        "position": "NONE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [],
+        "retrieval_mode": "empty",
+        "fallback_reason": "no_lexical_match",
+        "chunks_considered": 0,
+        "chunks_selected": 0,
+        "evidence_pages": [],
+        "citation_page_accuracy": null,
+        "injected_chars": 0
+      },
+      {
+        "question_id": "M49",
+        "question": "What is the Northern District standard lead time?",
+        "category": "NEGATIVE",
+        "answerable": false,
+        "gold_answer": "not established",
+        "position": "LATE",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 2,
+        "chunks_selected": 2,
+        "evidence_pages": [
+          16,
+          2
+        ],
+        "citation_page_accuracy": true,
+        "injected_chars": 527
+      },
+      {
+        "question_id": "M50",
+        "question": "What bank account should invoices be paid into?",
+        "category": "NEGATIVE",
+        "answerable": false,
+        "gold_answer": "not established",
+        "position": "EARLY",
+        "processing_ok": true,
+        "decisive_in_source": true,
+        "decisive_in_injected": false,
+        "extractive_answer_ok": true,
+        "pass": true,
+        "mrl": false,
+        "failure_category": null,
+        "residual": "NONE",
+        "used_files": [
+          {
+            "id": "c086f2df-f9f7-44a5-b963-97f1b2450647",
+            "name": "ben_gold_supply_agreement.pdf"
+          }
+        ],
+        "retrieval_mode": "chunks",
+        "fallback_reason": null,
+        "chunks_considered": 1,
+        "chunks_selected": 1,
+        "evidence_pages": [
+          4
+        ],
+        "citation_page_accuracy": false,
+        "injected_chars": 326
+      }
+    ],
+    "OPENAI_NATIVE_DOCUMENT": [],
+    "OPENAI_FILE_SEARCH": [],
+    "CLAUDE_NATIVE_DOCUMENT": [],
+    "CLAUDE_PROVIDER_RETRIEVAL": [],
+    "GEMINI_NATIVE_PDF": [],
+    "GEMINI_FILE_SEARCH": [],
+    "GROK_NATIVE_DOCUMENT": []
+  },
+  "comparison": [
+    {
+      "mode": "BEN_PREFIX_2000",
+      "status": "measured",
+      "answer_correctness": "27/50",
+      "decisive_recall": "21/43",
+      "mrl": "22",
+      "unanswerable": "7/7",
+      "early": "19/20",
+      "middle": "1/6",
+      "late": "0/17",
+      "exceptions": "1/5",
+      "multi_hop": "1/6",
+      "global": "2/5",
+      "latency": "local",
+      "tokens": "0/0",
+      "cost": "\u2014",
+      "blocked_reason": null
+    },
+    {
+      "mode": "BEN_EXISTING_FTS",
+      "status": "measured",
+      "answer_correctness": "48/50",
+      "decisive_recall": "42/43",
+      "mrl": "1",
+      "unanswerable": "7/7",
+      "early": "18/20",
+      "middle": "6/6",
+      "late": "17/17",
+      "exceptions": "5/5",
+      "multi_hop": "5/6",
+      "global": "5/5",
+      "latency": "local",
+      "tokens": "0/0",
+      "cost": "\u2014",
+      "blocked_reason": null
+    },
+    {
+      "mode": "OPENAI_NATIVE_DOCUMENT",
+      "status": "blocked",
+      "answer_correctness": "BLOCKED",
+      "decisive_recall": "\u2014",
+      "mrl": "\u2014",
+      "unanswerable": "\u2014",
+      "early": "\u2014",
+      "middle": "\u2014",
+      "late": "\u2014",
+      "exceptions": "\u2014",
+      "multi_hop": "\u2014",
+      "global": "\u2014",
+      "latency": "\u2014",
+      "tokens": "\u2014",
+      "cost": "\u2014",
+      "blocked_reason": "OPENAI_API_KEY not present in this environment"
+    },
+    {
+      "mode": "OPENAI_FILE_SEARCH",
+      "status": "blocked",
+      "answer_correctness": "BLOCKED",
+      "decisive_recall": "\u2014",
+      "mrl": "\u2014",
+      "unanswerable": "\u2014",
+      "early": "\u2014",
+      "middle": "\u2014",
+      "late": "\u2014",
+      "exceptions": "\u2014",
+      "multi_hop": "\u2014",
+      "global": "\u2014",
+      "latency": "\u2014",
+      "tokens": "\u2014",
+      "cost": "\u2014",
+      "blocked_reason": "OPENAI_API_KEY not present in this environment"
+    },
+    {
+      "mode": "CLAUDE_NATIVE_DOCUMENT",
+      "status": "blocked",
+      "answer_correctness": "BLOCKED",
+      "decisive_recall": "\u2014",
+      "mrl": "\u2014",
+      "unanswerable": "\u2014",
+      "early": "\u2014",
+      "middle": "\u2014",
+      "late": "\u2014",
+      "exceptions": "\u2014",
+      "multi_hop": "\u2014",
+      "global": "\u2014",
+      "latency": "\u2014",
+      "tokens": "\u2014",
+      "cost": "\u2014",
+      "blocked_reason": "ANTHROPIC_API_KEY not present in this environment"
+    },
+    {
+      "mode": "CLAUDE_PROVIDER_RETRIEVAL",
+      "status": "blocked",
+      "answer_correctness": "BLOCKED",
+      "decisive_recall": "\u2014",
+      "mrl": "\u2014",
+      "unanswerable": "\u2014",
+      "early": "\u2014",
+      "middle": "\u2014",
+      "late": "\u2014",
+      "exceptions": "\u2014",
+      "multi_hop": "\u2014",
+      "global": "\u2014",
+      "latency": "\u2014",
+      "tokens": "\u2014",
+      "cost": "\u2014",
+      "blocked_reason": "Anthropic has no hosted File Search / retrieval API comparable to OpenAI or Gemini; Files API is document storage for native document blocks"
+    },
+    {
+      "mode": "GEMINI_NATIVE_PDF",
+      "status": "blocked",
+      "answer_correctness": "BLOCKED",
+      "decisive_recall": "\u2014",
+      "mrl": "\u2014",
+      "unanswerable": "\u2014",
+      "early": "\u2014",
+      "middle": "\u2014",
+      "late": "\u2014",
+      "exceptions": "\u2014",
+      "multi_hop": "\u2014",
+      "global": "\u2014",
+      "latency": "\u2014",
+      "tokens": "\u2014",
+      "cost": "\u2014",
+      "blocked_reason": "GOOGLE_API_KEY not present in this environment"
+    },
+    {
+      "mode": "GEMINI_FILE_SEARCH",
+      "status": "blocked",
+      "answer_correctness": "BLOCKED",
+      "decisive_recall": "\u2014",
+      "mrl": "\u2014",
+      "unanswerable": "\u2014",
+      "early": "\u2014",
+      "middle": "\u2014",
+      "late": "\u2014",
+      "exceptions": "\u2014",
+      "multi_hop": "\u2014",
+      "global": "\u2014",
+      "latency": "\u2014",
+      "tokens": "\u2014",
+      "cost": "\u2014",
+      "blocked_reason": "GOOGLE_API_KEY not present in this environment"
+    },
+    {
+      "mode": "GROK_NATIVE_DOCUMENT",
+      "status": "blocked",
+      "answer_correctness": "BLOCKED",
+      "decisive_recall": "\u2014",
+      "mrl": "\u2014",
+      "unanswerable": "\u2014",
+      "early": "\u2014",
+      "middle": "\u2014",
+      "late": "\u2014",
+      "exceptions": "\u2014",
+      "multi_hop": "\u2014",
+      "global": "\u2014",
+      "latency": "\u2014",
+      "tokens": "\u2014",
+      "cost": "\u2014",
+      "blocked_reason": "XAI_API_KEY not present; BEN Chat Completions adapter also has no document parts"
+    }
+  ],
+  "recommendation": {
+    "gate_status": "PARTIAL",
+    "best_overall": "BEN_EXISTING_FTS",
+    "best_retrieval": "BEN_EXISTING_FTS",
+    "best_full_document_reasoning": "BLOCKED \u2014 provider native modes not run",
+    "best_cost_performance": "BEN_EXISTING_FTS",
+    "best_exception_detection": "BEN_EXISTING_FTS",
+    "document_position_effect": "Prefix is a position cliff (early 19/20, middle 1/6, late 0/17). Isolated FTS removes the cliff (early 18/20, middle 6/6, late 17/17) with one early ranking miss.",
+    "important_finding": "On this gold file, isolated existing chunk FTS collapsed Gate M position loss: late 0/17 \u2192 17/17, exceptions 1/5 \u2192 5/5, MRL 22 \u2192 1. The remaining FTS miss is M09 ranking (delivery-place query retrieved pages 7 and 11). M33 is model-arithmetic, not retrieval. Provider native PDF/file-search were not run: this Cloud Agent environment has no OpenAI/Anthropic/Google/xAI keys.",
+    "should_gate_d_proceed": "YES",
+    "why": "Isolated existing chunk FTS recovered late/exception evidence that prefix_2000 lost. Provider native document modes were not measurable here (missing API keys), so they do not replace Gate D. Enable FTS on a canary and re-run Gate M/P. Prefix MRL 22 vs FTS MRL 1 (delta 21).",
+    "smallest_next_step": "Canary-enable existing BEN chunk FTS (flag + workspace allowlist). Do not add embeddings.",
+    "strategies": {
+      "BEN_PREFIX_2000": "FALLBACK",
+      "BEN_EXISTING_FTS": "USE",
+      "OPENAI_NATIVE_DOCUMENT": "BLOCKED",
+      "OPENAI_FILE_SEARCH": "BLOCKED",
+      "CLAUDE_NATIVE_DOCUMENT": "BLOCKED",
+      "CLAUDE_PROVIDER_RETRIEVAL": "REJECT",
+      "GEMINI_NATIVE_PDF": "BLOCKED",
+      "GEMINI_FILE_SEARCH": "BLOCKED",
+      "GROK_NATIVE_DOCUMENT": "BLOCKED"
+    },
+    "measured_modes": [
+      "BEN_PREFIX_2000",
+      "BEN_EXISTING_FTS"
+    ],
+    "blocked_modes": [
+      "OPENAI_NATIVE_DOCUMENT",
+      "OPENAI_FILE_SEARCH",
+      "CLAUDE_NATIVE_DOCUMENT",
+      "CLAUDE_PROVIDER_RETRIEVAL",
+      "GEMINI_NATIVE_PDF",
+      "GEMINI_FILE_SEARCH",
+      "GROK_NATIVE_DOCUMENT"
+    ],
+    "one_strategy_or_route": "Not enough live provider data to choose native-document routing. Among measured modes, existing chunk FTS should be the default retrieval path and prefix_2000 a fallback. Native long-context remains an unmeasured escalation candidate for exception/global questions."
+  },
+  "production_flags_after": {
+    "chunk_retrieval_enabled_gate_m_workspace": false,
+    "BEN_WORKSPACE_CHUNK_RETRIEVAL": null
+  },
+  "note": "Answer correctness for BEN_PREFIX_2000 and BEN_EXISTING_FTS is extractive recoverability from injected context, not an LLM grade. Live provider modes score model JSON answers."
+}
