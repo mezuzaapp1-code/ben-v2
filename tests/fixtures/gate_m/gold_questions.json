@@ -1,0 +1,1142 @@
+{
+  "document": "ben_gold_supply_agreement.pdf",
+  "question_count": 50,
+  "questions": [
+    {
+      "question_id": "M01",
+      "question": "What is the agreement ID?",
+      "category": "SIMPLE_LOCAL",
+      "answerable": true,
+      "gold_answer": "BEN-GOLD-SA-2026-001",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 1,
+          "text_or_locator": "BEN-GOLD-SA-2026-001",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": "Title-page identifier."
+    },
+    {
+      "question_id": "M02",
+      "question": "Who is the buyer named in the agreement?",
+      "category": "SIMPLE_LOCAL",
+      "answerable": true,
+      "gold_answer": "Coastal Works Ltd",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 1,
+          "text_or_locator": "Coastal Works Ltd",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M03",
+      "question": "Who is the supplier named in the agreement?",
+      "category": "SIMPLE_LOCAL",
+      "answerable": true,
+      "gold_answer": "Northwind Insulation Ltd",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 1,
+          "text_or_locator": "Northwind Insulation Ltd",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M04",
+      "question": "What is the effective date of the agreement?",
+      "category": "SIMPLE_LOCAL",
+      "answerable": true,
+      "gold_answer": "1 March 2026",
+      "gold_answer_aliases": [
+        "March 1, 2026",
+        "1 March 2026"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 1,
+          "text_or_locator": "Effective date: 1 March 2026",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M05",
+      "question": "What is the named delivery street address in Netanya?",
+      "category": "SIMPLE_LOCAL",
+      "answerable": true,
+      "gold_answer": "12 HaMelacha Street",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 2,
+          "text_or_locator": "DELIVERY-PLACE-HAMELACHA-12",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [
+        {
+          "page": 2,
+          "text_or_locator": "12 HaMelacha Street",
+          "importance": "supporting"
+        }
+      ],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M06",
+      "question": "What are the site offload hours?",
+      "category": "SIMPLE_LOCAL",
+      "answerable": true,
+      "gold_answer": "07:00 to 15:00",
+      "gold_answer_aliases": [
+        "Sunday to Thursday 07:00 to 15:00"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 15,
+          "text_or_locator": "OFFLOAD-WINDOW-0715",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": "Late page. Prefix path is expected to miss this."
+    },
+    {
+      "question_id": "M07",
+      "question": "Who provides the forklift for offload?",
+      "category": "SIMPLE_LOCAL",
+      "answerable": true,
+      "gold_answer": "Forklift is provided by Buyer",
+      "gold_answer_aliases": [
+        "provided by Buyer"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 15,
+          "text_or_locator": "Forklift is provided by Buyer",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": "Late page."
+    },
+    {
+      "question_id": "M08",
+      "question": "What is the supplier commercial contact name?",
+      "category": "SIMPLE_LOCAL",
+      "answerable": true,
+      "gold_answer": "Dana Levi",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 10,
+          "text_or_locator": "CONTACT-DANA-LEVI",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M09",
+      "question": "Where must the goods be delivered?",
+      "category": "LEXICAL_VARIATION",
+      "answerable": true,
+      "gold_answer": "12 HaMelacha Street, Netanya",
+      "gold_answer_aliases": [
+        "12 HaMelacha Street"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 2,
+          "text_or_locator": "named delivery place is 12 HaMelacha Street",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": "Question avoids the words 'named delivery place'."
+    },
+    {
+      "question_id": "M10",
+      "question": "What fire rating paperwork must accompany the first shipment?",
+      "category": "LEXICAL_VARIATION",
+      "answerable": true,
+      "gold_answer": "EN 13501-1 class A1",
+      "gold_answer_aliases": [
+        "fire-classification certificate to EN 13501-1 class A1"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 6,
+          "text_or_locator": "FIRE-CERT-EN13501-A1",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M11",
+      "question": "How long after noticing a defect may the buyer still send a warranty claim?",
+      "category": "LEXICAL_VARIATION",
+      "answerable": true,
+      "gold_answer": "10 business days",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 7,
+          "text_or_locator": "10 business days of discovery",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M12",
+      "question": "What is the maximum weight allowed on one pallet?",
+      "category": "LEXICAL_VARIATION",
+      "answerable": true,
+      "gold_answer": "1.2 tonnes",
+      "gold_answer_aliases": [
+        "1.2 tonnes per pallet"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 11,
+          "text_or_locator": "PALLET-MAX-1P2-TONNES",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M13",
+      "question": "Does silence after delivery count as accepting the goods?",
+      "category": "LEXICAL_VARIATION",
+      "answerable": true,
+      "gold_answer": "Silence is not deemed acceptance",
+      "gold_answer_aliases": [
+        "not deemed acceptance"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 12,
+          "text_or_locator": "Silence is not deemed acceptance",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M14",
+      "question": "How can a party end the contract after a serious breach if the other side does not fix it?",
+      "category": "LEXICAL_VARIATION",
+      "answerable": true,
+      "gold_answer": "14 days cure notice",
+      "gold_answer_aliases": [
+        "terminate for material breach after 14 days cure notice"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 18,
+          "text_or_locator": "CURE-14-DAYS",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": "Late page + paraphrase of termination."
+    },
+    {
+      "question_id": "M15",
+      "question": "What is the declared lambda of the primary product?",
+      "category": "NUMERIC",
+      "answerable": true,
+      "gold_answer": "0.035 W/mK",
+      "gold_answer_aliases": [
+        "0.035"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 3,
+          "text_or_locator": "SPEC-LAMBDA-0035",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M16",
+      "question": "What is the nominal density of the mineral wool boards?",
+      "category": "NUMERIC",
+      "answerable": true,
+      "gold_answer": "100 kg/m3",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 3,
+          "text_or_locator": "Nominal density: 100 kg/m3",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M17",
+      "question": "What contract quantity is stated for the primary product?",
+      "category": "NUMERIC",
+      "answerable": true,
+      "gold_answer": "10,000 square metres",
+      "gold_answer_aliases": [
+        "10,000",
+        "10000"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 3,
+          "text_or_locator": "Contract quantity: 10,000 square metres",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M18",
+      "question": "What is the standard lead time after a valid purchase order?",
+      "category": "NUMERIC",
+      "answerable": true,
+      "gold_answer": "21 calendar days",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 2,
+          "text_or_locator": "21 calendar days after a valid purchase order",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M19",
+      "question": "What product liability insurance amount is required per occurrence?",
+      "category": "NUMERIC",
+      "answerable": true,
+      "gold_answer": "ILS 8,000,000",
+      "gold_answer_aliases": [
+        "8,000,000"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 9,
+          "text_or_locator": "INSURANCE-ILS-8000000",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M20",
+      "question": "What VAT rate is added on invoices?",
+      "category": "NUMERIC",
+      "answerable": true,
+      "gold_answer": "17 percent",
+      "gold_answer_aliases": [
+        "17%"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 4,
+          "text_or_locator": "VAT is 17 percent",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M21",
+      "question": "How long does confidentiality survive after termination?",
+      "category": "NUMERIC",
+      "answerable": true,
+      "gold_answer": "3 years",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 18,
+          "text_or_locator": "Confidentiality survives for 3 years",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": "Late page."
+    },
+    {
+      "question_id": "M22",
+      "question": "What is the main rule about partial shipments?",
+      "category": "EXCEPTION",
+      "answerable": true,
+      "gold_answer": "shall not make partial shipments",
+      "gold_answer_aliases": [
+        "Each purchase order ships complete"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 5,
+          "text_or_locator": "MAIN-RULE-NO-PARTIAL-SHIP",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": "Main rule only; exception is on page 14."
+    },
+    {
+      "question_id": "M23",
+      "question": "Are any partial shipments allowed despite the main completeness rule?",
+      "category": "EXCEPTION",
+      "answerable": true,
+      "gold_answer": "emergency orders of 200 m2 or less may ship partial within 48 hours",
+      "gold_answer_aliases": [
+        "EXCEPTION-PARTIAL-SHIP-48H"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 14,
+          "text_or_locator": "EXCEPTION-PARTIAL-SHIP-48H",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [
+        {
+          "page": 5,
+          "text_or_locator": "MAIN-RULE-NO-PARTIAL-SHIP",
+          "importance": "supporting"
+        }
+      ],
+      "false_attractors": [],
+      "notes": "Decisive exception is after the prefix cutoff."
+    },
+    {
+      "question_id": "M24",
+      "question": "What is the maximum size of an emergency order that may ship partial?",
+      "category": "EXCEPTION",
+      "answerable": true,
+      "gold_answer": "200 m2",
+      "gold_answer_aliases": [
+        "200 m2 or less"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 14,
+          "text_or_locator": "emergency orders of 200 m2 or less",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M25",
+      "question": "Does the emergency partial-shipment exception apply to MW-100?",
+      "category": "EXCEPTION",
+      "answerable": true,
+      "gold_answer": "does not apply to MW-100",
+      "gold_answer_aliases": [
+        "This exception does not apply to MW-100"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 14,
+          "text_or_locator": "This exception does not apply to MW-100",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M26",
+      "question": "How fast may an emergency partial shipment leave once the exception applies?",
+      "category": "EXCEPTION",
+      "answerable": true,
+      "gold_answer": "48 hours",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 14,
+          "text_or_locator": "may ship partial within 48 hours",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M27",
+      "question": "What is the unit price in ILS for SKU MW-50?",
+      "category": "TABLE",
+      "answerable": true,
+      "gold_answer": "42.50",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 4,
+          "text_or_locator": "PRICE-TABLE-MW50-4250",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [
+        {
+          "page": 4,
+          "text_or_locator": "MW-50 | Mineral wool board | 50 mm | 42.50",
+          "importance": "supporting"
+        }
+      ],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M28",
+      "question": "What is the unit price in ILS for SKU MW-80?",
+      "category": "TABLE",
+      "answerable": true,
+      "gold_answer": "61.00",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 4,
+          "text_or_locator": "MW-80 | Mineral wool board | 80 mm | 61.00",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M29",
+      "question": "What is the unit price in ILS for SKU MW-100?",
+      "category": "TABLE",
+      "answerable": true,
+      "gold_answer": "74.25",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 4,
+          "text_or_locator": "MW-100 | Mineral wool board | 100 mm | 74.25",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M30",
+      "question": "What is the standard lead time in days for Haifa District?",
+      "category": "TABLE",
+      "answerable": true,
+      "gold_answer": "18",
+      "gold_answer_aliases": [
+        "18 | 9",
+        "Haifa District | 18"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 16,
+          "text_or_locator": "LEADTIME-TABLE-REGIONS",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [
+        {
+          "page": 16,
+          "text_or_locator": "Haifa District | 18 | 9",
+          "importance": "supporting"
+        }
+      ],
+      "false_attractors": [],
+      "notes": "Late table."
+    },
+    {
+      "question_id": "M31",
+      "question": "What is the expedite lead time in days for Southern District?",
+      "category": "TABLE",
+      "answerable": true,
+      "gold_answer": "Southern District | 25 | 12",
+      "gold_answer_aliases": [
+        "25 | 12"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 16,
+          "text_or_locator": "Southern District | 25 | 12",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": "Late table."
+    },
+    {
+      "question_id": "M32",
+      "question": "What is the standard lead time in days for Tel Aviv District?",
+      "category": "TABLE",
+      "answerable": true,
+      "gold_answer": "Tel Aviv District | 14 | 7",
+      "gold_answer_aliases": [
+        "14 | 7"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 16,
+          "text_or_locator": "Tel Aviv District | 14 | 7",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": "Late table."
+    },
+    {
+      "question_id": "M33",
+      "question": "Using the contract quantity and the MW-50 unit price, what is the exclusive-of-VAT goods value in ILS?",
+      "category": "MULTI_HOP",
+      "answerable": true,
+      "gold_answer": "425000",
+      "gold_answer_aliases": [
+        "425,000",
+        "10,000 * 42.50"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 3,
+          "text_or_locator": "Contract quantity: 10,000 square metres",
+          "importance": "decisive"
+        },
+        {
+          "page": 4,
+          "text_or_locator": "MW-50 | Mineral wool board | 50 mm | 42.50",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": "Requires quantity (p3) and price (p4). Extractive string match may miss computed product."
+    },
+    {
+      "question_id": "M34",
+      "question": "If MW-80 is substituted for MW-50, what quantity still applies unless a change order says otherwise?",
+      "category": "MULTI_HOP",
+      "answerable": true,
+      "gold_answer": "10,000 square metres",
+      "gold_answer_aliases": [
+        "10,000"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 17,
+          "text_or_locator": "SUBSTITUTION-MW80-QTY",
+          "importance": "decisive"
+        },
+        {
+          "page": 3,
+          "text_or_locator": "Contract quantity: 10,000 square metres",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": "Quantity restated on page 17; original on page 3."
+    },
+    {
+      "question_id": "M35",
+      "question": "What unit price applies to extra MW-50 on a change order without expedite?",
+      "category": "MULTI_HOP",
+      "answerable": true,
+      "gold_answer": "42.50",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 13,
+          "text_or_locator": "Extra MW-50 uses the Article 3 table price",
+          "importance": "decisive"
+        },
+        {
+          "page": 4,
+          "text_or_locator": "MW-50 | Mineral wool board | 50 mm | 42.50",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M36",
+      "question": "What extra percent is added to the table price when extra MW-50 is needed in under 10 days?",
+      "category": "MULTI_HOP",
+      "answerable": true,
+      "gold_answer": "8 percent",
+      "gold_answer_aliases": [
+        "8%"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 13,
+          "text_or_locator": "EXPEDITE-PLUS-8-PERCENT",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [
+        {
+          "page": 4,
+          "text_or_locator": "PRICE-TABLE-MW50-4250",
+          "importance": "supporting"
+        }
+      ],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M37",
+      "question": "What fire certificate class is required, and which ISO management certificate is required?",
+      "category": "MULTI_HOP",
+      "answerable": true,
+      "gold_answer": "EN 13501-1 class A1 and ISO 9001",
+      "gold_answer_aliases": [
+        "EN 13501-1 class A1",
+        "ISO 9001"
+      ],
+      "gold_must_all": [
+        "EN 13501-1 class A1",
+        "ISO 9001"
+      ],
+      "decisive_evidence": [
+        {
+          "page": 6,
+          "text_or_locator": "EN 13501-1 class A1",
+          "importance": "decisive"
+        },
+        {
+          "page": 6,
+          "text_or_locator": "ISO 9001 certificate is required",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": "Two facts on the same page."
+    },
+    {
+      "question_id": "M38",
+      "question": "Name the delivery city and the offload weekday window.",
+      "category": "MULTI_HOP",
+      "answerable": true,
+      "gold_answer": "Netanya; Sunday to Thursday 07:00 to 15:00",
+      "gold_answer_aliases": [
+        "Netanya",
+        "07:00 to 15:00"
+      ],
+      "gold_must_all": [
+        "Netanya",
+        "07:00 to 15:00"
+      ],
+      "decisive_evidence": [
+        {
+          "page": 2,
+          "text_or_locator": "Netanya",
+          "importance": "decisive"
+        },
+        {
+          "page": 15,
+          "text_or_locator": "OFFLOAD-WINDOW-0715",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": "Early place + late hours."
+    },
+    {
+      "question_id": "M39",
+      "question": "Summarize the complete shipment policy including any exception.",
+      "category": "GLOBAL",
+      "answerable": true,
+      "gold_answer": "no partial shipments except emergency orders of 200 m2 or less within 48 hours, not MW-100",
+      "gold_answer_aliases": [
+        "EXCEPTION-PARTIAL-SHIP-48H",
+        "shall not make partial shipments"
+      ],
+      "gold_must_all": [
+        "shall not make partial shipments",
+        "EXCEPTION-PARTIAL-SHIP-48H"
+      ],
+      "decisive_evidence": [
+        {
+          "page": 5,
+          "text_or_locator": "MAIN-RULE-NO-PARTIAL-SHIP",
+          "importance": "decisive"
+        },
+        {
+          "page": 14,
+          "text_or_locator": "EXCEPTION-PARTIAL-SHIP-48H",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": "Needs main rule and later exception."
+    },
+    {
+      "question_id": "M40",
+      "question": "List every SKU that has a unit price in the agreement.",
+      "category": "GLOBAL",
+      "answerable": true,
+      "gold_answer": "MW-50, MW-80, MW-100",
+      "gold_answer_aliases": [
+        "MW-50",
+        "MW-80",
+        "MW-100"
+      ],
+      "gold_must_all": [
+        "MW-50",
+        "MW-80",
+        "MW-100"
+      ],
+      "decisive_evidence": [
+        {
+          "page": 4,
+          "text_or_locator": "MW-50 |",
+          "importance": "decisive"
+        },
+        {
+          "page": 4,
+          "text_or_locator": "MW-80 |",
+          "importance": "decisive"
+        },
+        {
+          "page": 4,
+          "text_or_locator": "MW-100 |",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M41",
+      "question": "Which districts have a published regional lead-time row?",
+      "category": "GLOBAL",
+      "answerable": true,
+      "gold_answer": "Tel Aviv District, Haifa District, Southern District",
+      "gold_answer_aliases": [
+        "Tel Aviv District",
+        "Haifa District",
+        "Southern District"
+      ],
+      "gold_must_all": [
+        "Tel Aviv District",
+        "Haifa District",
+        "Southern District"
+      ],
+      "decisive_evidence": [
+        {
+          "page": 16,
+          "text_or_locator": "LEADTIME-TABLE-REGIONS",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M42",
+      "question": "What identifications uniquely name this contract and the project?",
+      "category": "GLOBAL",
+      "answerable": true,
+      "gold_answer": "BEN-GOLD-SA-2026-001 and Netanya Logistics Annex",
+      "gold_answer_aliases": [
+        "BEN-GOLD-SA-2026-001",
+        "Netanya Logistics Annex"
+      ],
+      "gold_must_all": [
+        "BEN-GOLD-SA-2026-001",
+        "Netanya Logistics Annex"
+      ],
+      "decisive_evidence": [
+        {
+          "page": 1,
+          "text_or_locator": "BEN-GOLD-SA-2026-001",
+          "importance": "decisive"
+        },
+        {
+          "page": 1,
+          "text_or_locator": "Netanya Logistics Annex",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M43",
+      "question": "State the warranty length and the inspection window together.",
+      "category": "GLOBAL",
+      "answerable": true,
+      "gold_answer": "24 months; 7 calendar days",
+      "gold_answer_aliases": [
+        "24 months",
+        "7 calendar days"
+      ],
+      "gold_must_all": [
+        "24 months",
+        "7 calendar days"
+      ],
+      "decisive_evidence": [
+        {
+          "page": 7,
+          "text_or_locator": "WARRANTY-24-MONTHS",
+          "importance": "decisive"
+        },
+        {
+          "page": 12,
+          "text_or_locator": "INSPECT-7-CALENDAR-DAYS",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": ""
+    },
+    {
+      "question_id": "M44",
+      "question": "What is the liquidated damages rate per day of delay?",
+      "category": "NEGATIVE",
+      "answerable": false,
+      "gold_answer": "not established",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 8,
+          "text_or_locator": "DELAY-NO-LD-RATE",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [
+        "5 business days"
+      ],
+      "notes": "Delay article exists but sets no LD rate."
+    },
+    {
+      "question_id": "M45",
+      "question": "Who is the named project manager?",
+      "category": "NEGATIVE",
+      "answerable": false,
+      "gold_answer": "not established",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 10,
+          "text_or_locator": "No project manager is named in this Agreement",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [
+        "Dana Levi"
+      ],
+      "notes": "A commercial contact is named; a PM is not."
+    },
+    {
+      "question_id": "M46",
+      "question": "Does the agreement require ISO 14001?",
+      "category": "NEGATIVE",
+      "answerable": false,
+      "gold_answer": "not established",
+      "gold_answer_aliases": [
+        "does not mention ISO 14001"
+      ],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 6,
+          "text_or_locator": "This Agreement does not mention ISO 14001",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [
+        "ISO 9001"
+      ],
+      "notes": "ISO 9001 is required; 14001 is not."
+    },
+    {
+      "question_id": "M47",
+      "question": "What is the unit price for SKU MW-120?",
+      "category": "NEGATIVE",
+      "answerable": false,
+      "gold_answer": "not established",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 4,
+          "text_or_locator": "PRICE-TABLE-MW50-4250",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [
+        "42.50",
+        "61.00",
+        "74.25"
+      ],
+      "notes": "Table has MW-50/80/100 only."
+    },
+    {
+      "question_id": "M48",
+      "question": "What Incoterm applies to the deliveries?",
+      "category": "NEGATIVE",
+      "answerable": false,
+      "gold_answer": "not established",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [],
+      "supporting_evidence": [],
+      "false_attractors": [],
+      "notes": "Incoterm never appears in the source."
+    },
+    {
+      "question_id": "M49",
+      "question": "What is the Northern District standard lead time?",
+      "category": "NEGATIVE",
+      "answerable": false,
+      "gold_answer": "not established",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 16,
+          "text_or_locator": "LEADTIME-TABLE-REGIONS",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [
+        "Tel Aviv District",
+        "Haifa District",
+        "Southern District"
+      ],
+      "notes": "Table has three districts; Northern is absent."
+    },
+    {
+      "question_id": "M50",
+      "question": "What bank account should invoices be paid into?",
+      "category": "NEGATIVE",
+      "answerable": false,
+      "gold_answer": "not established",
+      "gold_answer_aliases": [],
+      "gold_must_all": [],
+      "decisive_evidence": [
+        {
+          "page": 5,
+          "text_or_locator": "Payment term: 30 days from invoice date",
+          "importance": "decisive"
+        }
+      ],
+      "supporting_evidence": [],
+      "false_attractors": [
+        "30 days"
+      ],
+      "notes": "Payment timing exists; account details do not."
+    }
+  ]
+}
