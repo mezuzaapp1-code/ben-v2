@@ -1,0 +1,192 @@
+{
+  "baseline_comparison": {
+    "baseline": {
+      "answer_correctness": "48/50",
+      "decisive_span_recall": "42/43",
+      "unanswerable_precision": "7/7"
+    },
+    "candidate": {
+      "answer_correctness": "49/50",
+      "decisive_span_recall": "43/43",
+      "mrl": 0,
+      "unanswerable_precision": "7/7"
+    }
+  },
+  "candidates": [
+    {
+      "benchmark_result": {
+        "answer_correctness": "49/50",
+        "decisive_span_recall": "43/43",
+        "mrl": 0,
+        "unanswerable_precision": "7/7"
+      },
+      "candidate_id": "C1_PREFIX",
+      "change_summary": "Append expander-generated stem:* atoms to the existing simple OR tsquery. Query-prep only.",
+      "decision": "PASS",
+      "latency_delta": {
+        "within_budget": true
+      },
+      "notes": "I2 production canary kept expand scoped to the existing FTS allowlist.",
+      "regressions": []
+    }
+  ],
+  "classification": "LEXICAL_VARIATION",
+  "decision": "PASS",
+  "failure_cluster": {
+    "cluster_id": "LEXICAL_VARIATION:retrieval query preparation:where-must-goods-delivered",
+    "component": "retrieval query preparation",
+    "failure_class": "LEXICAL_VARIATION",
+    "fingerprint": [
+      "where",
+      "must",
+      "goods",
+      "delivered"
+    ],
+    "frequency": 1,
+    "members": [
+      "i1-replay-lexical-fts"
+    ],
+    "pattern_kind": "one-off",
+    "recency": "2026-09-13T08:09:32+00:00",
+    "severity": "medium",
+    "user_impact": "missing_decisive_span"
+  },
+  "fix_contract": {
+    "allowed_components": [
+      "retrieval query preparation"
+    ],
+    "data_invariants": [
+      "do not persist unnecessary customer content",
+      "do not broaden authorized source set"
+    ],
+    "expected_improvement": "Lexical-variation misses recover the decisive span; correctness, decisive recall, and unanswerable precision do not drop.",
+    "failure_class": "LEXICAL_VARIATION",
+    "fix_id": "fix-i1-replay-lexical-fts",
+    "forbidden_components": [
+      "RLS",
+      "auth",
+      "database schema",
+      "file ownership",
+      "payments",
+      "permission escalation",
+      "production flags",
+      "provider routing",
+      "secrets",
+      "tenant isolation"
+    ],
+    "human_review_required": true,
+    "hypothesis": "Bounded query expansion over sanitized tokens may recover inflectional variants on existing simple FTS without ranking or schema changes.",
+    "max_candidates": 3,
+    "performance_budget": "FTS latency remains below 200ms timeout and within 2\u00d7 control mean.",
+    "required_benchmarks": [
+      "Gate M extractive benchmark",
+      "Gate P BEN_EXISTING_FTS baseline"
+    ],
+    "required_regression_tests": [
+      "retrieval isolation tests (cross-org, cross-workspace)",
+      "no unanswerable precision regression"
+    ],
+    "required_targeted_tests": [
+      "targeted span recovery for the measured query"
+    ],
+    "risk_level": "LOW",
+    "rollback_strategy": "Do not merge. Do not deploy. Do not change production flags. Leave candidate artifacts isolated. Rollback is unset any unmerged flag.",
+    "scope": "query_prep",
+    "security_invariants": [
+      "same org/workspace/file filtering",
+      "no broader unauthorized source set",
+      "no auth/RLS/tenant-isolation change",
+      "no secret or permission change"
+    ],
+    "stop_conditions": [
+      "one candidate satisfies the full Fix Contract",
+      "maximum candidates fail",
+      "required change exceeds allowed scope",
+      "failure becomes security relevant",
+      "evidence is insufficient",
+      "architectural change is required"
+    ]
+  },
+  "human_action_required": "No production action. Human review required before any merge, deploy, flag change, or rollout. This run has no production authority (merge=False).",
+  "priority": {
+    "benchmark_score_used": false,
+    "inputs": {
+      "diagnosis_confidence": 0.7,
+      "estimated_cost": 1.0,
+      "expected_improvement": 0.5,
+      "frequency": 1,
+      "implementation_risk": 1,
+      "pattern_kind": "one-off",
+      "severity": 2,
+      "user_impact": 3
+    },
+    "score": 5.633
+  },
+  "production_authority_used": false,
+  "provenance": {
+    "candidate_changed": {
+      "candidate_id": "C1_PREFIX",
+      "change_summary": "Append expander-generated stem:* atoms to the existing simple OR tsquery. Query-prep only."
+    },
+    "decision": "PASS",
+    "diagnosis_evidence": {
+      "classified_as": "LEXICAL_VARIATION",
+      "expected_evidence": "named delivery place is 12 HaMelacha Street",
+      "input_reference": "Where must the goods be delivered?",
+      "observed_evidence": "pages=[7, 11]"
+    },
+    "how_we_know": {
+      "benchmark_reference": "gate_p_ben_existing_fts",
+      "prior_label": "RANKING_FAILURE",
+      "retrieval_mode": "chunks",
+      "source": "GATE_I1"
+    },
+    "human_review_required": true,
+    "production_authority_still_required": [
+      "human review",
+      "merge",
+      "deploy",
+      "production flags",
+      "rollout"
+    ],
+    "tests_ran": [
+      "targeted span recovery for the measured query",
+      "retrieval isolation tests (cross-org, cross-workspace)",
+      "no unanswerable precision regression"
+    ],
+    "what_failed": {
+      "component": "retrieval query preparation",
+      "failure_class": "LEXICAL_VARIATION",
+      "failure_id": "i1-replay-lexical-fts"
+    },
+    "what_improved": {
+      "answer_correctness": "49/50",
+      "decisive_span_recall": "43/43",
+      "mrl": 0,
+      "unanswerable_precision": "7/7"
+    },
+    "what_regressed": [],
+    "what_was_not_tested": [
+      "live production traffic beyond the measured canary fixtures",
+      "model-reasoning failures (out of scope)"
+    ]
+  },
+  "risk_assessment": {
+    "auto_promote": false,
+    "human_review_required": true,
+    "risk_level": "LOW",
+    "security_relevant": false
+  },
+  "run_id": "ir-i3-i1-replay",
+  "stop_reason": "candidate_satisfied_contract",
+  "test_results": {
+    "evaluated": [
+      "C1_PREFIX"
+    ],
+    "tests_declared": [
+      "targeted span recovery for the measured query",
+      "retrieval isolation tests (cross-org, cross-workspace)",
+      "no unanswerable precision regression"
+    ]
+  }
+}
