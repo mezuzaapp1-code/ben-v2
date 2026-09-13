@@ -22,6 +22,7 @@ from services.workspace_files.file_resolver import (
     file_is_explicitly_named,
     significant_tokens_in_order,
 )
+from services.workspace_files.query_expansion import extra_tsquery_atoms
 
 MAX_CHUNKS_CONSIDERED = 40
 MAX_CHUNKS_SELECTED = 8
@@ -113,10 +114,16 @@ def normalize_query_tokens(user_query: str | None) -> list[str]:
     )
 
 
+_SAFE_EXPAND_ATOM_RE = re.compile(r"^[0-9a-z\u0590-\u05ff]+:\*$")
+
+
 def build_or_tsquery(tokens: Iterable[str]) -> str | None:
     """OR-join safe tokens for ``to_tsquery('simple', ...)``.
 
     User text never reaches the operator language. Unsafe tokens are dropped.
+    Optional fail-closed expansion (``BEN_FTS_LEXICAL_EXPAND``, default off)
+    may append expander-generated ``stem`` / ``stem:*`` atoms. Prefix
+    operators are never accepted from user tokens.
     """
     atoms: list[str] = []
     seen: set[str] = set()
@@ -130,6 +137,14 @@ def build_or_tsquery(tokens: Iterable[str]) -> str | None:
             break
     if not atoms:
         return None
+    for extra in extra_tsquery_atoms(atoms):
+        atom = (extra or "").strip().lower()
+        if not atom or atom in seen:
+            continue
+        if not (_SAFE_TOKEN_RE.fullmatch(atom) or _SAFE_EXPAND_ATOM_RE.fullmatch(atom)):
+            continue
+        seen.add(atom)
+        atoms.append(atom)
     return " | ".join(atoms)
 
 
@@ -174,6 +189,9 @@ class RetrievalDiagnostics:
     fallback_reason: str | None = None
     extraction_coverage: str = "legacy"
     index_chunk_mismatch_ids: tuple[str, ...] = ()
+    lexical_expand_mode: str = "off"
+    query_tokens: tuple[str, ...] = ()
+    expansion_atom_count: int = 0
 
 
 def ready_file_from_row(row: Any, org_id: Any, workspace_id: Any) -> ReadyFile | None:
@@ -515,6 +533,9 @@ def diagnostics_from_pack(
     fallback_reason: str | None,
     coverage: str,
     mismatch_ids: list[Any] | tuple[Any, ...] = (),
+    lexical_expand_mode: str = "off",
+    query_tokens: tuple[str, ...] | list[str] = (),
+    expansion_atom_count: int = 0,
 ) -> RetrievalDiagnostics:
     pages = tuple(h.page_number for h in selected)
     return RetrievalDiagnostics(
@@ -531,4 +552,7 @@ def diagnostics_from_pack(
         fallback_reason=fallback_reason,
         extraction_coverage=coverage,
         index_chunk_mismatch_ids=tuple(str(i) for i in mismatch_ids),
+        lexical_expand_mode=lexical_expand_mode or "off",
+        query_tokens=tuple(query_tokens or ()),
+        expansion_atom_count=int(expansion_atom_count or 0),
     )
