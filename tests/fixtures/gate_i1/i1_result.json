@@ -1,0 +1,288 @@
+{
+  "gate": "I1",
+  "timestamp": "2026-09-13T08:09:32+00:00",
+  "production_changed": false,
+  "merged": false,
+  "deployed": false,
+  "failure_record": {
+    "failure_id": "i1-m09-fts",
+    "benchmark_id": "gate_p_ben_existing_fts",
+    "task_id": "M09",
+    "failure_class": "LEXICAL_VARIATION",
+    "user_query": "Where must the goods be delivered?",
+    "expected_evidence": "named delivery place is 12 HaMelacha Street",
+    "retrieved_evidence": "pages=[7, 11]",
+    "actual_answer": "",
+    "expected_answer": "12 HaMelacha Street, Netanya",
+    "source_files": [
+      "ben_gold_supply_agreement.pdf"
+    ],
+    "retrieval_mode": "chunks",
+    "timestamp": "2026-09-13T08:09:32+00:00",
+    "severity": "medium",
+    "security_relevant": false,
+    "repeat_count": 1,
+    "prior_label": "RANKING_FAILURE",
+    "retrieved_empty": false,
+    "evidence_pages": [
+      7,
+      11
+    ],
+    "notes": "Seeded from committed Gate P FTS baseline; classifier ignores task_id."
+  },
+  "fix_contract": {
+    "problem_class": "LEXICAL_VARIATION",
+    "hypothesis": "Bounded query expansion over already-sanitized Latin tokens may recover inflectional variants (e.g. delivered↔delivery) on the existing simple FTS index without changing ranking or schema.",
+    "expected_improvement": "Lexical-variation misses recover the decisive span; total correctness, decisive recall, and unanswerable precision do not drop.",
+    "allowed_modules": [
+      "retrieval query preparation"
+    ],
+    "forbidden_modules": [
+      "RLS",
+      "auth",
+      "database schema",
+      "file ownership",
+      "provider routing",
+      "tenant isolation"
+    ],
+    "security_invariants": [
+      "same org/workspace/file filtering",
+      "no broader unauthorized source set",
+      "user tokens never inject tsquery operators",
+      "prefix :* atoms originate only from the expander"
+    ],
+    "performance_budget": "FTS statement timeout remains 200ms; mean fts_latency_ms must stay below that timeout and must not exceed 2× the same-harness control mean.",
+    "required_tests": [
+      "Gate M gold extractive benchmark (isolated FTS)",
+      "Gate P BEN_EXISTING_FTS regression vs committed baseline",
+      "retrieval isolation tests (cross-org, cross-workspace)",
+      "no cross-workspace leakage",
+      "no regression in unanswerable precision"
+    ],
+    "rollback_strategy": "Leave BEN_FTS_LEXICAL_EXPAND unset/off. Do not merge. Do not deploy. Production retrieval path is unchanged while the flag is off.",
+    "scope": "query_prep",
+    "risk_level": "low"
+  },
+  "capabilities": {
+    "principle": "existing-capabilities-first; no new dependency if current infra suffices",
+    "items": [
+      {
+        "name": "postgres_simple_fts_prefix_operator",
+        "verdict": "USE",
+        "reason": "Existing generated text_tsv uses to_tsvector('simple', text) plus GIN. to_tsquery('simple', 'stem:*') already matches inflectional variants on that index. No schema change, no new extension."
+      },
+      {
+        "name": "query_prep_sanitize_and_or_join",
+        "verdict": "ADAPT",
+        "reason": "build_or_tsquery already sanitizes user tokens and OR-joins them. I1 adapts it to append expander-generated stem:* atoms when BEN_FTS_LEXICAL_EXPAND=prefix. Default remains off."
+      },
+      {
+        "name": "english_text_search_config",
+        "verdict": "REJECT",
+        "reason": "Switching the generated column to 'english' is a schema change (forbidden). Snowball delivered≠delivery stemming is also not guaranteed for this pair, and Hebrew tokens would be mishandled."
+      },
+      {
+        "name": "embeddings_hybrid_rerank_vector_db",
+        "verdict": "REJECT",
+        "reason": "I1 forbids embeddings, hybrid retrieval, rerankers, and new vector infrastructure. Lexical prefix matching is in-stack."
+      },
+      {
+        "name": "new_python_dependency",
+        "verdict": "REJECT",
+        "reason": "Current Postgres FTS already provides a sufficient mechanism."
+      },
+      {
+        "name": "provider_native_pdf",
+        "verdict": "REJECT",
+        "reason": "Out of scope; Gate P already measured this as blocked without keys."
+      },
+      {
+        "name": "learn_new_stemmer",
+        "verdict": "LEARN",
+        "reason": "If prefix atoms over-expand or under-stem a future class, record the pair for a later gated morphology table. Do not add one in I1."
+      }
+    ],
+    "use": [
+      "postgres_simple_fts_prefix_operator"
+    ],
+    "adapt": [
+      "query_prep_sanitize_and_or_join"
+    ],
+    "learn": [
+      "learn_new_stemmer"
+    ],
+    "reject": [
+      "english_text_search_config",
+      "embeddings_hybrid_rerank_vector_db",
+      "new_python_dependency",
+      "provider_native_pdf"
+    ],
+    "postgres_probe": {
+      "available": true,
+      "pairs": [
+        {
+          "name": "simple_exact_inflection",
+          "query": "delivered",
+          "matched": false
+        },
+        {
+          "name": "simple_prefix_inflection",
+          "query": "deliver:*",
+          "matched": true
+        },
+        {
+          "name": "simple_surface_form",
+          "query": "delivery",
+          "matched": true
+        },
+        {
+          "name": "english_query_on_simple_vec",
+          "query": "delivered",
+          "matched": false
+        },
+        {
+          "name": "english_english_inflection",
+          "query": "delivered",
+          "matched": false
+        }
+      ],
+      "document": "the delivery window closed after inspection"
+    },
+    "chosen_mechanism": "Fail-closed query-prep prefix atoms (stem:*) against existing to_tsvector('simple') GIN. Default BEN_FTS_LEXICAL_EXPAND=off."
+  },
+  "committed_baseline": {
+    "mode": "BEN_EXISTING_FTS",
+    "answer_correctness": "48/50",
+    "decisive_span_recall": "42/43",
+    "unanswerable_precision": "7/7",
+    "mrl": 1
+  },
+  "candidates": [
+    {
+      "candidate_id": "C1_PREFIX",
+      "change_summary": "Append expander-generated stem:* atoms to the existing simple OR tsquery. One FTS round-trip. Same org/workspace/file filters.",
+      "expand_mode": "prefix",
+      "extra_atoms_for_seed_query": [
+        "deliver:*"
+      ],
+      "benchmark_result": {
+        "answer_correctness": "49/50",
+        "decisive_span_recall": "43/43",
+        "unanswerable_precision": "7/7",
+        "mrl": 0,
+        "failure_frontier": {
+          "MODEL_REASONING_FAILURE": 1
+        },
+        "status": "measured"
+      },
+      "latency_delta": {
+        "candidate": {
+          "mean_fts_latency_ms": 0.866,
+          "max_fts_latency_ms": 1.33,
+          "mean_wall_latency_ms": 3.896,
+          "n_fts": 50
+        },
+        "control": {
+          "mean_fts_latency_ms": 0.842,
+          "max_fts_latency_ms": 3.06,
+          "mean_wall_latency_ms": 3.986,
+          "n_fts": 50
+        },
+        "timeout_ms": 200.0,
+        "unexpected_files": []
+      },
+      "regressions": [],
+      "decision": "PASS",
+      "targeted": {
+        "ok": true,
+        "decisive_in_injected": true,
+        "extractive_answer_ok": true,
+        "evidence_pages": [
+          2,
+          7,
+          6,
+          8
+        ],
+        "retrieval_mode": "chunks",
+        "matched_on": "user_query",
+        "expected_evidence": "named delivery place is 12 HaMelacha Street"
+      },
+      "isolation": {
+        "ok": true,
+        "returncode": 0,
+        "tests": [
+          "tests/test_document_intelligence_gate4a.py::test_same_filename_across_workspaces_no_leak",
+          "tests/test_document_intelligence_gate4a.py::test_cross_org_isolation"
+        ]
+      },
+      "hardcoding": {
+        "scanned": [
+          "/workspace/services/workspace_files/query_expansion.py",
+          "/workspace/services/workspace_files/chunk_retriever.py"
+        ],
+        "hits": [],
+        "ok": true
+      }
+    }
+  ],
+  "pattern": "generic_query_prep_prefix",
+  "files_changed": [
+    "services/workspace_files/query_expansion.py",
+    "services/workspace_files/chunk_retriever.py",
+    "services/improvement/",
+    "scripts/run_gate_i1.py",
+    "tests/test_gate_i1_improvement_loop.py",
+    "tests/test_query_expansion.py",
+    "tests/fixtures/gate_i1/"
+  ],
+  "control": {
+    "summary": {
+      "mode": "BEN_EXISTING_FTS",
+      "status": "measured",
+      "questions": 50,
+      "answer_correctness": "48/50",
+      "answer_correctness_n": 48,
+      "decisive_span_recall": "42/43",
+      "mrl": 1,
+      "mrl_rate": 2.0,
+      "unanswerable_precision": "7/7",
+      "citation_page_accuracy": "42/43",
+      "early": "18/20",
+      "middle": "6/6",
+      "late": "17/17",
+      "exceptions": "5/5",
+      "multi_hop": "5/6",
+      "global": "5/5",
+      "table": "6/6",
+      "failure_frontier": {
+        "RANKING_FAILURE": 1,
+        "MODEL_REASONING_FAILURE": 1
+      },
+      "mean_latency_ms": 3.99,
+      "input_tokens": null,
+      "output_tokens": null,
+      "approx_cost_usd": null,
+      "retrieval_kind": "fts",
+      "processes_entire_pdf": false,
+      "performs_retrieval": true,
+      "retrieved_chunks_observable": true,
+      "citations_observable": true,
+      "preserves_page_layout": false,
+      "model_id": "extractive-oracle-over-fts-chunks",
+      "chunk_count": 18,
+      "flag_scope": "throwaway workspace allowlist in this process only"
+    },
+    "latency": {
+      "mean_fts_latency_ms": 0.842,
+      "max_fts_latency_ms": 3.06,
+      "mean_wall_latency_ms": 3.986,
+      "n_fts": 50
+    },
+    "expand_mode": "off"
+  },
+  "decision": "PASS",
+  "gate_status": "PASS",
+  "stop_reason": "C1_PREFIX passed all regression gates",
+  "recommendation": "Candidate is eligible for a human-reviewed implementation gate. Keep BEN_FTS_LEXICAL_EXPAND default off. Do not merge this branch as production. Do not deploy. Do not change Railway FTS flags. Next gate: reviewed enablement of prefix expansion on a canary workspace after security sign-off.",
+  "pattern_generic": true
+}
