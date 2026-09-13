@@ -1,0 +1,33 @@
+{
+  "problem_class": "LEXICAL_VARIATION",
+  "hypothesis": "Bounded query expansion over already-sanitized Latin tokens may recover inflectional variants (e.g. delivered↔delivery) on the existing simple FTS index without changing ranking or schema.",
+  "expected_improvement": "Lexical-variation misses recover the decisive span; total correctness, decisive recall, and unanswerable precision do not drop.",
+  "allowed_modules": [
+    "retrieval query preparation"
+  ],
+  "forbidden_modules": [
+    "RLS",
+    "auth",
+    "database schema",
+    "file ownership",
+    "provider routing",
+    "tenant isolation"
+  ],
+  "security_invariants": [
+    "same org/workspace/file filtering",
+    "no broader unauthorized source set",
+    "user tokens never inject tsquery operators",
+    "prefix :* atoms originate only from the expander"
+  ],
+  "performance_budget": "FTS statement timeout remains 200ms; mean fts_latency_ms must stay below that timeout and must not exceed 2× the same-harness control mean.",
+  "required_tests": [
+    "Gate M gold extractive benchmark (isolated FTS)",
+    "Gate P BEN_EXISTING_FTS regression vs committed baseline",
+    "retrieval isolation tests (cross-org, cross-workspace)",
+    "no cross-workspace leakage",
+    "no regression in unanswerable precision"
+  ],
+  "rollback_strategy": "Leave BEN_FTS_LEXICAL_EXPAND unset/off. Do not merge. Do not deploy. Production retrieval path is unchanged while the flag is off.",
+  "scope": "query_prep",
+  "risk_level": "low"
+}

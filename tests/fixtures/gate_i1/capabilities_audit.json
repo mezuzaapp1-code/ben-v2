@@ -1,0 +1,87 @@
+{
+  "principle": "existing-capabilities-first; no new dependency if current infra suffices",
+  "items": [
+    {
+      "name": "postgres_simple_fts_prefix_operator",
+      "verdict": "USE",
+      "reason": "Existing generated text_tsv uses to_tsvector('simple', text) plus GIN. to_tsquery('simple', 'stem:*') already matches inflectional variants on that index. No schema change, no new extension."
+    },
+    {
+      "name": "query_prep_sanitize_and_or_join",
+      "verdict": "ADAPT",
+      "reason": "build_or_tsquery already sanitizes user tokens and OR-joins them. I1 adapts it to append expander-generated stem:* atoms when BEN_FTS_LEXICAL_EXPAND=prefix. Default remains off."
+    },
+    {
+      "name": "english_text_search_config",
+      "verdict": "REJECT",
+      "reason": "Switching the generated column to 'english' is a schema change (forbidden). Snowball delivered≠delivery stemming is also not guaranteed for this pair, and Hebrew tokens would be mishandled."
+    },
+    {
+      "name": "embeddings_hybrid_rerank_vector_db",
+      "verdict": "REJECT",
+      "reason": "I1 forbids embeddings, hybrid retrieval, rerankers, and new vector infrastructure. Lexical prefix matching is in-stack."
+    },
+    {
+      "name": "new_python_dependency",
+      "verdict": "REJECT",
+      "reason": "Current Postgres FTS already provides a sufficient mechanism."
+    },
+    {
+      "name": "provider_native_pdf",
+      "verdict": "REJECT",
+      "reason": "Out of scope; Gate P already measured this as blocked without keys."
+    },
+    {
+      "name": "learn_new_stemmer",
+      "verdict": "LEARN",
+      "reason": "If prefix atoms over-expand or under-stem a future class, record the pair for a later gated morphology table. Do not add one in I1."
+    }
+  ],
+  "use": [
+    "postgres_simple_fts_prefix_operator"
+  ],
+  "adapt": [
+    "query_prep_sanitize_and_or_join"
+  ],
+  "learn": [
+    "learn_new_stemmer"
+  ],
+  "reject": [
+    "english_text_search_config",
+    "embeddings_hybrid_rerank_vector_db",
+    "new_python_dependency",
+    "provider_native_pdf"
+  ],
+  "postgres_probe": {
+    "available": true,
+    "pairs": [
+      {
+        "name": "simple_exact_inflection",
+        "query": "delivered",
+        "matched": false
+      },
+      {
+        "name": "simple_prefix_inflection",
+        "query": "deliver:*",
+        "matched": true
+      },
+      {
+        "name": "simple_surface_form",
+        "query": "delivery",
+        "matched": true
+      },
+      {
+        "name": "english_query_on_simple_vec",
+        "query": "delivered",
+        "matched": false
+      },
+      {
+        "name": "english_english_inflection",
+        "query": "delivered",
+        "matched": false
+      }
+    ],
+    "document": "the delivery window closed after inspection"
+  },
+  "chosen_mechanism": "Fail-closed query-prep prefix atoms (stem:*) against existing to_tsvector('simple') GIN. Default BEN_FTS_LEXICAL_EXPAND=off."
+}

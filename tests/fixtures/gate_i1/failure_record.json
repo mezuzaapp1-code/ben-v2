@@ -1,0 +1,26 @@
+{
+  "failure_id": "i1-m09-fts",
+  "benchmark_id": "gate_p_ben_existing_fts",
+  "task_id": "M09",
+  "failure_class": "LEXICAL_VARIATION",
+  "user_query": "Where must the goods be delivered?",
+  "expected_evidence": "named delivery place is 12 HaMelacha Street",
+  "retrieved_evidence": "pages=[7, 11]",
+  "actual_answer": "",
+  "expected_answer": "12 HaMelacha Street, Netanya",
+  "source_files": [
+    "ben_gold_supply_agreement.pdf"
+  ],
+  "retrieval_mode": "chunks",
+  "timestamp": "2026-09-13T08:09:32+00:00",
+  "severity": "medium",
+  "security_relevant": false,
+  "repeat_count": 1,
+  "prior_label": "RANKING_FAILURE",
+  "retrieved_empty": false,
+  "evidence_pages": [
+    7,
+    11
+  ],
+  "notes": "Seeded from committed Gate P FTS baseline; classifier ignores task_id."
+}
