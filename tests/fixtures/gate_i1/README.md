@@ -7,6 +7,8 @@ Research + isolated prototype only.
 - Does **not** touch auth / RLS / tenant isolation
 - Candidate expansion is fail-closed: `BEN_FTS_LEXICAL_EXPAND` default **off**
 
+Measured status: **GATE I1: PASS** (`C1_PREFIX`). See `gate_i1_report.md`.
+
 Run:
 
 ```
