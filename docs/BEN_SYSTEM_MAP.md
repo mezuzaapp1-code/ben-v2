@@ -11,7 +11,7 @@ Architecture reference for BEN v2. Use this document to keep future work structu
 | Database | PostgreSQL (Railway) |
 | Auth | Clerk |
 
-**Related docs:** `docs/RISK_REGISTER.md`, `docs/TIMING_GOVERNANCE.md`, `docs/SYSTEM_BOUNDARIES.md`, `docs/TASK_REPORT_TENANT_MODE_V2_DEPLOY.md`
+**Related docs:** `docs/RISK_REGISTER.md`, `docs/TIMING_GOVERNANCE.md`, `docs/SYSTEM_BOUNDARIES.md`, `docs/TASK_REPORT_TENANT_MODE_V2_DEPLOY.md`, `docs/FILE_INFRASTRUCTURE_AUDIT.md` (File Library as-built, 2026-09-10)
 
 ---
 
@@ -390,6 +390,7 @@ Do not skip verification when adding layers.
 | Frontend | `frontend/src/App.jsx`, `frontend/src/api/*.js` |
 | Ops | `services/ops/timeouts.py`, `services/ops/load_governance.py`, `services/ops/structured_log.py` |
 | DB | `database/models.py`, `database/connection.py` |
+| File Library | `services/workspace_files/*`, `routers/workspace_files.py`, `docs/FILE_INFRASTRUCTURE_AUDIT.md` |
 | Boundaries | `docs/SYSTEM_BOUNDARIES.md` |
 
 ---
