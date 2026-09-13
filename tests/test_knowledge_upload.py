@@ -85,7 +85,7 @@ async def test_stream_knowledge_upload_rejects_empty(project_env):
         await stream_knowledge_upload(project_env, upload)
 
 
-def test_upload_stream_api_endpoint(project_env):
+def test_upload_stream_api_endpoint_is_contained(project_env):
     client = TestClient(main.app)
     content = b"log-line\n" * 128
     response = client.post(
@@ -93,31 +93,22 @@ def test_upload_stream_api_endpoint(project_env):
         files={"file": ("server.log", content, "text/plain")},
         headers=_beta_headers(),
     )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["project_slug"] == project_env
-    assert body["file"]["filename"] == "server.log"
-    assert body["file"]["size_bytes"] == len(content)
+    assert response.status_code == 410
+    assert response.json()["detail"]["code"] == "legacy_knowledge_contained"
+    assert list_knowledge_files(project_env) == []
 
 
-def test_list_knowledge_files_api_endpoint(project_env):
+def test_list_knowledge_files_api_endpoint_is_contained(project_env):
     client = TestClient(main.app)
-    client.post(
-        f"/api/projects/{project_env}/knowledge/upload-stream",
-        files={"file": ("metrics.csv", b"a,b,c\n1,2,3\n", "text/csv")},
-        headers=_beta_headers(),
-    )
     response = client.get(
         f"/api/projects/{project_env}/knowledge/files",
         headers=_beta_headers(),
     )
-    assert response.status_code == 200
-    files = response.json()["files"]
-    assert len(files) == 1
-    assert files[0]["filename"] == "metrics.csv"
+    assert response.status_code == 410
+    assert response.json()["detail"]["code"] == "legacy_knowledge_contained"
 
 
-def test_active_attention_api_endpoint(project_env):
+def test_active_attention_api_endpoint_is_contained(project_env):
     from services.knowledge_store import HEAD_CODE, insert_context_record
 
     client = TestClient(main.app)
@@ -133,14 +124,5 @@ def test_active_attention_api_endpoint(project_env):
         params={"query": "query_hybrid_attention"},
         headers=_beta_headers(),
     )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["project_slug"] == slug
-    assert body["thread_id"] == "thread-alpha"
-    assert body["has_focus"] is True
-    assert body["items"]
-    item = body["items"][0]
-    assert item["entity_name"] == "query_hybrid_attention"
-    assert item["head_type"] == "Code"
-    assert "Updated" in item["updated_relative"]
-    assert "score_breakdown" in item
+    assert response.status_code == 410
+    assert response.json()["detail"]["code"] == "legacy_knowledge_contained"

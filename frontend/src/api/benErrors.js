@@ -9,6 +9,7 @@ export const RETRY_LATER = 'retry_later'
 export const DUPLICATE_REQUEST = 'duplicate_request'
 export const IDEMPOTENCY_REJECTED = 'idempotency_rejected'
 export const COUNCIL_PERSISTENCE_FAILED = 'council_persistence_failed'
+export const LEGACY_KNOWLEDGE_CONTAINED = 'legacy_knowledge_contained'
 
 const COUNCIL_PERSISTENCE_FAILED_MESSAGE =
   'BEN completed the council response, but could not save the transcript. Please retry.'
@@ -64,6 +65,16 @@ export function parseBenErrorResponse(status, data) {
       hint,
       recoverable: detail.recoverable !== false,
       retry_after_s: detail.retry_after_s,
+    }
+  }
+  if (typeof detail === 'object' && detail !== null && detail.code === LEGACY_KNOWLEDGE_CONTAINED) {
+    return {
+      code: LEGACY_KNOWLEDGE_CONTAINED,
+      message: String(
+        detail.message || 'Legacy Knowledge is unavailable. Existing data was not deleted.'
+      ),
+      hint: null,
+      recoverable: false,
     }
   }
   if (typeof detail === 'object' && detail !== null && detail.code === CAPABILITY_DENIED) {

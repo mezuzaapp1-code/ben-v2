@@ -2,13 +2,10 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import re
 from typing import Any
 
 from database.knowledge_store import get_connection
-
-logger = logging.getLogger("ben.knowledge_service")
 
 _MAX_FEW_SHOT_DOCS = 4
 _MAX_FEW_SHOT_CHARS = 6000
@@ -178,7 +175,7 @@ async def build_knowledge_few_shot_block(
     message: str,
     context_id: str | None = None,
 ) -> str:
-    """Indexed SQLite lookup — runs off the hot token stream path."""
-    if context_id:
-        logger.debug("context_id received but not used for filtering yet: %s", context_id)
-    return await asyncio.to_thread(_few_shot_block_sync, message)
+    """Contained: do not retrieve global knowledge for prompts. Data is left in place."""
+    from services.knowledge_containment import contained_few_shot_block
+
+    return contained_few_shot_block(message, context_id)

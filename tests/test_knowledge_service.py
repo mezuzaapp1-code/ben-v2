@@ -1,8 +1,5 @@
-"""Knowledge base SQLite store and few-shot retrieval."""
+"""Knowledge base SQLite store remains; prompt injection is contained."""
 from __future__ import annotations
-
-import os
-from pathlib import Path
 
 import pytest
 
@@ -25,7 +22,7 @@ def kb_db(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_create_base_and_inject_few_shot(kb_db):
+async def test_create_base_persists_without_prompt_injection(kb_db):
     base = await create_knowledge_base("RMS")
     await add_knowledge_document(
         base["id"],
@@ -33,24 +30,24 @@ async def test_create_base_and_inject_few_shot(kb_db):
         content="Step 1: intake\nStep 2: classify",
     )
     block = await build_knowledge_few_shot_block("build an RMS based on the RMS base")
-    assert "Gold RMS Template" in block
-    assert "Step 1: intake" in block
+    assert block == ""
+    names = [row["name"] for row in await list_knowledge_bases()]
+    assert "RMS" in names
+    assert kb_db.exists()
 
 
 @pytest.mark.asyncio
-async def test_inject_knowledge_wraps_payload(kb_db):
+async def test_inject_knowledge_does_not_wrap_payload(kb_db):
     await create_knowledge_base("Templates")
     await add_knowledge_document(
         (await list_knowledge_bases())[0]["id"],
         title="Checklist",
         content="Item A",
     )
-    out = await inject_knowledge_few_shot(
-        "use Templates knowledge",
-        "<user_message>\nhello\n</user_message>",
-    )
-    assert "<few_shot_examples>" in out
-    assert "Item A" in out
+    inner = "<user_message>\nhello\n</user_message>"
+    out = await inject_knowledge_few_shot("use Templates knowledge", inner)
+    assert "<few_shot_examples>" not in out
+    assert "Item A" not in out
     assert "<user_message>" in out
 
 
