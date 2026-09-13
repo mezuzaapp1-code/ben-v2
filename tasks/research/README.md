@@ -9,3 +9,5 @@ To promote findings:
 3. Never skip the task template.
 
 Anti-pattern: research doc that reads like a roadmap without a decision record.
+
+FILE OUT OSS review (planning only, not a gate): `gate_file_out/GATE_FILE_OUT_OSS_REVIEW.md`. Does not replace P1. Do not implement.
