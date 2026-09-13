@@ -18,7 +18,7 @@ from typing import Any
 
 from database.thread_store import get_thread_metadata
 
-from services.knowledge_store import build_multi_head_prompt_context
+from services.knowledge_containment import contained_portable_project_context
 
 from services.ben_log_service import append_event
 
@@ -179,7 +179,7 @@ async def stream_project_agent_response(
     meta = get_thread_metadata(str(thread_id))
     project_slug = str((meta or {}).get("project_slug") or "").strip()
     if project_slug:
-        hybrid_context = build_multi_head_prompt_context(
+        hybrid_context = contained_portable_project_context(
             project_slug,
             user_message or PROJECT_SETUP_BOOTSTRAP_USER,
             limit_per_head=3,

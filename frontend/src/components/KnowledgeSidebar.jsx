@@ -1,147 +1,25 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { acquirePersistentHeaders, isAuthTokenUnavailable } from '../api/benHeaders.js'
-import { fetchActiveAttention, fetchProjectKnowledgeFiles } from '../api/knowledge.js'
+import { useRef, useState } from 'react'
 import { FileLifecycleStatus } from './FileLifecycleStatus.jsx'
 import { useWorkspaceFileInventory, workspaceFileInventory } from '../hooks/useWorkspaceFileInventory.jsx'
-import { createActiveFocusController } from '../lib/activeFocusSession.js'
 import { deriveFileStage, formatByteSize, processingPercent, visualFileStage } from '../lib/fileStatus.js'
 import './KnowledgeSidebar.css'
-
-const HEAD_SECTIONS = [
-  { key: 'code', label: 'Code Head', icon: '💻' },
-  { key: 'documentation', label: 'Documentation Head', icon: '📄' },
-  { key: 'history', label: 'History Head', icon: '🕒' },
-]
-
-function scoreTooltip(breakdown) {
-  if (!breakdown) return ''
-  return [
-    `Semantic ${(breakdown.semantic_weighted * 100).toFixed(1)}%`,
-    `Recency ${(breakdown.recency_weighted * 100).toFixed(1)}%`,
-    `FTS ${(breakdown.fts_weighted * 100).toFixed(1)}%`,
-  ].join(' · ')
-}
-
-function FocusItem({ item }) {
-  const pct = Math.min(100, Math.max(0, Number(item.score_percent) || 0))
-  return (
-    <li className="knowledge-sidebar__focus-item">
-      <div className="knowledge-sidebar__focus-row">
-        <span className="knowledge-sidebar__focus-name" title={item.entity_name}>
-          {item.entity_name}
-        </span>
-        <span
-          className="knowledge-sidebar__focus-score"
-          title={scoreTooltip(item.score_breakdown)}
-        >
-          {pct.toFixed(1)}%
-        </span>
-      </div>
-      <div className="knowledge-sidebar__focus-bar" aria-hidden="true">
-        <div className="knowledge-sidebar__focus-bar-fill" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="knowledge-sidebar__focus-meta">{item.updated_relative}</span>
-    </li>
-  )
-}
 
 export function KnowledgeSidebar({
   projectSlug,
   workspaceId = null,
   buildHeaders,
   disabled = false,
-  attentionFocusRequest = null,
+  attentionFocusRequest: _attentionFocusRequest = null,
   onOpenFileLibrary = null,
 }) {
   const inputRef = useRef(null)
   const inventory = useWorkspaceFileInventory()
-  const [legacyFiles, setLegacyFiles] = useState([])
-  const [legacyLoading, setLegacyLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState(null)
-  const usingInventory = Boolean(workspaceId)
-  const files = usingInventory ? inventory.rows : legacyFiles
-  const loading = usingInventory ? inventory.loading : legacyLoading
+  const files = workspaceId ? inventory.rows : []
+  const loading = workspaceId ? inventory.loading : false
   const activeUpload = (inventory.uploads || []).find((item) => item.phase === 'uploading')
   const progress = processingPercent(null, activeUpload)
-
-  const authReady = Boolean(buildHeaders)
-  const focusQuery = attentionFocusRequest?.query || null
-  const focusThreadId = attentionFocusRequest?.threadId || null
-  const focusKey = attentionFocusRequest?.key || null
-  const buildHeadersRef = useRef(buildHeaders)
-  buildHeadersRef.current = buildHeaders
-  const focusControllerRef = useRef(null)
-  if (focusControllerRef.current == null) {
-    focusControllerRef.current = createActiveFocusController({
-      acquireHeaders: () => acquirePersistentHeaders(() => buildHeadersRef.current()),
-      fetchFocus: fetchActiveAttention,
-      retryDelayMs: 200,
-    })
-  }
-  const focusController = focusControllerRef.current
-  const focusSnap = useSyncExternalStore(
-    focusController.subscribe,
-    focusController.getSnapshot,
-    focusController.getSnapshot
-  )
-  const focusData = focusSnap.data
-  const focusError = focusSnap.error
-  const focusLoading = focusSnap.loading
-
-  useEffect(() => {
-    if (workspaceId || !projectSlug || !authReady) {
-      if (!workspaceId) setLegacyFiles([])
-      return
-    }
-    let cancelled = false
-    setLegacyLoading(true)
-    setError(null)
-    void (async () => {
-      try {
-        const headers = await acquirePersistentHeaders(() => buildHeadersRef.current())
-        if (cancelled) return
-        const data = await fetchProjectKnowledgeFiles(projectSlug, headers)
-        if (cancelled) return
-        setLegacyFiles(
-          (data.files || []).map((file) => ({
-            id: file.id,
-            display_name: file.filename || file.name,
-            original_filename: file.filename || file.name,
-            byte_size: file.size_bytes ?? file.size,
-            status: file.status,
-          }))
-        )
-      } catch (e) {
-        if (cancelled) return
-        if (isAuthTokenUnavailable(e)) return
-        setError(e?.message || 'Could not load project knowledge files')
-        setLegacyFiles([])
-      } finally {
-        if (!cancelled) setLegacyLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [projectSlug, workspaceId, authReady])
-
-  useEffect(() => {
-    return () => {
-      focusController.stop()
-    }
-  }, [focusController])
-
-  useEffect(() => {
-    if (!focusQuery || !focusThreadId || !projectSlug || !authReady) {
-      return
-    }
-    focusController.start({
-      projectSlug,
-      threadId: focusThreadId,
-      query: focusQuery,
-    })
-  }, [focusController, focusKey, focusQuery, focusThreadId, projectSlug, authReady])
 
   const handlePickFile = () => {
     if (disabled || uploading) return
@@ -177,10 +55,6 @@ export function KnowledgeSidebar({
   if (!projectSlug && !workspaceId) {
     return null
   }
-
-  const grouped = focusData?.grouped || {}
-  const hasFocus = Boolean(focusData?.has_focus)
-  const showEmptyFocus = !focusLoading && !focusError && !hasFocus
 
   return (
     <section className="knowledge-sidebar" aria-label="Project knowledge repository">
@@ -229,32 +103,9 @@ export function KnowledgeSidebar({
       <div className="knowledge-sidebar__focus" aria-live="polite">
         <p className="knowledge-sidebar__focus-title">🎯 Active Context Focus</p>
         <p className="knowledge-sidebar__hint">
-          Hybrid attention weights (semantic + recency + FTS5) for the current prompt.
+          Legacy project attention is unavailable. Existing data was not deleted.
+          Workspace Files retrieval is unchanged.
         </p>
-        {focusLoading ? (
-          <p className="knowledge-sidebar__hint">Analyzing context…</p>
-        ) : focusError ? (
-          <p className="knowledge-sidebar__error">{focusError}</p>
-        ) : showEmptyFocus ? (
-          <p className="knowledge-sidebar__focus-empty">No active focus</p>
-        ) : (
-          HEAD_SECTIONS.map((section) => {
-            const items = grouped[section.key] || []
-            if (!items.length) return null
-            return (
-              <div key={section.key} className="knowledge-sidebar__focus-group">
-                <p className="knowledge-sidebar__focus-group-label">
-                  {section.icon} {section.label}
-                </p>
-                <ul className="knowledge-sidebar__focus-list">
-                  {items.map((item) => (
-                    <FocusItem key={`${section.key}-${item.entity_name}`} item={item} />
-                  ))}
-                </ul>
-              </div>
-            )
-          })
-        )}
       </div>
 
       {(error || inventory.error) ? (
