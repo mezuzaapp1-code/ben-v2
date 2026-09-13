@@ -42,7 +42,8 @@ Services: intent extraction (frontier JSON schema), deterministic matcher, deter
 
 Everything else (crawler platform, A2A server, public registry, embeddings, offers, autonomy, payments, multiple agent personas, ecommerce) is **deferred or rejected**.
 
-**Exact next gate:** **B1 — Business identity, ownership, and accountable human.** Not URL crawl. Not Agent Cards. Not matching.
+**Exact next gate (revised 2026-09-13):** **P1 — Business draft + Private Supplier Directory + Procurement conversation.**  
+Former **B1 (domain verification for inbound network RFQs) is withdrawn.** See `GATE_BEN_BUSINESS_PLAN_REVISION.md`. Not URL crawl. Not Agent Cards. Not matching. Not domain verify.
 
 ---
 

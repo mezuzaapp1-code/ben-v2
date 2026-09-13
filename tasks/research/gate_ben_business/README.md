@@ -2,6 +2,9 @@
 
 Research + architecture + work plan only.
 
-Full note: `GATE_BEN_BUSINESS_CHAT_NETWORK.md`
+Full notes:
 
-Recommendation: **MODIFY**. Next gate: **B1** (identity/ownership/accountable human). `decision_003` remains locked. Do not start B1 automatically.
+- `GATE_BEN_BUSINESS_CHAT_NETWORK.md` — original architecture
+- `GATE_BEN_BUSINESS_PLAN_REVISION.md` — procurement-first revision
+
+Recommendation: **MODIFY**. Next gate: **P1** (Business draft + private suppliers + Procurement conversation). Former B1 withdrawn. `decision_003` remains locked. Do not start P1 automatically.
