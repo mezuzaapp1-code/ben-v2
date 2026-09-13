@@ -355,6 +355,9 @@ async def stream_chat_response(
     workspace_fts_latency_ms = None
     workspace_fallback_reason = None
     workspace_extraction_coverage = "legacy"
+    workspace_lexical_expand_mode = "off"
+    workspace_query_tokens: tuple[str, ...] = ()
+    workspace_expansion_atom_count = 0
     workspace_files_used: list[dict[str, str]] = []
     workspace_files_unavailable_count = 0
     workspace_response_evidence: dict | None = None
@@ -457,6 +460,9 @@ async def stream_chat_response(
                         workspace_fts_latency_ms = wsf.fts_latency_ms
                         workspace_fallback_reason = wsf.fallback_reason
                         workspace_extraction_coverage = wsf.extraction_coverage
+                        workspace_lexical_expand_mode = getattr(wsf, "lexical_expand_mode", "off") or "off"
+                        workspace_query_tokens = tuple(getattr(wsf, "query_tokens", ()) or ())
+                        workspace_expansion_atom_count = int(getattr(wsf, "expansion_atom_count", 0) or 0)
                         workspace_files_used = [
                             {
                                 "id": str(item.get("id", "")).strip(),
@@ -486,6 +492,12 @@ async def stream_chat_response(
                     workspace_files_chars=workspace_files_chars,
                     retrieval_mode=workspace_retrieval_mode,
                     fallback_reason=workspace_fallback_reason,
+                    chunks_selected=workspace_chunks_selected,
+                    evidence_pages=list(workspace_evidence_pages),
+                    fts_latency_ms=workspace_fts_latency_ms,
+                    lexical_expand_mode=workspace_lexical_expand_mode,
+                    query_tokens=list(workspace_query_tokens),
+                    expansion_atom_count=workspace_expansion_atom_count,
                 )
             except Exception as e:
                 log_warning(
@@ -665,6 +677,9 @@ async def stream_chat_response(
             "fts_latency_ms": workspace_fts_latency_ms,
             "fallback_reason": workspace_fallback_reason,
             "extraction_coverage": workspace_extraction_coverage,
+            "lexical_expand_mode": workspace_lexical_expand_mode,
+            "query_tokens": list(workspace_query_tokens),
+            "expansion_atom_count": workspace_expansion_atom_count,
             "sqlite_user_id": sqlite_user_id,
             "sqlite_assistant_id": sqlite_assistant_id,
             "execution_id": accounted.get("execution_id"),

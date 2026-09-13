@@ -14,7 +14,7 @@ from sqlalchemy import desc, or_, select, text
 from database.connection import get_db_session
 from database.models import DocumentProcessingJob, Project, WorkspaceFile
 from services.ops.request_context import attach_request_id
-from services.ops.structured_log import log_warning
+from services.ops.structured_log import log_info, log_warning
 from services.workspace_files import storage
 from services.workspace_files.lifecycle import derive_processing_stage, job_status_by_file_id
 from services.workspace_files.chunk_retriever import (
@@ -40,6 +40,7 @@ from services.workspace_files.chunk_retriever import (
     render_legacy_group,
     search_chunks_bounded,
 )
+from services.workspace_files.query_expansion import expansion_trace
 from services.workspace_files.extract import extract_text
 from services.workspace_files.file_resolver import (
     PER_FILE_MAX_CHARS,
@@ -537,6 +538,17 @@ class WorkspaceFilesContext:
     unavailable_count: int = 0
     explicit_named_ids: tuple[str, ...] = ()
     response_evidence: dict | None = None
+    lexical_expand_mode: str = "off"
+    query_tokens: tuple[str, ...] = ()
+    expansion_atom_count: int = 0
+
+
+def _expand_from_diag(diag: RetrievalDiagnostics) -> dict[str, Any]:
+    return {
+        "lexical_expand_mode": diag.lexical_expand_mode,
+        "query_tokens": tuple(diag.query_tokens or ()),
+        "expansion_atom_count": int(diag.expansion_atom_count or 0),
+    }
 
 
 def _sanitize_file_name(name: str | None) -> str:
@@ -686,6 +698,7 @@ def _labeled_prefix_context(
             retrieval_mode="prefix_fallback",
             units=units_from_budgeted(budgeted),
         ),
+        **_expand_from_diag(diag),
     )
 
 
@@ -711,6 +724,7 @@ def _empty_gate4a_context(
         fallback_reason=diag.fallback_reason,
         extraction_coverage="none",
         used_files=(),
+        **_expand_from_diag(diag),
     )
 
 
@@ -937,6 +951,7 @@ async def _load_gate4a_context(
 
     tokens = normalize_query_tokens(user_query)
     tsquery = build_or_tsquery(tokens)
+    expand = expansion_trace(tokens)
     claimed, mismatch = claimed_indexed_ids(search_set)
 
     base_diag = diagnostics_from_pack(
@@ -951,6 +966,7 @@ async def _load_gate4a_context(
         fallback_reason="not_indexed",
         coverage="legacy",
         mismatch_ids=mismatch,
+        **expand,
     )
 
     def _prefix(reason: str, *, searched: list | None = None, latency: float | None = None) -> WorkspaceFilesContext:
@@ -966,6 +982,7 @@ async def _load_gate4a_context(
             fallback_reason=reason,
             coverage="legacy",
             mismatch_ids=mismatch,
+            **expand,
         )
         if named_ids:
             return _labeled_prefix_context(
@@ -1003,6 +1020,19 @@ async def _load_gate4a_context(
             file_ids=qualified,
             tsquery=tsquery,
         )
+
+    log_info(
+        "chunk fts query",
+        subsystem="workspace_files",
+        operation="chunk_retrieval",
+        outcome="ok" if not error else str(error),
+        fts_latency_ms=latency,
+        chunks_considered=0 if hits is None else len(hits),
+        files_searched=len(qualified),
+        lexical_expand_mode=expand.get("lexical_expand_mode"),
+        query_tokens=list(expand.get("query_tokens") or ()),
+        expansion_atom_count=int(expand.get("expansion_atom_count") or 0),
+    )
 
     if error:
         return _prefix(error, searched=qualified, latency=latency)
@@ -1080,6 +1110,7 @@ async def _load_gate4a_context(
             retrieval_mode=retrieval_mode,
             units=evidence_units,
         ),
+        **expand,
     )
 
 
