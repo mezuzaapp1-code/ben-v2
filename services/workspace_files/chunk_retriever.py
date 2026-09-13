@@ -22,6 +22,7 @@ from services.workspace_files.file_resolver import (
     file_is_explicitly_named,
     significant_tokens_in_order,
 )
+from services.workspace_files.query_expansion import extra_tsquery_atoms
 
 MAX_CHUNKS_CONSIDERED = 40
 MAX_CHUNKS_SELECTED = 8
@@ -113,10 +114,16 @@ def normalize_query_tokens(user_query: str | None) -> list[str]:
     )
 
 
+_SAFE_EXPAND_ATOM_RE = re.compile(r"^[0-9a-z\u0590-\u05ff]+:\*$")
+
+
 def build_or_tsquery(tokens: Iterable[str]) -> str | None:
     """OR-join safe tokens for ``to_tsquery('simple', ...)``.
 
     User text never reaches the operator language. Unsafe tokens are dropped.
+    Optional fail-closed expansion (``BEN_FTS_LEXICAL_EXPAND``, default off)
+    may append expander-generated ``stem`` / ``stem:*`` atoms. Prefix
+    operators are never accepted from user tokens.
     """
     atoms: list[str] = []
     seen: set[str] = set()
@@ -130,6 +137,14 @@ def build_or_tsquery(tokens: Iterable[str]) -> str | None:
             break
     if not atoms:
         return None
+    for extra in extra_tsquery_atoms(atoms):
+        atom = (extra or "").strip().lower()
+        if not atom or atom in seen:
+            continue
+        if not (_SAFE_TOKEN_RE.fullmatch(atom) or _SAFE_EXPAND_ATOM_RE.fullmatch(atom)):
+            continue
+        seen.add(atom)
+        atoms.append(atom)
     return " | ".join(atoms)
 
 
