@@ -965,3 +965,118 @@ class DocumentProcessingJob(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+
+
+class ExecutionEventRow(Base):
+    """Append-only measurement observation. Not a second inference ledger."""
+
+    __tablename__ = "execution_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ("
+            "'execution_started','call_attempted','call_completed',"
+            "'first_output_observed','execution_completed','result_recorded',"
+            "'observation','telemetry_incomplete','provenance_correction')",
+            name="ck_execution_events_event_type",
+        ),
+        CheckConstraint(
+            "origin IN ('operational','controlled_experiment','unknown')",
+            name="ck_execution_events_origin",
+        ),
+        CheckConstraint(
+            "(observed_at IS NULL) = (observed_at_missing_reason IS NOT NULL)",
+            name="ck_execution_events_observed_at_reason",
+        ),
+        CheckConstraint(
+            "sequence_in_execution IS NULL OR sequence_in_execution >= 0",
+            name="ck_execution_events_sequence",
+        ),
+        Index("ix_execution_events_org_execution", "org_id", "execution_id"),
+        Index("ix_execution_events_org_recorded", "org_id", "recorded_at"),
+        Index("ix_execution_events_event_type", "event_type"),
+        Index("ix_execution_events_frozen_input_fp", "frozen_input_fingerprint"),
+        Index("ix_execution_events_test_run_question", "test_run_id", "question_id"),
+        {"schema": SCHEMA},
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    execution_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    task_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    call_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    test_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    test_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    test_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    question_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    section_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    origin: Mapped[str] = mapped_column(String(32), nullable=False)
+    observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    observed_at_missing_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("clock_timestamp()")
+    )
+    payload_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    sequence_in_execution: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    frozen_input_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    conditions_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    requested_configuration_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    effective_configuration_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    dispatch_payload_digest: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    fingerprint_algorithm: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'sha256'")
+    )
+    canonicalization_version: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'json-v1'")
+    )
+    content_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+
+
+class ValidationRecordRow(Base):
+    """Append-only evaluation. Regrading adds a new row; originals are not updated."""
+
+    __tablename__ = "validation_records"
+    __table_args__ = (
+        CheckConstraint(
+            "outcome IN ('pass','fail','invalid','pending')",
+            name="ck_validation_records_outcome",
+        ),
+        CheckConstraint(
+            "(evaluated_at IS NULL) = (evaluated_at_missing_reason IS NOT NULL)",
+            name="ck_validation_records_evaluated_at_reason",
+        ),
+        CheckConstraint(
+            "score IS NULL OR score_meaning IS NOT NULL",
+            name="ck_validation_records_score_meaning",
+        ),
+        Index("ix_validation_records_org_execution", "org_id", "execution_id"),
+        Index("ix_validation_records_result_id", "result_id"),
+        Index("ix_validation_records_test_run", "test_run_id"),
+        {"schema": SCHEMA},
+    )
+    validation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    execution_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result_integrity_digest: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    validator_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    validator_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    evaluated_at_missing_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("clock_timestamp()")
+    )
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    score: Mapped[float | None] = mapped_column(Numeric(18, 8), nullable=True)
+    score_meaning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    judge_execution_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    test_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    question_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    content_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+
