@@ -266,6 +266,8 @@ def test_validate_chat_model_override_accepts_tier1():
     validate_chat_model_override("gemini", "gemini-3.5-flash")
     validate_chat_model_override("grok", "grok-4.6")
     validate_chat_model_override("grok", "grok-4.3")
+    validate_chat_model_override("gpt", "gpt-6-astra")
+    validate_chat_model_override("gpt", "gpt-4o")
 
 
 def test_chat_stream_rejects_unknown_model_override(client):

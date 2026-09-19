@@ -126,6 +126,7 @@ def _provider_user_content(text=HEBREW_Q, image=None):
         ("openai", "gpt-5.5-instant", True),
         ("openai", "gpt-5.5-pro", True),
         ("openai", "gpt-4o", True),
+        ("openai", "gpt-6-astra", True),
         ("anthropic", "claude-opus-4.8", True),
         ("anthropic", "claude-sonnet-4.6", True),
         ("google", "gemini-3.5-flash", True),

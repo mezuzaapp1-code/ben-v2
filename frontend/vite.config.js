@@ -12,6 +12,9 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       host: '127.0.0.1',
       allowedHosts: true,
+      fs: {
+        allow: ['..'],
+      },
       proxy: {
         '/chat': {
           target: devApiTarget,

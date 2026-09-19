@@ -17,6 +17,7 @@ def test_frontier_openai_models_registered():
     assert is_registered_model("openai", OPENAI_CHAT_FAST_MODEL)
     assert is_registered_model("openai", OPENAI_REASONING_MODEL)
     assert is_registered_model("openai", "gpt-4o-mini")
+    assert is_registered_model("openai", "gpt-6-astra")
 
 
 def test_assert_model_registered_passes_frontier():

@@ -36,6 +36,8 @@ assert(DEFAULT_PROVIDER_MODELS.grok === 'grok-4.6', 'default map grok-4.6')
 assert(coerceRegisteredModel('grok', 'grok-4.3') === 'grok-4.3', 'manual lower-cost selection')
 assert(coerceRegisteredModel('grok', 'grok-4.20-multi-agent-0309') === 'grok-4.6', 'unknown grok model coerces to default')
 assert(coerceRegisteredModel('gpt', 'gpt-4o-mini') === 'gpt-4o-mini', 'GPT dropdown unchanged')
+assert(getProviderModelOptions('gpt').includes('gpt-6-astra'), 'Astra is a GPT model option')
+assert(getProviderModelOptions('gpt').includes('gpt-4o'), 'gpt-4o remains selectable')
 assert(coerceRegisteredModel('claude', 'claude-sonnet-4.6') === 'claude-sonnet-4.6', 'Claude dropdown unchanged')
 assert(coerceRegisteredModel('gemini', 'gemini-2.5-flash') === 'gemini-2.5-flash', 'Gemini dropdown unchanged')
 

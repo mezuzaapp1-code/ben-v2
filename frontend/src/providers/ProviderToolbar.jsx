@@ -4,7 +4,7 @@ import { useDismissOnOutside } from '../hooks/useDismissOnOutside.js'
 
 import { getSpeakingProviders } from './providerRegistry.js'
 
-import { formatModelShortLabel, getProviderModelOptions } from './providerModelChoices.js'
+import { formatModelShortLabel, getModelMenuLabel, getProviderModelOptions } from './providerModelChoices.js'
 
 import './ProviderToolbar.css'
 
@@ -288,7 +288,7 @@ export function ProviderToolbar({
 
                         >
 
-                          {modelId}
+                          {getModelMenuLabel(modelId)}
 
                         </button>
 

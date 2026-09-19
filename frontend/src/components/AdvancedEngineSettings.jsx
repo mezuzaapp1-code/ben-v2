@@ -1,6 +1,6 @@
 import { BasaltSelect } from './ui/BasaltSelect.jsx'
 import { getSpeakingProviders } from '../providers/providerRegistry.js'
-import { getProviderModelOptions, getTier1Model } from '../providers/providerModelChoices.js'
+import { getModelMenuLabel, getProviderModelOptions, getTier1Model } from '../providers/providerModelChoices.js'
 import { getProviderCatalogKey, isProviderGloballyActive } from '../lib/globalFeatureCatalog.js'
 import './AdvancedEngineSettings.css'
 
@@ -22,10 +22,13 @@ export function EngineSettingsPanel({
   const catalogKeys = activeCatalogKeys ?? []
 
   const modelOptionsFor = (providerId) =>
-    getProviderModelOptions(providerId).map((modelId) => ({
-      value: modelId,
-      label: modelId === getTier1Model(providerId) ? `${modelId} (Tier 1)` : modelId,
-    }))
+    getProviderModelOptions(providerId).map((modelId) => {
+      const name = getModelMenuLabel(modelId)
+      return {
+        value: modelId,
+        label: modelId === getTier1Model(providerId) ? `${name} (Tier 1)` : name,
+      }
+    })
 
   const providerAvailability = (providerId) => {
     if (!gateProviders) {

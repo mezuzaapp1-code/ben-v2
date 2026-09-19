@@ -20,6 +20,25 @@ from services.providers.vision_input import ProviderUserPart, openai_user_conten
 # May 2026 frontier defaults (enforced when callers omit explicit model env overrides).
 OPENAI_CHAT_FAST_MODEL = "gpt-5.5-instant"
 OPENAI_REASONING_MODEL = "gpt-5.5-pro"
+# Exact API id for catalog identity openai:gpt-6-astra (no env remap).
+OPENAI_ASTRA_API_MODEL = "gpt-6-astra"
+OPENAI_ASTRA_REASONING_EFFORT = "low"
+
+
+def openai_chat_payload(
+    *,
+    model: str,
+    messages: list[dict],
+    stream: bool = False,
+) -> dict:
+    """Chat Completions JSON body. Astra-only fields stay gated to gpt-6-astra."""
+    payload: dict = {"model": model, "messages": messages}
+    if stream:
+        payload["stream"] = True
+        payload["stream_options"] = {"include_usage": True}
+    if model == OPENAI_ASTRA_API_MODEL:
+        payload["reasoning_effort"] = OPENAI_ASTRA_REASONING_EFFORT
+    return payload
 
 
 class OpenAIProvider(BaseProvider):
@@ -56,7 +75,10 @@ class OpenAIProvider(BaseProvider):
         r = await cx.post(
             "https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", **tenant_header(tenant_id)},
-            json={"model": model, "messages": self._messages(message, system, user_content=user_content)},
+            json=openai_chat_payload(
+                model=model,
+                messages=self._messages(message, system, user_content=user_content),
+            ),
         )
         r.raise_for_status()
         d = r.json()
@@ -91,12 +113,11 @@ class OpenAIProvider(BaseProvider):
             "POST",
             "https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", **tenant_header(tenant_id)},
-            json={
-                "model": model,
-                "messages": self._messages(message, system, user_content=user_content),
-                "stream": True,
-                "stream_options": {"include_usage": True},
-            },
+            json=openai_chat_payload(
+                model=model,
+                messages=self._messages(message, system, user_content=user_content),
+                stream=True,
+            ),
         ) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():

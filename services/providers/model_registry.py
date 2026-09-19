@@ -102,6 +102,20 @@ def allowed_models() -> frozenset[tuple[str, str]]:
                     mid = str(model or "").strip()
                     if mid:
                         out.add((gateway, mid))
+    identities = data.get("identities")
+    if isinstance(identities, dict):
+        for key, spec in identities.items():
+            if not isinstance(key, str) or ":" not in str(key):
+                continue
+            prov_key, mid = str(key).split(":", 1)
+            gateway = str(prov_key or "").strip().lower()
+            model_id = str(mid or "").strip()
+            if gateway and model_id:
+                out.add((gateway, model_id))
+            if isinstance(spec, dict):
+                api_id = str(spec.get("api_model") or "").strip()
+                if gateway and api_id:
+                    out.add((gateway, api_id))
     return frozenset(out)
 
 
@@ -137,6 +151,31 @@ def is_registered_model(provider: str, model: str) -> bool:
     if not prov or not mid:
         return False
     return (prov, mid) in allowed_models()
+
+
+def model_identity(provider: str, model: str) -> dict[str, Any]:
+    """Explicit catalog identity for a (gateway, canonical_model) pair, if declared."""
+    prov = (provider or "").strip().lower()
+    mid = (model or "").strip()
+    if not prov or not mid:
+        return {}
+    data = _load_registry()
+    identities = data.get("identities")
+    if not isinstance(identities, dict):
+        return {}
+    raw = identities.get(f"{prov}:{mid}")
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def is_exact_dispatch(provider: str, model: str) -> bool:
+    """True when env aliases must not remap this model to another API id."""
+    return bool(model_identity(provider, model).get("exact_dispatch"))
+
+
+def model_display_name(provider: str, model: str) -> str:
+    ident = model_identity(provider, model)
+    name = str(ident.get("display_name") or "").strip()
+    return name or (model or "").strip()
 
 
 def assert_model_registered(provider: str, model: str) -> str:
@@ -230,6 +269,10 @@ def resolve_api_model(provider: str, canonical_model: str) -> str:
     """Map canonical BEN model id to provider API model id (env overrides optional)."""
     prov = (provider or "").strip().lower()
     canonical = assert_model_registered(prov, canonical_model)
+    ident = model_identity(prov, canonical)
+    if ident.get("exact_dispatch"):
+        api_id = str(ident.get("api_model") or canonical).strip()
+        return api_id or canonical
     for env_key in _env_override_keys(prov, canonical):
         override = os.getenv(env_key, "").strip()
         if override:
@@ -239,9 +282,12 @@ def resolve_api_model(provider: str, canonical_model: str) -> str:
 
 def registry_public_snapshot() -> dict[str, Any]:
     models = [{"provider": p, "model": m} for p, m in sorted(allowed_models())]
+    data = _load_registry()
+    identities = data.get("identities") if isinstance(data.get("identities"), dict) else {}
     return {
         "frontier_models_path": str(_REGISTRY_PATH),
         "registered_models": models,
+        "identities": identities,
         "openai_chat_fast": OPENAI_CHAT_FAST_MODEL,
         "openai_reasoning": OPENAI_REASONING_MODEL,
         "anthropic_flagship": ANTHROPIC_FLAGSHIP_MODEL,
