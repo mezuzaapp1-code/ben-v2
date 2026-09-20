@@ -54,11 +54,13 @@ def env_checks() -> dict[str, bool]:
     anthropic_ok = _env_present("ANTHROPIC_API_KEY")
     xai_ok = _env_present("XAI_API_KEY")
     synthesis_ok = bool(_env_present("SYNTHESIS_MODEL") or openai_ok)
+    audit_raw = os.getenv("BEN_LATENCY_PATH_AUDIT", "").strip().lower()
     return {
         "openai_configured": openai_ok,
         "anthropic_configured": anthropic_ok,
         "xai_configured": xai_ok,
         "synthesis_model_configured": synthesis_ok,
+        "latency_path_audit": audit_raw in {"1", "true", "yes", "on"},
     }
 
 

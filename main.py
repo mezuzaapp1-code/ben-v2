@@ -52,6 +52,7 @@ from services.health_service import build_health_payload, build_ready_payload
 from services.ops.logging_config import configure_ben_ops_logging
 
 from services.ops.request_context import attach_request_id, get_request_id, set_request_id
+from services.ops.latency_path_audit import mark, reset_latency_audit
 
 from database.connection import warmup_database_pool
 from services.ops.startup import validate_startup
@@ -634,9 +635,12 @@ async def chat(request: Request, body: ChatBody):
 
 @app.post("/chat/stream")
 async def chat_stream(request: Request, body: ChatBody):
+    reset_latency_audit(path="chat_stream")
+    mark("t0_accepted")
     ctx = await _tenant_ctx_from_request(
         request, route_operation="POST /chat/stream", require_customer=True
     )
+    mark("t1_auth")
     validate_body_tenant_matches_context(body, ctx)
     tid = _parse_thread_id(body.thread_id)
     try:

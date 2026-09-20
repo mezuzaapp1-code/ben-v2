@@ -4,6 +4,7 @@ import { acquirePersistentHeaders, buildBenHeaders, isAuthTokenUnavailable } fro
 import { CLERK_ORG_REQUIRED, parseBenErrorResponse } from './api/benErrors.js'
 import { postAdhocExpertStream } from './api/adhoc.js'
 import { humanizeChatFetchError, postChatStream } from './api/chat.js'
+import { gateAMark } from './lib/gateATiming.js'
 import {
   COUNCIL_CLIENT_TIMEOUT_MS,
   councilResponseToMessages,
@@ -1297,6 +1298,7 @@ function App() {
     }
     const sendNonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`
     const clientRequestId = createClientRequestId()
+    gateAMark('F0_submit', { layer: 'frontend_submit' })
     setLoading(true)
     try {
       const headers = await acquirePersistentHeaders(persistentHeaders)
@@ -1354,6 +1356,7 @@ function App() {
 
       let streamOk = false
       let serverTid = apiThreadId || tid
+      let firstAnswerDom = false
       for await (const event of postChatStream({
         message: encoded,
         threadId: apiThreadId,
@@ -1395,6 +1398,12 @@ function App() {
               return { ...t, id: nextId, messages: msgs, isDraft: false }
             })
           )
+          if (!firstAnswerDom && String(chunk).trim()) {
+            firstAnswerDom = true
+            requestAnimationFrame(() => {
+              gateAMark('Fc_dom_commit_approx', { layer: 'react_setstate_raf_approx' })
+            })
+          }
         } else if (event.type === 'done') {
           streamOk = true
           serverTid = event.thread_id || serverTid

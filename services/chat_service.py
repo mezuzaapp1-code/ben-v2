@@ -48,6 +48,7 @@ from services.vision.current_turn import (
 from services.ops.failure_classification import classify_failure
 from services.ops.runtime_diagnostics import attach_workspace_to_request_diagnostics
 from services.ops.structured_log import log_info, log_warning
+from services.ops.latency_path_audit import log_latency_audit, mark
 from services.workspace_files.multi_source import (
     clarification_text,
     explicit_named_set_incomplete,
@@ -261,6 +262,8 @@ async def stream_chat_response(
     stream_started = time.perf_counter()
     first_token_at: float | None = None
     last_token_at: float | None = None
+    mark("t0_accepted")
+    mark("admission_skipped", reason="chat_stream_ungoverned")
     if not expert_opinion and not project_setup_bootstrap:
         oversize = provider_expansion_too_large(expand_user_message_for_provider(message))
         if oversize:
@@ -269,6 +272,7 @@ async def stream_chat_response(
     org = uuid.UUID(tenant_id)
     title = thread_title_from_user_message(message)
     tid = await resolve_thread_id(org, thread_id, title=title)
+    mark("db_thread_ready")
 
     if is_project_setup_thread(tid):
         workspace_ctx = resolve_workspace_context_for_org(tenant_id, thread_id=str(tid))
@@ -401,6 +405,7 @@ async def stream_chat_response(
         # Large Paste is chat content — never a retrieval query. Use instruction
         # text or the bounded paste stub, never the envelope or full paste body.
         if project_id is not None and vision_user_content is None:
+            mark("files_start")
             try:
                 # None = no pending/active source (unrestricted).
                 # [] = fail-closed empty allow-list (never dump Workspace Files).
@@ -509,7 +514,11 @@ async def stream_chat_response(
                     operation="workspace_files_context",
                     outcome="error",
                 )
+            mark("files_end")
+        else:
+            mark("files_skipped")
 
+    mark("t2_context")
     yield _stream_ndjson(
         {
             "type": "meta",
@@ -543,6 +552,7 @@ async def stream_chat_response(
         yield _stream_ndjson({"type": "chunk", "content": clarify_reply})
     else:
         try:
+            mark("t3_routing")
             async for chunk, model, prov in route_request_stream(
                 effective_message,
                 tenant_id,
@@ -564,6 +574,7 @@ async def stream_chat_response(
                 now = time.perf_counter()
                 if first_token_at is None:
                     first_token_at = now
+                    mark("t8_ben_forward")
                 last_token_at = now
                 parts.append(chunk)
                 yield _stream_ndjson({"type": "chunk", "content": chunk})
@@ -690,6 +701,8 @@ async def stream_chat_response(
         }
     if persisted_evidence:
         done_event["response_evidence"] = persisted_evidence
+    mark("t10_ben_complete")
+    log_latency_audit()
     yield _stream_ndjson(done_event)
 
 

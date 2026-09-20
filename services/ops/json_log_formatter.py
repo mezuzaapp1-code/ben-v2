@@ -53,6 +53,28 @@ STRUCTURED_FIELDS = (
     "processing_ms",
     "finish_to_ready_ms",
     "upload_to_ready_ms",
+    # Gate A opt-in latency capture (BEN_LATENCY_PATH_AUDIT). Numbers only.
+    "path",
+    "attempt_id",
+    "pre_dispatch_ms",
+    "provider_first_content_ms",
+    "provider_first_answer_ms",
+    "ben_forward_ms",
+    "user_visible_ttft_ms",
+    "total_complete_ms",
+    "AUTH_ms",
+    "DB_thread_ms",
+    "FILE_ms",
+    "CONTEXT_ms",
+    "ADMISSION",
+    "B0_to_B1_ms",
+    "B1_to_B2_ms",
+    "B0_to_B3_ms",
+    "P0_to_Ph_ms",
+    "Ph_to_P2_ms",
+    "P0_to_P3_ms",
+    "P0_to_P4_ms",
+    "P0_to_P5_ms",
 )
 
 _SENSITIVE_KEYS = frozenset(

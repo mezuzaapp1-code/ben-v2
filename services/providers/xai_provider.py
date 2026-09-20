@@ -20,6 +20,7 @@ from services.providers.xai_error_diagnostics import (
     ensure_xai_response_content,
     raise_for_xai_status,
 )
+from services.ops.latency_path_audit import mark
 
 XAI_CHAT_COMPLETIONS_URL = "https://api.x.ai/v1/chat/completions"
 XAI_FLAGSHIP_MODEL = "grok-4.6"
@@ -123,6 +124,7 @@ class XAIProvider(BaseProvider):
             if int(getattr(response, "status_code", 0) or 0) >= 400:
                 await ensure_xai_response_content(response)
             raise_for_xai_status(response)
+            mark("t5_http_headers", status=int(getattr(response, "status_code", 0) or 0))
             async for line in response.aiter_lines():
                 if not line or not line.startswith("data:"):
                     continue
@@ -133,6 +135,7 @@ class XAIProvider(BaseProvider):
                     data = json.loads(payload)
                 except json.JSONDecodeError:
                     continue
+                mark("t6_first_sse")
                 if data.get("id") and not provider_request_id:
                     provider_request_id = str(data.get("id"))
                 if data.get("usage"):
@@ -145,7 +148,11 @@ class XAIProvider(BaseProvider):
                     finish_reason = str(choice0.get("finish_reason"))
                 delta = (choice0.get("delta") or {}).get("content")
                 if delta:
+                    if str(delta).strip():
+                        mark("p4_answer", source="xai_delta")
+                    mark("t7_first_content", source="xai_delta")
                     yield str(delta)
+        mark("t9_provider_end")
         yield ProviderStreamEnd(
             usage=usage,
             provider_request_id=provider_request_id,

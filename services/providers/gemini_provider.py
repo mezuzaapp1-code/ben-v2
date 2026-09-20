@@ -17,6 +17,7 @@ from services.providers.base_provider import (
     tenant_header,
 )
 from services.providers.vision_input import ProviderUserPart, gemini_user_parts
+from services.ops.latency_path_audit import mark
 
 # Current official Gemini Flash (exact dispatch; never remapped to another id).
 # Catalog (ai.google.dev/gemini-api/docs/models, 2026-09-17): 3.8 Flash GA,
@@ -131,6 +132,7 @@ class GeminiProvider(BaseProvider):
             json=self._payload(message, system, user_content=user_content),
         ) as response:
             response.raise_for_status()
+            mark("t5_http_headers", status=int(getattr(response, "status_code", 0) or 0))
             async for line in response.aiter_lines():
                 if not line or not line.startswith("data:"):
                     continue
@@ -141,6 +143,7 @@ class GeminiProvider(BaseProvider):
                     data = json.loads(payload)
                 except json.JSONDecodeError:
                     continue
+                mark("t6_first_sse", has_candidates=bool(data.get("candidates")))
                 if data.get("usageMetadata"):
                     usage = normalize_gemini_usage(data.get("usageMetadata"))
                 candidates = data.get("candidates") or []
@@ -152,7 +155,17 @@ class GeminiProvider(BaseProvider):
                 for part in parts:
                     text = part.get("text")
                     if text:
+                        if part.get("thought"):
+                            mark("p3_reasoning", source="gemini_thought")
+                        elif str(text).strip():
+                            mark("p4_answer", source="gemini_text")
+                        mark(
+                            "t7_first_content",
+                            source="gemini_text",
+                            thought=bool(part.get("thought")),
+                        )
                         yield str(text)
+        mark("t9_provider_end")
         yield ProviderStreamEnd(
             usage=usage,
             finish_reason=finish_reason,

@@ -76,6 +76,7 @@ from services.tactical_copilot_tools import (
 )
 from services.ops.failure_classification import classify_failure
 from services.ops.structured_log import log_info, log_warning
+from services.ops.latency_path_audit import mark, note_attempt
 from services.providers.call_diagnostics import estimate_request_tokens
 from services.ops.timeouts import CHAT_EXPLICIT_PROVIDER_TIMEOUT_S, HTTP_CLIENT_TIMEOUT_S
 from services.providers import gateway_provider_api_key_env, get_gateway_provider
@@ -484,7 +485,10 @@ async def route_request_stream(
     last: BaseException | None = None
     last_prov = ""
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s, connect=5.0)) as cx:
+        mark("httpx_client_ready")
+        attempt_n = 0
         for prov, model in attempts:
+            attempt_n += 1
             key_env = gateway_provider_api_key_env(prov)
             if not (os.getenv(key_env) or "").strip():
                 if provider_id and _chat_provider_to_gateway(provider_id) == prov:
@@ -531,6 +535,8 @@ async def route_request_stream(
             try:
                 adapter = get_gateway_provider(prov)
                 stream_kwargs = {"user_content": user_content} if user_content else {}
+                note_attempt(attempt_id=attempt_n, provider=prov, model=api_model)
+                mark("t4_http_start", provider=prov, model=api_model, attempt_id=attempt_n)
                 async for item in adapter.stream_message(
                     cx,
                     model=api_model,
@@ -544,7 +550,9 @@ async def route_request_stream(
                         continue
                     if item:
                         streamed_any = True
+                        mark("t7_first_content")
                         yield (item, model, prov)
+                mark("t9_provider_end")
                 elapsed_ms = (time.perf_counter() - attempt_t0) * 1000.0
                 await account_provider_attempt(
                     provider=prov,
