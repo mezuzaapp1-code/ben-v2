@@ -82,6 +82,7 @@ import {
   activeProjectForTenant,
   applyTenantScopeChange,
   bindActiveProject,
+  chatStreamProjectId,
   clearActiveProject,
   reconcileActiveProject,
 } from './lib/activeProject.js'
@@ -1115,6 +1116,12 @@ function App() {
     return id
   }, [])
 
+  const startOrdinaryNewChat = useCallback(() => {
+    setActiveProject(clearActiveProject(sessionTenantId))
+    newThread()
+    closeNavDrawerIfOverlay()
+  }, [closeNavDrawerIfOverlay, newThread, sessionTenantId])
+
   const handleEditRequest = useCallback((messageOrText) => {
     if (messageOrText && typeof messageOrText === 'object') {
       setComposerParts(composerPartsFromMessage(messageOrText))
@@ -1360,7 +1367,7 @@ function App() {
       for await (const event of postChatStream({
         message: encoded,
         threadId: apiThreadId,
-        projectId: activeProjectId || undefined,
+        projectId: chatStreamProjectId(activeProjectId),
         tier,
         providerId: activeSpeakingProviderId,
         modelOverride: activeModelOverride,
@@ -1872,7 +1879,7 @@ function App() {
           tier,
           anchorMessageId,
           opinionMode,
-          projectId: activeProjectId || undefined,
+          projectId: chatStreamProjectId(activeProjectId),
           headers,
         })) {
           if (event.type === 'chunk') {
@@ -2653,10 +2660,7 @@ function App() {
               <button
                 type="button"
                 className="new-btn new-btn--compact"
-                onClick={() => {
-                  newThread()
-                  closeNavDrawerIfOverlay()
-                }}
+                onClick={startOrdinaryNewChat}
               >
                 <span className="new-btn__label new-btn__label--long">+ New chat</span>
               </button>

@@ -56,6 +56,8 @@ export function ProjectWorkspacePanel({
         if (cancelled) return
         const list = data.items || data.projects || data || []
         setProjects(list)
+        // Workspace-only: a project workspace needs a selected project.
+        // This must not run for ordinary + New chat (panel is not the composer).
         if (!activeProjectId && list[0]?.id) {
           onProjectChange(list[0].id)
         }

@@ -18,6 +18,7 @@ from services.project_memory_service import (
     QUOTATION_STEPS,
     compute_location_logistics,
     compute_subsistence_overhead,
+    is_catalog_location,
     lifecycle_analytics,
     load_project_memory,
     refresh_subsistence_in_matrix,
@@ -29,9 +30,38 @@ _STEP_ORDER = [key for key, _ in QUOTATION_STEPS]
 _STEP_LABELS = {key: label for key, label in QUOTATION_STEPS}
 
 _LOCATION_RE = re.compile(
-    r"\b(?:to|at|in|near)\s+([A-Za-z\u0590-\u05FF][A-Za-z\u0590-\u05FF\s\-]{1,40})",
+    r"\b(?P<prep>to|at|in|near)\s+"
+    r"(?P<place>(?!to\b|at\b|in\b|near\b)[A-Za-z\u0590-\u05FF][A-Za-z\u0590-\u05FF'\-]*"
+    r"(?:\s+(?!to\b|at\b|in\b|near\b)[A-Za-z\u0590-\u05FF][A-Za-z\u0590-\u05FF'\-]*){0,3})",
     re.I,
 )
+_LOCATION_INTENT_RE = re.compile(
+    r"\b(?:job\s*sites?|jobsites?|work\s*sites?|project\s*sites?|"
+    r"locations?|addresses?|city|cities|travel(?:ing|ling)?|"
+    r"distances?|deliver(?:y|ies|ing)?|logistics?|destinations?|"
+    r"commute|commuting|heading\s+to|going\s+to|drive\s+to|"
+    r"stationed|based\s+(?:in|at)|working\s+(?:at|in|near)|"
+    r"\bsites?\b|\bkm\b|kilometers?|kilometres?|\bmiles?)\b",
+    re.I,
+)
+_LABEL_PLACE_RE = re.compile(
+    r"\b(?:jobsite|job\s*site|work\s*site|project\s*site|location|address|city|site|destination)"
+    r"\s*(?:is|:|=)\s*"
+    r"([A-Za-z\u0590-\u05FF][A-Za-z\u0590-\u05FF'\-]*"
+    r"(?:\s+[A-Za-z\u0590-\u05FF][A-Za-z\u0590-\u05FF'\-]*){0,3})",
+    re.I,
+)
+_IN_GOVERNOR_RE = re.compile(
+    r"\b(?:jobsite|job\s*site|work\s*site|project\s*site|location|address|city|site|"
+    r"travel|heading|going|working|based|stationed|delivery|deliver|distance|"
+    r"destination|commute)\s+(?:to|at|in|near)\s+$",
+    re.I,
+)
+_DETERMINER_START_RE = re.compile(
+    r"^(?:a|an|the|this|that|these|those|one|two|three|some|any|each|every|my|our|your)\b",
+    re.I,
+)
+_HEBREW_RE = re.compile(r"[\u0590-\u05FF]")
 
 
 def attach_mutated_state(tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
@@ -416,11 +446,60 @@ async def get_lifecycle_overview(
     return attach_request_id(attach_mutated_state("get_lifecycle_overview", payload))
 
 
-async def infer_location_from_message(message: str) -> str | None:
-    m = _LOCATION_RE.search(message or "")
-    if not m:
+def _normalize_place_candidate(raw: str) -> str:
+    text = re.sub(r"\s+", " ", (raw or "").strip()).rstrip(".,;:!?")
+    tokens = text.split()
+    while tokens:
+        joined = " ".join(tokens)
+        if is_catalog_location(joined):
+            return joined
+        last = tokens[-1]
+        if len(tokens) > 1 and last[:1].islower() and not _HEBREW_RE.search(last):
+            tokens.pop()
+            continue
+        break
+    return " ".join(tokens)
+
+
+def _is_place_candidate(place: str) -> bool:
+    text = _normalize_place_candidate(place)
+    if not text or _DETERMINER_START_RE.search(text):
+        return False
+    return True
+
+
+def _accept_in_preposition(message: str, match_start: int, place: str) -> bool:
+    if is_catalog_location(place) or _HEBREW_RE.search(place):
+        return True
+    prefix = message[:match_start]
+    return bool(_IN_GOVERNOR_RE.search(prefix))
+
+
+def extract_location_from_message(message: str) -> str | None:
+    """Return a physical place only when the turn has explicit location intent."""
+    text = message or ""
+    if not _LOCATION_INTENT_RE.search(text):
         return None
-    return m.group(1).strip()
+
+    for match in _LABEL_PLACE_RE.finditer(text):
+        place = _normalize_place_candidate(match.group(1))
+        place = re.sub(r"^(?:to|at|in|near)\s+", "", place, flags=re.I).strip()
+        if _is_place_candidate(place):
+            return place
+
+    for match in _LOCATION_RE.finditer(text):
+        place = _normalize_place_candidate(match.group("place"))
+        if not _is_place_candidate(place):
+            continue
+        prep = (match.group("prep") or "").lower()
+        if prep == "in" and not _accept_in_preposition(text, match.start(), place):
+            continue
+        return place
+    return None
+
+
+async def infer_location_from_message(message: str) -> str | None:
+    return extract_location_from_message(message)
 
 
 async def apply_ambient_memory_from_message(
@@ -428,8 +507,8 @@ async def apply_ambient_memory_from_message(
     project_id: uuid.UUID,
     message: str,
 ) -> dict[str, Any] | None:
-    """Infuse logistics when a project location is mentioned in chat."""
-    loc = await infer_location_from_message(message)
+    """Infuse logistics only when a project location is mentioned with intent."""
+    loc = extract_location_from_message(message)
     if not loc:
         return None
     matrix = await load_project_memory(org_id, project_id)

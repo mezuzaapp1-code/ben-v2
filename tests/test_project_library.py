@@ -218,6 +218,8 @@ def test_file_lifecycle_inventory_clear_on_workspace_change_still_present():
     assert "resolveActiveTenantId" in app
     assert "sessionTenantId" in app
     assert "clearActiveProject" in app
+    assert "startOrdinaryNewChat" in app
+    assert "chatStreamProjectId" in app
     assert "workspaceFileInventory.configure" in app
     assert "workspaceId: persistentReady ? activeProjectId || null : null" in app
 

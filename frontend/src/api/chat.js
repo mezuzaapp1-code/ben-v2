@@ -4,6 +4,31 @@ import { gateALogSummary, gateAMark } from '../lib/gateATiming.js'
 
 export const CHAT_STREAM_IDLE_TIMEOUT_MS = 300_000
 
+/** Build /chat/stream JSON. project_id is omitted unless explicitly bound. */
+export function buildChatStreamRequestBody({
+  message,
+  threadId,
+  projectId,
+  tier = 'free',
+  providerId,
+  modelOverride,
+  preferredLanguage,
+  clientRequestId,
+  expertOpinion = false,
+  projectSetupBootstrap = false,
+} = {}) {
+  const body = { message, tier }
+  if (threadId) body.thread_id = threadId
+  if (projectId) body.project_id = projectId
+  if (providerId) body.provider_id = providerId
+  if (modelOverride) body.model_override = modelOverride
+  if (preferredLanguage) body.preferred_language = preferredLanguage
+  if (clientRequestId) body.client_request_id = clientRequestId
+  if (expertOpinion) body.expert_opinion = true
+  if (projectSetupBootstrap) body.project_setup_bootstrap = true
+  return body
+}
+
 export function humanizeChatFetchError(err) {
   if (err?.name === 'AbortError') {
     return 'Chat stream timed out. You can retry.'
@@ -31,15 +56,18 @@ export async function* postChatStream({
   headers,
   signal,
 }) {
-  const body = { message, tier }
-  if (threadId) body.thread_id = threadId
-  if (projectId) body.project_id = projectId
-  if (providerId) body.provider_id = providerId
-  if (modelOverride) body.model_override = modelOverride
-  if (preferredLanguage) body.preferred_language = preferredLanguage
-  if (clientRequestId) body.client_request_id = clientRequestId
-  if (expertOpinion) body.expert_opinion = true
-  if (projectSetupBootstrap) body.project_setup_bootstrap = true
+  const body = buildChatStreamRequestBody({
+    message,
+    threadId,
+    projectId,
+    tier,
+    providerId,
+    modelOverride,
+    preferredLanguage,
+    clientRequestId,
+    expertOpinion,
+    projectSetupBootstrap,
+  })
 
   const controller = new AbortController()
   if (signal) {

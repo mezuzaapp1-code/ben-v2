@@ -213,7 +213,7 @@ assert(app.includes('!canShowSources(m) && m.used_files'), 'historical Used file
 assert(app.includes('Sources ({sourcesN})'), 'Sources (N) label')
 
 const expertFn = app.slice(app.indexOf('const handleExpertOpinion'), app.indexOf('const adoptPersistedThread'))
-assert(expertFn.includes('projectId: activeProjectId'), 'Add Opinion passes active project id')
+assert(expertFn.includes('projectId: chatStreamProjectId(activeProjectId)'), 'Add Opinion passes active project id')
 assert(expertFn.includes('usedFilesFromDoneEvent(event)'), 'Add Opinion done maps workspace_files_used')
 assert(expertFn.includes('responseEvidenceFromDoneEvent(event)'), 'Add Opinion done maps response_evidence')
 assert(adhoc.includes('if (projectId) body.project_id = projectId'), 'adhoc stream sends optional project_id')

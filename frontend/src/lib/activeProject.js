@@ -65,6 +65,15 @@ export function activeProjectForTenant(active, tenantId) {
   return { tenantId: current, id, name }
 }
 
+/**
+ * Ordinary chat stream binding: only an explicitly selected project is sent.
+ * Empty / null activeProjectId must omit project_id.
+ */
+export function chatStreamProjectId(activeProjectId) {
+  const id = String(activeProjectId || '').trim()
+  return id || undefined
+}
+
 export function reconcileActiveProject(active, pageRows, tenantId) {
   const tenantScoped = arguments.length >= 3
   const scoped = tenantScoped
@@ -82,11 +91,9 @@ export function reconcileActiveProject(active, pageRows, tenantId) {
     : scoped.tenantId
 
   if (!currentId) {
-    const first = rows[0]
-    if (!first?.id) return { tenantId: boundTenant, id: null, name: '' }
-    if (boundTenant) return bindActiveProject(boundTenant, first)
-    const selected = selectActiveProject(first)
-    return { tenantId: null, id: selected.id, name: selected.name }
+    // Ordinary chat stays project-independent until the user explicitly opens
+    // a project. Do not auto-bind list[0] onto the composer.
+    return { tenantId: boundTenant, id: null, name: '' }
   }
 
   const match = rows.find((row) => String(row?.id || '') === currentId)

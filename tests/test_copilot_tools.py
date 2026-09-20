@@ -115,3 +115,66 @@ async def test_copilot_preamble_quote_trigger():
     assert len(events) == 1
     assert events[0]["type"] == "mutated_state"
     assert events[0]["card_type"] == "quotation_deliberation"
+
+
+def test_ambient_location_rejects_grammatical_in_phrases():
+    from services.project_copilot_tools import extract_location_from_message
+
+    assert extract_location_from_message("Answer in one sentence.") is None
+    assert extract_location_from_message("In English, explain this.") is None
+    assert extract_location_from_message("Explain in detail, in short, and in general.") is None
+    assert extract_location_from_message("in this case, skip travel") is None
+    assert extract_location_from_message("What is the capital of France? Answer in one sentence.") is None
+
+
+def test_ambient_location_explicit_instruction_still_extracts():
+    from services.project_copilot_tools import extract_location_from_message
+
+    assert extract_location_from_message("Set the jobsite to Shoham") == "Shoham"
+    assert extract_location_from_message("Travel to the site in Haifa") == "Haifa"
+    assert extract_location_from_message("Delivery to Tel Aviv tomorrow") == "Tel Aviv"
+    assert extract_location_from_message("The project location is Netanya") == "Netanya"
+
+
+@pytest.mark.asyncio
+async def test_ambient_location_false_positive_does_not_mutate_or_emit_card():
+    from services.copilot_orchestrator import run_copilot_preamble
+    from services.project_copilot_tools import apply_ambient_memory_from_message
+
+    with patch(
+        "services.project_copilot_tools.load_project_memory", new_callable=AsyncMock
+    ) as load_m, patch(
+        "services.project_copilot_tools.save_project_memory", new_callable=AsyncMock
+    ) as save_m:
+        load_m.return_value = {"location_logistics": {"targets": {}}}
+        result = await apply_ambient_memory_from_message(
+            ORG, PROJECT, "What is the capital of France? Answer in one sentence."
+        )
+        assert result is None
+        save_m.assert_not_called()
+
+        events = await run_copilot_preamble(
+            "What is the capital of France? Answer in one sentence.", ORG, PROJECT
+        )
+        assert events == []
+        save_m.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ambient_location_explicit_jobsite_mutates_memory():
+    from services.copilot_orchestrator import run_copilot_preamble
+
+    with patch(
+        "services.project_copilot_tools.load_project_memory", new_callable=AsyncMock
+    ) as load_m, patch(
+        "services.project_copilot_tools.save_project_memory", new_callable=AsyncMock
+    ) as save_m:
+        load_m.return_value = {"location_logistics": {"targets": {}}}
+        save_m.return_value = load_m.return_value
+        events = await run_copilot_preamble("Set the jobsite to Shoham", ORG, PROJECT)
+
+    assert events
+    assert events[0]["card_type"] == "lifecycle_overview"
+    assert events[0]["payload"]["location_logistics"]["targets"]["Shoham"]["target"] == "Shoham"
+    save_m.assert_awaited()
+

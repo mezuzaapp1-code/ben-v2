@@ -94,6 +94,11 @@ def _normalize_location_key(name: str) -> str:
     return (name or "").strip().lower()
 
 
+def is_catalog_location(name: str) -> bool:
+    key = _normalize_location_key(name)
+    return bool(key) and key in _LOCATION_LOGISTICS
+
+
 def compute_location_logistics(target_location: str) -> dict[str, Any]:
     key = _normalize_location_key(target_location)
     spec = _LOCATION_LOGISTICS.get(key)

@@ -109,7 +109,7 @@ assert(overlay.includes('projects-row__badge'), 'Active badge')
   const project51 = { id: 'p-51', name: 'Project 51' }
 
   const auto = reconcileActiveProject({ id: null, name: '' }, page1)
-  assert(auto.id === 'p-1' && auto.name === 'Project 1', 'A: page 1 open/auto-select keeps id/name')
+  assert(auto.id == null && auto.name === '', 'A: page 1 list does not auto-bind ordinary chat')
 
   const opened = selectActiveProject(project51)
   assert(opened.id === 'p-51', '3: open project 51 sets id')
@@ -151,7 +151,7 @@ assert(overlay.includes('projects-row__badge'), 'Active badge')
   const resurrected = reconcileActiveProject(active, orgBPage1)
   assert(resurrected.id !== 'A-51', '3: re-sign-in does not keep A51 id')
   assert(resurrected.name !== 'Project A51', '3: re-sign-in does not keep A51 name')
-  assert(resurrected.id === 'B-1' && resurrected.name === 'Org B First', '5: new session auto-selects page 1')
+  assert(resurrected.id == null && resurrected.name === '', '5: new session does not auto-select page 1')
 }
 
 assert(app.includes('clearActiveProject(null)'), 'sign-out clears via clearActiveProject')
@@ -330,7 +330,9 @@ function sleep(ms) {
 
   const bPage = [{ id: 'B-1', name: 'Org B First' }, { id: 'B-2', name: 'Org B Second' }]
   active = reconcileActiveProject(active, bPage, tenantId)
-  assert(active.id === 'B-1' && active.name === 'Org B First', '6/7: B project list selects B project only')
+  assert(active.id == null && active.name === '', '6: B project list does not auto-bind ordinary chat')
+  active = bindActiveProject(tenantId, { id: 'B-1', name: 'Org B First' })
+  assert(active.id === 'B-1' && active.name === 'Org B First', '6/7: explicit open binds B project only')
   assert(active.tenantId === orgB, '7: B project is bound to org B')
   assert(active.id !== 'A-51', '7: A51 is not active under B')
   binding = workspaceBindingForSession({ persistentReady, tenantId, active })
@@ -366,7 +368,9 @@ function sleep(ms) {
   assert(projectLibraryActiveCopy(active) === 'No project selected', 'Company → Personal drops company label')
   const personalPage = [{ id: 'P-1', name: 'Personal First' }]
   active = reconcileActiveProject(active, personalPage, personal)
-  assert(active.id === 'P-1' && active.tenantId === personal, 'Personal bootstrap selects personal project')
+  assert(active.id == null, 'Personal bootstrap does not auto-select a project')
+  active = bindActiveProject(personal, personalPage[0])
+  assert(active.id === 'P-1' && active.tenantId === personal, 'explicit open binds personal project')
 
   next = applyTenantScopeChange(active, company)
   active = { tenantId: next.tenantId, id: next.id, name: next.name }
@@ -374,7 +378,9 @@ function sleep(ms) {
   assert(active.name === '', 'Personal → Company does not keep personal name')
   const companyPage = [{ id: 'A-9', name: 'Company Nine' }]
   active = reconcileActiveProject(active, companyPage, company)
-  assert(active.id === 'A-9' && active.tenantId === company, 'Company bootstrap selects company project')
+  assert(active.id == null, 'Company bootstrap does not auto-select a project')
+  active = bindActiveProject(company, companyPage[0])
+  assert(active.id === 'A-9' && active.tenantId === company, 'explicit open binds company project')
   assert(active.id !== 'P-1', 'personal project is not active under company')
 }
 

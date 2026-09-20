@@ -19,6 +19,7 @@
     "test:auth-headers": "node scripts/test-auth-header-stability.mjs",
     "test:files-lifecycle-ux": "node scripts/test-files-lifecycle-ux-truth.mjs",
     "test:project-library": "node scripts/test-project-library.mjs",
+    "test:clean-chat": "node scripts/test-clean-chat-isolation.mjs",
     "test:attention-query": "node scripts/test-attention-query.mjs",
     "test:ben-errors": "node scripts/test-ben-errors.mjs",
     "test:large-paste": "node scripts/test-large-paste.mjs",
