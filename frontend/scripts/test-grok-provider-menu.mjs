@@ -39,7 +39,8 @@ assert(coerceRegisteredModel('gpt', 'gpt-4o-mini') === 'gpt-4o-mini', 'GPT dropd
 assert(getProviderModelOptions('gpt').includes('gpt-6-astra'), 'Astra is a GPT model option')
 assert(getProviderModelOptions('gpt').includes('gpt-4o'), 'gpt-4o remains selectable')
 assert(coerceRegisteredModel('claude', 'claude-sonnet-4.6') === 'claude-sonnet-4.6', 'Claude dropdown unchanged')
-assert(coerceRegisteredModel('gemini', 'gemini-2.5-flash') === 'gemini-2.5-flash', 'Gemini dropdown unchanged')
+assert(coerceRegisteredModel('gemini', 'gemini-2.5-flash') === 'gemini-2.5-flash', 'Gemini 2.5 remains selectable')
+assert(!getProviderModelOptions('gemini').includes('gemini-1.5-flash'), 'gemini-1.5-flash is not a Gemini option')
 
 assert(PROVIDER_ENGINE_CATALOG_KEYS.gpt === 'engine-grok', 'GPT catalog alias unchanged')
 assert(PROVIDER_ENGINE_CATALOG_KEYS.grok === undefined, 'speaking grok is not engine-grok')

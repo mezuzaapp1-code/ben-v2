@@ -37,7 +37,7 @@ How BEN-V2 stores, accesses, rotates, and logs secrets. **Documentation v1** —
 | `ANTHROPIC_API_KEY` | Server env | `council_service` (legal expert) |
 | `GOOGLE_API_KEY` | Server env | `model_gateway`, `council_service` (Strategy Advisor) |
 | `XAI_API_KEY` | Server env | `model_gateway` (`XAIProvider`) |
-| `GEMINI_MODEL` / `GOOGLE_MODEL` | Server env | Council Strategy override (default `gemini-2.5-flash`; do not use retired 1.5 ids) |
+| `GEMINI_MODEL` / `GOOGLE_MODEL` | Server env | Optional Gemini default when chat omits `model_override` (must be a registered chat id: `gemini-3.8-flash`, `gemini-3.5-flash`, or `gemini-2.5-flash`). Retired 1.5 ids are ignored. Does not remap a selected UI model. Never log the value. |
 | `CLERK_SECRET_KEY` | Server env | `auth/clerk_auth.py` |
 | Stripe / Clerk webhook secrets | Server env | `billing/` (when routes enabled) |
 

@@ -18,8 +18,39 @@ from services.providers.base_provider import (
 )
 from services.providers.vision_input import ProviderUserPart, gemini_user_parts
 
-# May 2026 frontier default (enforced when callers omit explicit model env overrides).
-GEMINI_FAST_MODEL = "gemini-3.5-flash"
+# Current official Gemini Flash (exact dispatch; never remapped to another id).
+# Catalog (ai.google.dev/gemini-api/docs/models, 2026-09-17): 3.8 Flash GA,
+# 3.5 Flash still listed, 2.5 Flash still listed; 1.5 Flash is shut down.
+GEMINI_FAST_MODEL = "gemini-3.8-flash"
+GEMINI_CHAT_MODELS = ("gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.5-flash")
+GEMINI_RETIRED_MODELS = frozenset({"gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.5-flash-8b"})
+
+
+def assert_live_gemini_model(model: str) -> str:
+    """Reject retired/unknown Gemini ids before any Google HTTP call."""
+    mid = (model or "").strip()
+    if not mid:
+        raise ValueError("Missing Gemini model id")
+    if mid in GEMINI_RETIRED_MODELS:
+        raise ValueError(f"Model {mid!r} is retired and cannot be dispatched")
+    if mid not in GEMINI_CHAT_MODELS:
+        raise ValueError(f"Model {mid!r} is not a supported Gemini chat model")
+    return mid
+
+
+def resolve_gemini_default_model() -> str:
+    """Gemini id used when chat omits model_override.
+
+    GEMINI_MODEL / GOOGLE_MODEL are accepted only when they are a currently
+    registered chat id. Retired or unknown values are ignored and do not
+    remap a different selectable model. The env value is never logged.
+    """
+    raw = os.getenv("GEMINI_MODEL", "").strip() or os.getenv("GOOGLE_MODEL", "").strip()
+    if not raw:
+        return GEMINI_FAST_MODEL
+    if raw in GEMINI_CHAT_MODELS and raw not in GEMINI_RETIRED_MODELS:
+        return raw
+    return GEMINI_FAST_MODEL
 
 
 class GeminiProvider(BaseProvider):
@@ -52,6 +83,7 @@ class GeminiProvider(BaseProvider):
         user_content: list[ProviderUserPart] | None = None,
     ) -> ProviderSendResult:
         api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+        model = assert_live_gemini_model(model)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         r = await cx.post(
             url,
@@ -87,6 +119,7 @@ class GeminiProvider(BaseProvider):
         user_content: list[ProviderUserPart] | None = None,
     ) -> AsyncIterator[str | ProviderStreamEnd]:
         api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+        model = assert_live_gemini_model(model)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent"
         usage = usage_missing()
         finish_reason: str | None = None

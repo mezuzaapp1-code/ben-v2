@@ -2,11 +2,25 @@
 
 import frontierModels from '../../../shared/frontier_models.json' with { type: 'json' }
 
+function catalogGeminiModels() {
+  const google = frontierModels?.providers?.google
+  const ids = []
+  const fast = String(google?.fast || '').trim()
+  if (fast) ids.push(fast)
+  if (Array.isArray(google?.legacy)) {
+    for (const raw of google.legacy) {
+      const id = String(raw || '').trim()
+      if (id && !ids.includes(id)) ids.push(id)
+    }
+  }
+  return ids.filter((id) => id && !id.startsWith('gemini-1.5-'))
+}
+
 /** Tier 1 flagship defaults for operational routing (must match services/tier1_models.py). */
 export const TIER1_PROVIDER_MODELS = Object.freeze({
   gpt: 'gpt-4o',
   claude: 'claude-opus-4.8',
-  gemini: 'gemini-3.5-flash',
+  gemini: String(frontierModels?.providers?.google?.fast || 'gemini-3.8-flash'),
   grok: 'grok-4.6',
 })
 
@@ -28,7 +42,7 @@ function catalogGptExtras() {
 export const PROVIDER_MODEL_OPTIONS = Object.freeze({
   gpt: Object.freeze([...GPT_BASE_MODELS, ...catalogGptExtras()]),
   claude: Object.freeze(['claude-opus-4.8', 'claude-sonnet-4.6', 'claude-sonnet-4-6']),
-  gemini: Object.freeze(['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash']),
+  gemini: Object.freeze(catalogGeminiModels()),
   grok: Object.freeze(['grok-4.6', 'grok-4.3']),
 })
 

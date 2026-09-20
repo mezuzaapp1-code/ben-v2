@@ -11,7 +11,7 @@ def test_tier1_claude_matches_flagship():
 
 def test_tier1_gemini_is_registered_flash():
     assert tier1_model_for("gemini") == TIER1_GEMINI_MODEL
-    assert TIER1_GEMINI_MODEL == "gemini-3.5-flash"
+    assert TIER1_GEMINI_MODEL == "gemini-3.8-flash"
 
 
 def test_tier1_gpt_is_registered_legacy():

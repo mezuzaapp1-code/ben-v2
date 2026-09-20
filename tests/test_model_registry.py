@@ -55,3 +55,7 @@ def test_allowed_models_includes_all_providers():
     assert "xai" in providers
     assert is_registered_model("xai", "grok-4.6")
     assert is_registered_model("xai", "grok-4.3")
+    assert is_registered_model("google", "gemini-3.8-flash")
+    assert is_registered_model("google", "gemini-3.5-flash")
+    assert is_registered_model("google", "gemini-2.5-flash")
+    assert not is_registered_model("google", "gemini-1.5-flash")

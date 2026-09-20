@@ -15,7 +15,7 @@ from fastapi import HTTPException, status
 from services.chat_prompt import GLOBAL_CHAT_SYSTEM
 from services.message_format import provider_display_label
 from services.providers.anthropic_provider import ANTHROPIC_FAST_MODEL, ANTHROPIC_FLAGSHIP_MODEL
-from services.providers.gemini_provider import GEMINI_FAST_MODEL
+from services.providers.gemini_provider import GEMINI_FAST_MODEL, resolve_gemini_default_model
 from services.providers.model_registry import assert_model_registered, resolve_api_model, token_rates
 from services.providers.openai_provider import OPENAI_CHAT_FAST_MODEL, OPENAI_REASONING_MODEL
 from services.providers.xai_provider import XAI_FLAGSHIP_MODEL
@@ -173,11 +173,16 @@ def _model_for_gateway_provider(gateway_prov: str, tier: str) -> str:
     if gateway_prov == "xai":
         return XAI_FLAGSHIP_MODEL
     if gateway_prov == "google":
-        return (
-            os.getenv("GEMINI_MODEL", "").strip()
-            or os.getenv("GOOGLE_MODEL", "").strip()
-            or GEMINI_FAST_MODEL
-        )
+        selected = resolve_gemini_default_model()
+        env_raw = os.getenv("GEMINI_MODEL", "").strip() or os.getenv("GOOGLE_MODEL", "").strip()
+        if env_raw and selected != env_raw:
+            log_warning(
+                "Ignoring GEMINI_MODEL/GOOGLE_MODEL override; value is not a registered Gemini chat model",
+                subsystem="model_gateway",
+                provider="google",
+                category="config_error",
+            )
+        return selected
     raise ValueError(f"unknown gateway provider: {gateway_prov}")
 
 

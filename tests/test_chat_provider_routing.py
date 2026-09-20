@@ -263,6 +263,7 @@ def test_validate_chat_model_override_rejects_unknown():
 
 def test_validate_chat_model_override_accepts_tier1():
     validate_chat_model_override("claude", "claude-opus-4.8")
+    validate_chat_model_override("gemini", "gemini-3.8-flash")
     validate_chat_model_override("gemini", "gemini-3.5-flash")
     validate_chat_model_override("grok", "grok-4.6")
     validate_chat_model_override("grok", "grok-4.3")

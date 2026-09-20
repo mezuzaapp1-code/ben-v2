@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from services.providers.anthropic_provider import ANTHROPIC_FAST_MODEL, ANTHROPIC_FLAGSHIP_MODEL
-from services.providers.gemini_provider import GEMINI_FAST_MODEL
+from services.providers.gemini_provider import GEMINI_FAST_MODEL, GEMINI_RETIRED_MODELS
 from services.providers.openai_provider import OPENAI_CHAT_FAST_MODEL, OPENAI_REASONING_MODEL
 from services.providers.xai_provider import XAI_FAST_MODEL, XAI_FLAGSHIP_MODEL
 from services.providers.vision_input import VISION_ANALYZE
@@ -23,6 +23,7 @@ _DEFAULT_RATES: dict[tuple[str, str], tuple[float, float]] = {
     ("anthropic", ANTHROPIC_FLAGSHIP_MODEL): (3e-6, 15e-6),
     ("anthropic", ANTHROPIC_FAST_MODEL): (1e-6, 5e-6),
     ("google", GEMINI_FAST_MODEL): (0.1e-6, 0.4e-6),
+    ("google", "gemini-3.5-flash"): (0.1e-6, 0.4e-6),
     ("google", "gemini-2.5-flash"): (0.1e-6, 0.4e-6),
     ("xai", XAI_FLAGSHIP_MODEL): (2e-6, 6e-6),
     ("xai", XAI_FAST_MODEL): (1.25e-6, 2.5e-6),
@@ -33,7 +34,6 @@ _DEFAULT_API_ENV: dict[tuple[str, str], tuple[str, ...]] = {
     ("openai", OPENAI_REASONING_MODEL): ("OPENAI_REASONING_API_MODEL", "SYNTHESIS_MODEL", "OPENAI_MODEL"),
     ("anthropic", ANTHROPIC_FLAGSHIP_MODEL): ("ANTHROPIC_MODEL",),
     ("anthropic", ANTHROPIC_FAST_MODEL): ("ANTHROPIC_MODEL",),
-    ("google", GEMINI_FAST_MODEL): ("GEMINI_MODEL", "GOOGLE_MODEL"),
 }
 
 # When env overrides are unset, dispatch to known-good provider API ids.
@@ -49,8 +49,8 @@ _DEFAULT_VISION_MODELS: frozenset[tuple[str, str]] = frozenset(
         ("anthropic", "claude-sonnet-4-6"),
         ("anthropic", "claude-3-5-sonnet-20241022"),
         ("google", GEMINI_FAST_MODEL),
+        ("google", "gemini-3.5-flash"),
         ("google", "gemini-2.5-flash"),
-        ("google", "gemini-1.5-flash"),
         ("xai", XAI_FLAGSHIP_MODEL),
         ("xai", XAI_FAST_MODEL),
     }
@@ -62,7 +62,6 @@ _DEFAULT_API_FALLBACK: dict[tuple[str, str], str] = {
     ("openai", OPENAI_REASONING_MODEL): "gpt-4o",
     ("anthropic", ANTHROPIC_FLAGSHIP_MODEL): "claude-sonnet-4-6",
     ("anthropic", ANTHROPIC_FAST_MODEL): "claude-sonnet-4-6",
-    ("google", GEMINI_FAST_MODEL): "gemini-2.5-flash",
 }
 
 
@@ -269,10 +268,14 @@ def resolve_api_model(provider: str, canonical_model: str) -> str:
     """Map canonical BEN model id to provider API model id (env overrides optional)."""
     prov = (provider or "").strip().lower()
     canonical = assert_model_registered(prov, canonical_model)
+    if prov == "google" and canonical in GEMINI_RETIRED_MODELS:
+        raise ValueError(f"Model {canonical!r} is retired and cannot be dispatched")
     ident = model_identity(prov, canonical)
     if ident.get("exact_dispatch"):
-        api_id = str(ident.get("api_model") or canonical).strip()
-        return api_id or canonical
+        api_id = str(ident.get("api_model") or canonical).strip() or canonical
+        if prov == "google" and api_id in GEMINI_RETIRED_MODELS:
+            raise ValueError(f"Model {api_id!r} is retired and cannot be dispatched")
+        return api_id
     for env_key in _env_override_keys(prov, canonical):
         override = os.getenv(env_key, "").strip()
         if override:

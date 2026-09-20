@@ -54,12 +54,14 @@ assert(
 )
 assert(
   JSON.stringify(getProviderModelOptions('gemini')) ===
-    JSON.stringify(['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash']),
-  'Gemini list unchanged'
+    JSON.stringify(['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-2.5-flash']),
+  'Gemini menu is current Flash ids without 1.5'
 )
 assert(JSON.stringify(getProviderModelOptions('grok')) === JSON.stringify(['grok-4.6', 'grok-4.3']), 'Grok list unchanged')
 assert(getTier1Model('claude') === 'claude-opus-4.8', 'Claude default unchanged')
-assert(getTier1Model('gemini') === 'gemini-3.5-flash', 'Gemini default unchanged')
+assert(getTier1Model('gemini') === 'gemini-3.8-flash', 'Gemini default is current Flash')
+assert(!getProviderModelOptions('gemini').includes('gemini-1.5-flash'), 'gemini-1.5-flash is not selectable')
+assert(coerceRegisteredModel('gemini', 'gemini-1.5-flash') === 'gemini-3.8-flash', 'retired Gemini coerces to current Flash')
 assert(getTier1Model('grok') === 'grok-4.6', 'Grok default unchanged')
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')

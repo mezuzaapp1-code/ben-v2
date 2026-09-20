@@ -100,7 +100,7 @@ def test_existing_gpt_defaults_and_remaps_unchanged(monkeypatch):
     monkeypatch.delenv("SYNTHESIS_MODEL", raising=False)
     assert tier1_model_for("gpt") == "gpt-4o"
     assert tier1_model_for("claude") == "claude-opus-4.8"
-    assert tier1_model_for("gemini") == "gemini-3.5-flash"
+    assert tier1_model_for("gemini") == "gemini-3.8-flash"
     assert tier1_model_for("grok") == "grok-4.6"
     assert resolve_api_model("openai", OPENAI_CHAT_FAST_MODEL) == "gpt-4o-mini"
     assert resolve_api_model("openai", "gpt-4o") == "gpt-4o"
