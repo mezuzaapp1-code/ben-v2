@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 
 from services.ops.latency_path_audit import (
+    audit_acquire_connection,
     audit_enabled,
     audit_snapshot,
     configure_audit_for_process,
@@ -281,6 +282,50 @@ def test_thread_resolve_micro_timing_derived_durations():
     configure_audit_for_process(enabled=False)
 
 
+def test_gate_a7_acquire_sql_split_derived_durations():
+    configure_audit_for_process(enabled=True)
+    reset_latency_audit(path="chat_stream")
+    mark("TR0")
+    mark("TR1")
+    time.sleep(0.003)
+    mark("thread_acquire_start")
+    time.sleep(0.004)
+    mark("thread_acquire_end")
+    time.sleep(0.002)
+    mark("TR2")
+    mark("CX2")
+    time.sleep(0.001)
+    mark("context_acquire_start")
+    time.sleep(0.005)
+    mark("context_acquire_end")
+    time.sleep(0.003)
+    mark("CX3")
+    ga = audit_snapshot()["gate_a"]
+    assert ga["thread_connection_acquire_ms"] is not None
+    assert ga["thread_set_config_sql_ms"] is not None
+    assert ga["context_connection_acquire_ms"] is not None
+    assert ga["context_set_config_sql_ms"] is not None
+    assert ga["thread_connection_acquire_ms"] >= 3
+    assert ga["thread_set_config_sql_ms"] >= 1
+    assert ga["context_connection_acquire_ms"] >= 4
+    assert ga["context_set_config_sql_ms"] >= 2
+    assert ga["set_config_ms"] >= ga["thread_connection_acquire_ms"]
+    assert ga["pool_pre_ping"] == "UNOBSERVABLE"
+    from services.ops.json_log_formatter import STRUCTURED_FIELDS
+
+    for key in (
+        "thread_connection_acquire_ms",
+        "thread_set_config_sql_ms",
+        "context_connection_acquire_ms",
+        "context_set_config_sql_ms",
+        "thread_physical",
+        "context_physical",
+        "same_engine_pool",
+    ):
+        assert key in STRUCTURED_FIELDS
+    configure_audit_for_process(enabled=False)
+
+
 def test_thread_resolve_marks_are_noop_when_audit_disabled():
     configure_audit_for_process(enabled=False)
     mark("TR0")
@@ -303,8 +348,13 @@ def test_resolve_thread_id_source_keeps_original_db_sequence():
     assert 'mark("TR5")' in body
     assert 'mark("TR6")' in body
     assert body.index('mark("TR0")') < body.index("get_db_session()")
-    assert body.index('mark("TR1")') < body.index("await _set_org")
+    assert 'await audit_acquire_connection(session, "thread")' in body
+    assert 'async with audit_db_slot("thread")' in body
+    assert body.index("audit_db_slot") < body.index("get_db_session()")
+    assert body.index('mark("TR1")') < body.index('audit_acquire_connection(session, "thread")')
+    assert body.index('audit_acquire_connection(session, "thread")') < body.index("await _set_org")
     assert body.index("await _set_org") < body.index('mark("TR2")')
+    assert "session.connection()" not in body
     assert body.index("await session.flush()") < body.index('mark("TR3")')
     assert body.index("await session.commit()") < body.index('mark("TR4")')
     assert body.index("upsert_thread_metadata") < body.index('mark("TR5")')
@@ -392,8 +442,13 @@ def test_context_history_load_source_keeps_original_db_sequence():
     assert 'mark("CX5")' in body
     assert body.index('mark("CX0")') < body.index("list_thread_messages")
     assert body.index("list_thread_messages") < body.index('mark("CX1")')
-    assert body.index('mark("CX2")') < body.index("await _set_org")
+    assert 'await audit_acquire_connection(session, "context")' in body
+    assert 'async with audit_db_slot("context")' in body
+    assert body.index("audit_db_slot") < body.index("get_db_session()")
+    assert body.index('mark("CX2")') < body.index('audit_acquire_connection(session, "context")')
+    assert body.index('audit_acquire_connection(session, "context")') < body.index("await _set_org")
     assert body.index("await _set_org") < body.index('mark("CX3")')
+    assert "session.connection()" not in body
     assert body.index("session.get(Thread") < body.index('mark("CX4")')
     assert "session.execute(msg_q)" in body
     assert body.count("await _set_org") == 1
@@ -410,3 +465,143 @@ def test_context_history_load_source_keeps_original_db_sequence():
     assert 'mark("CX7")' in std
     assert std.index('mark("CX6")') < std.index("await inject_knowledge_few_shot")
     assert std.index("await inject_knowledge_few_shot") < std.index('mark("CX7")')
+
+
+def test_session_connection_is_safe_on_sqlalchemy_2_0_36():
+    import inspect
+
+    import sqlalchemy
+    from sqlalchemy.engine.default import DefaultDialect
+    from sqlalchemy.orm.session import Session
+
+    assert sqlalchemy.__version__ == "2.0.36"
+    src = " ".join(inspect.getsource(Session.connection).split())
+    assert "no transactional state is established with the DBAPI until the first" in src
+    begin_src = inspect.getsource(DefaultDialect.do_begin)
+    assert "pass" in begin_src
+    from sqlalchemy.engine.interfaces import Dialect
+
+    dialect_events = [n for n in dir(Dialect.dispatch) if not n.startswith("_")]
+    assert "do_ping" not in dialect_events
+
+
+def test_gate_a7_acquire_is_noop_when_audit_disabled():
+    configure_audit_for_process(enabled=False)
+
+    class _Session:
+        async def connection(self):
+            raise AssertionError("session.connection must not run when audit is off")
+
+    __import__("asyncio").run(audit_acquire_connection(_Session(), "thread"))
+
+
+def test_gate_a7_physical_classifier():
+    from services.ops.db_pool_audit import classify_physical
+
+    assert classify_physical({"events": [{"kind": "checkout", "phys_gen": 1}]}) == "REUSED"
+    assert (
+        classify_physical(
+            {"events": [{"kind": "connect", "phys_gen": 1}, {"kind": "checkout", "phys_gen": 1}]}
+        )
+        == "NEW"
+    )
+    assert (
+        classify_physical(
+            {"events": [{"kind": "connect", "phys_gen": 2}, {"kind": "checkout", "phys_gen": 2}]}
+        )
+        == "RECONNECTED"
+    )
+    assert (
+        classify_physical(
+            {
+                "events": [
+                    {"kind": "invalidate", "phys_gen": 1},
+                    {"kind": "connect", "phys_gen": 2},
+                    {"kind": "checkout", "phys_gen": 2},
+                ]
+            }
+        )
+        == "RECONNECTED"
+    )
+    assert classify_physical({"events": [{"kind": "invalidate", "phys_gen": 1}]}) == "INVALIDATED"
+    assert classify_physical({"events": []}) == "UNKNOWN"
+
+
+def test_gate_a7_pool_events_identity_sqlite():
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.pool import QueuePool
+
+    from services.ops.db_pool_audit import (
+        classify_physical,
+        ensure_installed,
+        publish_slot,
+        slot_scope,
+    )
+
+    configure_audit_for_process(enabled=True)
+    reset_latency_audit(path="a7_pool")
+    engine = create_engine(
+        "sqlite://",
+        poolclass=QueuePool,
+        pool_pre_ping=True,
+        pool_size=1,
+        max_overflow=0,
+    )
+    ensure_installed(engine)
+    with slot_scope("thread"):
+        with engine.connect() as conn:
+            conn.execute(text("select 1"))
+            conn.commit()
+    thread_pub = publish_slot("thread")
+    assert thread_pub["physical"] == "NEW"
+    assert thread_pub["record_id"]
+    assert thread_pub["phys_gen"] == 1
+    assert "connect" in thread_pub["event_kinds"]
+    assert "checkout" in thread_pub["event_kinds"]
+    assert "checkin" in thread_pub["event_kinds"]
+    with slot_scope("context"):
+        with engine.connect() as conn:
+            conn.execute(text("select 1"))
+            conn.commit()
+    context_pub = publish_slot("context")
+    assert context_pub["physical"] == "REUSED"
+    assert context_pub["record_id"] == thread_pub["record_id"]
+    assert context_pub["phys_gen"] == thread_pub["phys_gen"]
+    assert context_pub["engine_id"] == thread_pub["engine_id"]
+    assert context_pub["pool_id"] == thread_pub["pool_id"]
+    assert "connect" not in context_pub["event_kinds"].split(",")
+    assert classify_physical({"events": [{"kind": k} for k in context_pub["event_kinds"].split(",") if k]}) in {
+        "REUSED",
+        "UNKNOWN",
+    }
+    ga = audit_snapshot()["gate_a"]
+    assert ga["thread_physical"] == "NEW"
+    assert ga["context_physical"] == "REUSED"
+    assert ga["same_engine_pool"] == "YES"
+    assert ga["pool_pre_ping"] == "UNOBSERVABLE"
+    engine.dispose()
+    configure_audit_for_process(enabled=False)
+
+
+def test_both_chat_sessions_use_process_global_engine():
+    from pathlib import Path
+
+    conn = Path("database/connection.py").read_text()
+    assert "_engine = _create_engine()" in conn
+    assert "SessionLocal = async_sessionmaker(_engine" in conn
+    assert "pool_pre_ping=True" in conn
+    thread = Path("services/thread_service.py").read_text()
+    assert "from database.connection import get_db_session" in thread
+    resolve = thread[thread.index("async def resolve_thread_id") : thread.index("async def create_conversation_thread")]
+    history = thread[
+        thread.index("async def _load_chat_history_messages") : thread.index(
+            "async def build_chat_message_with_thread_context"
+        )
+    ]
+    assert "get_db_session()" in resolve
+    assert "get_db_session()" in history
+    assert "create_async_engine" not in resolve
+    assert "create_async_engine" not in history
+    assert "dispose_engine" not in resolve
+    assert "dispose_engine" not in history
+

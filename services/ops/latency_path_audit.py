@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import os
 import time
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from typing import Any
+from typing import Any, AsyncIterator
 
 from services.ops.request_context import get_request_id
 from services.ops.structured_log import log_info
@@ -24,6 +25,8 @@ MARK_ORDER = (
     "admission_skipped",
     "TR0",
     "TR1",
+    "thread_acquire_start",
+    "thread_acquire_end",
     "TR2",
     "TR3",
     "TR4",
@@ -33,6 +36,8 @@ MARK_ORDER = (
     "CX0",
     "CX1",
     "CX2",
+    "context_acquire_start",
+    "context_acquire_end",
     "CX3",
     "CX4",
     "CX5",
@@ -82,6 +87,50 @@ def reset_latency_audit(*, provider: str = "", model: str = "", path: str = "") 
             "attempt_id": 0,
         }
     )
+
+
+def note_audit_fields(group: str, data: dict[str, Any]) -> None:
+    """Attach opaque identity/counts under extra[group]. No secrets."""
+    if not audit_enabled():
+        return
+    state = _marks.get()
+    if state is None:
+        reset_latency_audit()
+        state = _marks.get()
+        if state is None:
+            return
+    safe = {
+        k: v
+        for k, v in data.items()
+        if k not in {"message", "api_key", "authorization", "token", "password", "database_url"}
+        and not str(k).lower().endswith(("_url", "password", "secret"))
+    }
+    extra: dict[str, Any] = state["extra"]
+    extra[group] = safe
+
+
+async def audit_acquire_connection(session: Any, slot: str) -> None:
+    """Audit-only: explicit pool checkout immediately before _set_org.
+
+    No-op when BEN_LATENCY_PATH_AUDIT is off. Does not emit SQL.
+    """
+    if not audit_enabled():
+        return
+    from services.ops.db_pool_audit import acquire_pooled_connection
+
+    await acquire_pooled_connection(session, slot)
+
+
+@asynccontextmanager
+async def audit_db_slot(slot: str) -> AsyncIterator[None]:
+    """Audit-only wrapper around a DB session so pool checkin is observed."""
+    if not audit_enabled():
+        yield
+        return
+    from services.ops.db_pool_audit import audit_db_slot as _slot
+
+    async with _slot(slot):
+        yield
 
 
 def mark(name: str, **extra: Any) -> None:
@@ -146,6 +195,14 @@ def audit_snapshot() -> dict[str, Any]:
     pre_thread_overhead_ms = None
     if db_thread_ms is not None and thread_resolve_ms is not None:
         pre_thread_overhead_ms = round(db_thread_ms - thread_resolve_ms, 1)
+    extra = state.get("extra") or {}
+    thread_pool = extra.get("thread_pool") or {}
+    context_pool = extra.get("context_pool") or {}
+    same_engine = "UNKNOWN"
+    if thread_pool.get("engine_id") and context_pool.get("engine_id"):
+        same_engine = "YES" if thread_pool.get("engine_id") == context_pool.get("engine_id") else "NO"
+    elif thread_pool.get("engine_id") or context_pool.get("engine_id"):
+        same_engine = "YES"
     return {
         "path": state.get("path") or "",
         "provider": state.get("provider") or "",
@@ -177,6 +234,25 @@ def audit_snapshot() -> dict[str, Any]:
             "thread_resolve_ms": thread_resolve_ms,
             "session_checkout_ms": _ms(state, "TR1", "TR0"),
             "set_config_ms": _ms(state, "TR2", "TR1"),
+            "thread_connection_acquire_ms": _ms(state, "thread_acquire_end", "thread_acquire_start"),
+            "thread_set_config_sql_ms": _ms(state, "TR2", "thread_acquire_end"),
+            "context_connection_acquire_ms": _ms(
+                state, "context_acquire_end", "context_acquire_start"
+            ),
+            "context_set_config_sql_ms": _ms(state, "CX3", "context_acquire_end"),
+            "thread_physical": thread_pool.get("physical") or "UNKNOWN",
+            "context_physical": context_pool.get("physical") or "UNKNOWN",
+            "thread_phys_gen": thread_pool.get("phys_gen"),
+            "context_phys_gen": context_pool.get("phys_gen"),
+            "thread_record_id": thread_pool.get("record_id"),
+            "context_record_id": context_pool.get("record_id"),
+            "db_process_id": thread_pool.get("process_id") or context_pool.get("process_id"),
+            "db_engine_id": thread_pool.get("engine_id") or context_pool.get("engine_id"),
+            "db_pool_id": thread_pool.get("pool_id") or context_pool.get("pool_id"),
+            "db_pool_class": thread_pool.get("pool_class") or context_pool.get("pool_class"),
+            "thread_pool_events": thread_pool.get("event_kinds") or "",
+            "context_pool_events": context_pool.get("event_kinds") or "",
+            "same_engine_pool": same_engine,
             "insert_flush_ms": _ms(state, "TR3", "TR2"),
             "commit_ms": _ms(state, "TR4", "TR3"),
             "sqlite_metadata_ms": _ms(state, "TR5", "TR4"),
@@ -208,7 +284,7 @@ def audit_snapshot() -> dict[str, Any]:
             "Pb_first_body": "UNOBSERVABLE",
             "httpx_client_ms": _ms(state, "httpx_client_ready", "t3_routing"),
         },
-        "extra": state.get("extra") or {},
+        "extra": extra,
     }
 
 
@@ -238,6 +314,23 @@ def log_latency_audit() -> dict[str, Any]:
         thread_resolve_ms=ga.get("thread_resolve_ms"),
         session_checkout_ms=ga.get("session_checkout_ms"),
         set_config_ms=ga.get("set_config_ms"),
+        thread_connection_acquire_ms=ga.get("thread_connection_acquire_ms"),
+        thread_set_config_sql_ms=ga.get("thread_set_config_sql_ms"),
+        context_connection_acquire_ms=ga.get("context_connection_acquire_ms"),
+        context_set_config_sql_ms=ga.get("context_set_config_sql_ms"),
+        thread_physical=ga.get("thread_physical"),
+        context_physical=ga.get("context_physical"),
+        thread_phys_gen=ga.get("thread_phys_gen"),
+        context_phys_gen=ga.get("context_phys_gen"),
+        thread_record_id=ga.get("thread_record_id"),
+        context_record_id=ga.get("context_record_id"),
+        db_process_id=ga.get("db_process_id"),
+        db_engine_id=ga.get("db_engine_id"),
+        db_pool_id=ga.get("db_pool_id"),
+        db_pool_class=ga.get("db_pool_class"),
+        thread_pool_events=ga.get("thread_pool_events"),
+        context_pool_events=ga.get("context_pool_events"),
+        same_engine_pool=ga.get("same_engine_pool"),
         insert_flush_ms=ga.get("insert_flush_ms"),
         commit_ms=ga.get("commit_ms"),
         sqlite_metadata_ms=ga.get("sqlite_metadata_ms"),

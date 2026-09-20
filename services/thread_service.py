@@ -43,7 +43,7 @@ from services.ops.persistence_integrity import (
 from services.ops.request_context import attach_request_id
 from services.ops.runtime_diagnostics import record_transcript_persist_timeout
 from services.ops.structured_log import log_warning
-from services.ops.latency_path_audit import mark
+from services.ops.latency_path_audit import audit_acquire_connection, audit_db_slot, mark
 from services.ops.timeouts import DB_OPERATION_TIMEOUT_S
 
 LIST_THREADS_LIMIT = 50
@@ -271,39 +271,41 @@ async def promote_thread_to_project(
 async def resolve_thread_id(org_id: uuid.UUID, thread_id: uuid.UUID | None, *, title: str) -> uuid.UUID:
     """Return existing thread id or create a new thread."""
     mark("TR0")
-    async with get_db_session() as session:
-        # Session context entered. AsyncSession checks out the pool connection
-        # lazily on first execute, so checkout/reconnect is not a separate
-        # observable mark (included in TR1→TR2 / set_config_ms).
-        mark("TR1")
-        await _set_org(session, org_id)
-        mark("TR2")
-        if thread_id is not None:
-            row = await session.get(Thread, thread_id)
-            if row is None or row.org_id != org_id:
-                raise HTTPException(status.HTTP_404_NOT_FOUND, "Thread not found")
+    async with audit_db_slot("thread"):
+        async with get_db_session() as session:
+            # Session context entered. AsyncSession checks out the pool connection
+            # lazily on first use. Under BEN_LATENCY_PATH_AUDIT, audit acquire
+            # makes that checkout explicit immediately before _set_org.
+            mark("TR1")
+            await audit_acquire_connection(session, "thread")
+            await _set_org(session, org_id)
+            mark("TR2")
+            if thread_id is not None:
+                row = await session.get(Thread, thread_id)
+                if row is None or row.org_id != org_id:
+                    raise HTTPException(status.HTTP_404_NOT_FOUND, "Thread not found")
+                upsert_thread_metadata(
+                    thread_id=str(thread_id),
+                    org_id=str(org_id),
+                    title=row.title,
+                )
+                mark("TR5")
+                mark("TR6")
+                return thread_id
+            t = Thread(org_id=org_id, title=(title.strip()[:512] or "Conversation")[:512])
+            session.add(t)
+            await session.flush()
+            mark("TR3")
+            await session.commit()
+            mark("TR4")
             upsert_thread_metadata(
-                thread_id=str(thread_id),
+                thread_id=str(t.id),
                 org_id=str(org_id),
-                title=row.title,
+                title=t.title,
             )
             mark("TR5")
             mark("TR6")
-            return thread_id
-        t = Thread(org_id=org_id, title=(title.strip()[:512] or "Conversation")[:512])
-        session.add(t)
-        await session.flush()
-        mark("TR3")
-        await session.commit()
-        mark("TR4")
-        upsert_thread_metadata(
-            thread_id=str(t.id),
-            org_id=str(org_id),
-            title=t.title,
-        )
-        mark("TR5")
-        mark("TR6")
-        return t.id
+            return t.id
 
 
 async def create_conversation_thread(
@@ -611,22 +613,24 @@ async def _load_chat_history_messages(
         if store_rows:
             return thread_store_messages_as_chat_rows(store_rows)
         async with asyncio.timeout(DB_OPERATION_TIMEOUT_S):
-            async with get_db_session() as session:
-                mark("CX2")
-                await _set_org(session, org_id)
-                mark("CX3")
-                row = await session.get(Thread, thread_id)
-                mark("CX4")
-                if row is None or row.org_id != org_id:
-                    return []
-                msg_q = (
-                    select(Message)
-                    .where(Message.thread_id == thread_id, Message.org_id == org_id)
-                    .order_by(Message.created_at.asc())
-                )
-                rows = list((await session.execute(msg_q)).scalars().all())
-                mark("CX5")
-                return rows
+            async with audit_db_slot("context"):
+                async with get_db_session() as session:
+                    mark("CX2")
+                    await audit_acquire_connection(session, "context")
+                    await _set_org(session, org_id)
+                    mark("CX3")
+                    row = await session.get(Thread, thread_id)
+                    mark("CX4")
+                    if row is None or row.org_id != org_id:
+                        return []
+                    msg_q = (
+                        select(Message)
+                        .where(Message.thread_id == thread_id, Message.org_id == org_id)
+                        .order_by(Message.created_at.asc())
+                    )
+                    rows = list((await session.execute(msg_q)).scalars().all())
+                    mark("CX5")
+                    return rows
     except Exception:
         return []
 

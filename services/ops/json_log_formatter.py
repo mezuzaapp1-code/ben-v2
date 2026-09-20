@@ -92,6 +92,23 @@ STRUCTURED_FIELDS = (
     "P0_to_P3_ms",
     "P0_to_P4_ms",
     "P0_to_P5_ms",
+    "thread_connection_acquire_ms",
+    "thread_set_config_sql_ms",
+    "context_connection_acquire_ms",
+    "context_set_config_sql_ms",
+    "thread_physical",
+    "context_physical",
+    "thread_phys_gen",
+    "context_phys_gen",
+    "thread_record_id",
+    "context_record_id",
+    "db_process_id",
+    "db_engine_id",
+    "db_pool_id",
+    "db_pool_class",
+    "thread_pool_events",
+    "context_pool_events",
+    "same_engine_pool",
 )
 
 _SENSITIVE_KEYS = frozenset(
