@@ -313,3 +313,100 @@ def test_resolve_thread_id_source_keeps_original_db_sequence():
     assert body.count("await _set_org") == 1
     assert "pool_pre_ping=" not in body
     assert "create_async_engine" not in body
+
+
+def test_context_micro_timing_derived_durations():
+    configure_audit_for_process(enabled=True)
+    reset_latency_audit(path="chat_stream")
+    mark("db_thread_ready")
+    time.sleep(0.002)
+    mark("CX0")
+    time.sleep(0.003)
+    mark("CX1")
+    time.sleep(0.001)
+    mark("CX2")
+    time.sleep(0.004)
+    mark("CX3")
+    time.sleep(0.005)
+    mark("CX4")
+    time.sleep(0.006)
+    mark("CX5")
+    time.sleep(0.001)
+    mark("CX6")
+    time.sleep(0.007)
+    mark("CX7")
+    time.sleep(0.002)
+    mark("files_skipped")
+    mark("t2_context")
+    ga = audit_snapshot()["gate_a"]
+    assert ga["CONTEXT_ms"] is not None
+    assert ga["context_preamble_ms"] is not None
+    assert ga["sqlite_history_ms"] is not None
+    assert ga["context_pg_session_ms"] is not None
+    assert ga["context_set_config_ms"] is not None
+    assert ga["context_thread_lookup_ms"] is not None
+    assert ga["context_messages_query_ms"] is not None
+    assert ga["context_history_compose_ms"] is not None
+    assert ga["knowledge_inject_ms"] is not None
+    assert ga["context_tail_ms"] is not None
+    assert ga["CONTEXT_ms"] >= 30
+    assert ga["context_set_config_ms"] >= 3
+    assert ga["knowledge_inject_ms"] >= 6
+    assert ga["set_config_ms"] is None
+    from services.ops.json_log_formatter import STRUCTURED_FIELDS
+
+    for key in (
+        "context_preamble_ms",
+        "sqlite_history_ms",
+        "context_pg_session_ms",
+        "context_set_config_ms",
+        "context_thread_lookup_ms",
+        "context_messages_query_ms",
+        "context_history_compose_ms",
+        "knowledge_inject_ms",
+        "context_tail_ms",
+    ):
+        assert key in STRUCTURED_FIELDS
+    configure_audit_for_process(enabled=False)
+
+
+def test_context_marks_are_noop_when_audit_disabled():
+    configure_audit_for_process(enabled=False)
+    mark("CX0")
+    mark("CX7")
+    assert audit_snapshot() == {}
+
+
+def test_context_history_load_source_keeps_original_db_sequence():
+    from pathlib import Path
+
+    src = Path("services/thread_service.py").read_text()
+    start = src.index("async def _load_chat_history_messages")
+    end = src.index("async def build_chat_message_with_thread_context")
+    body = src[start:end]
+    assert 'mark("CX0")' in body
+    assert 'mark("CX1")' in body
+    assert 'mark("CX2")' in body
+    assert 'mark("CX3")' in body
+    assert 'mark("CX4")' in body
+    assert 'mark("CX5")' in body
+    assert body.index('mark("CX0")') < body.index("list_thread_messages")
+    assert body.index("list_thread_messages") < body.index('mark("CX1")')
+    assert body.index('mark("CX2")') < body.index("await _set_org")
+    assert body.index("await _set_org") < body.index('mark("CX3")')
+    assert body.index("session.get(Thread") < body.index('mark("CX4")')
+    assert "session.execute(msg_q)" in body
+    assert body.count("await _set_org") == 1
+    assert body.count("get_db_session()") == 1
+    assert "pool_pre_ping=" not in body
+
+    app = Path("services/chat_service.py").read_text()
+    std = app[
+        app.index("live_user_text = expand_user_message_for_provider") : app.index(
+            "if vision_user_content:"
+        )
+    ]
+    assert 'mark("CX6")' in std
+    assert 'mark("CX7")' in std
+    assert std.index('mark("CX6")') < std.index("await inject_knowledge_few_shot")
+    assert std.index("await inject_knowledge_few_shot") < std.index('mark("CX7")')

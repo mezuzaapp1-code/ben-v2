@@ -604,14 +604,19 @@ async def _load_chat_history_messages(
     thread_id: uuid.UUID,
 ) -> list[Message] | list[ChatHistoryRow]:
     """Best-effort prior turns for /chat; prefers isolated per-thread SQLite."""
+    mark("CX0")
     try:
         store_rows = list_thread_messages(str(thread_id))
+        mark("CX1")
         if store_rows:
             return thread_store_messages_as_chat_rows(store_rows)
         async with asyncio.timeout(DB_OPERATION_TIMEOUT_S):
             async with get_db_session() as session:
+                mark("CX2")
                 await _set_org(session, org_id)
+                mark("CX3")
                 row = await session.get(Thread, thread_id)
+                mark("CX4")
                 if row is None or row.org_id != org_id:
                     return []
                 msg_q = (
@@ -619,7 +624,9 @@ async def _load_chat_history_messages(
                     .where(Message.thread_id == thread_id, Message.org_id == org_id)
                     .order_by(Message.created_at.asc())
                 )
-                return list((await session.execute(msg_q)).scalars().all())
+                rows = list((await session.execute(msg_q)).scalars().all())
+                mark("CX5")
+                return rows
     except Exception:
         return []
 

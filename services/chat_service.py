@@ -376,7 +376,9 @@ async def stream_chat_response(
     if expert_opinion:
         opinion_request = (message or "").strip() or DEFAULT_OPINION_REQUEST
         contextual_message = await build_rolling_stream_prompt(org, tid, opinion_request)
+        mark("CX6")
         effective_message = await inject_knowledge_few_shot(message, contextual_message)
+        mark("CX7")
         stream_system = assemble_chat_system(
             message, preferred_language, base_system=RAW_STREAM_SYSTEM
         )
@@ -384,7 +386,9 @@ async def stream_chat_response(
     else:
         live_user_text = expand_user_message_for_provider(message)
         contextual_message = await build_chat_message_with_thread_context(org, tid, live_user_text)
+        mark("CX6")
         effective_message = await inject_knowledge_few_shot(live_user_text, contextual_message)
+        mark("CX7")
         stream_system = assemble_chat_system(message, preferred_language)
         persist_user_text = message
         if vision_user_content:
