@@ -224,3 +224,92 @@ def test_health_latency_path_audit_flag_reads_env(monkeypatch):
     assert env_checks()["latency_path_audit"] is True
     monkeypatch.setenv("BEN_LATENCY_PATH_AUDIT", "0")
     assert env_checks()["latency_path_audit"] is False
+
+
+def test_thread_resolve_micro_timing_derived_durations():
+    configure_audit_for_process(enabled=True)
+    reset_latency_audit(path="chat_stream")
+    mark("t0_accepted")
+    time.sleep(0.002)
+    mark("t1_auth")
+    time.sleep(0.003)
+    mark("TR0")
+    time.sleep(0.001)
+    mark("TR1")
+    time.sleep(0.004)
+    mark("TR2")
+    time.sleep(0.005)
+    mark("TR3")
+    time.sleep(0.006)
+    mark("TR4")
+    time.sleep(0.002)
+    mark("TR5")
+    time.sleep(0.001)
+    mark("TR6")
+    mark("db_thread_ready")
+    snap = audit_snapshot()
+    ga = snap["gate_a"]
+    assert ga["DB_thread_ms"] is not None
+    assert ga["thread_resolve_ms"] is not None
+    assert ga["session_checkout_ms"] is not None
+    assert ga["set_config_ms"] is not None
+    assert ga["insert_flush_ms"] is not None
+    assert ga["commit_ms"] is not None
+    assert ga["sqlite_metadata_ms"] is not None
+    assert ga["return_tail_ms"] is not None
+    assert ga["pre_thread_overhead_ms"] == round(ga["DB_thread_ms"] - ga["thread_resolve_ms"], 1)
+    assert ga["thread_resolve_ms"] >= 18
+    assert ga["set_config_ms"] >= 3
+    assert ga["insert_flush_ms"] >= 4
+    assert ga["commit_ms"] >= 5
+    assert ga["pool_pre_ping"] == "UNOBSERVABLE"
+    # Historical alias is unchanged: still t1_auth → db_thread_ready.
+    assert ga["DB_thread_ms"] >= ga["thread_resolve_ms"]
+    from services.ops.json_log_formatter import STRUCTURED_FIELDS
+
+    for key in (
+        "thread_resolve_ms",
+        "session_checkout_ms",
+        "set_config_ms",
+        "insert_flush_ms",
+        "commit_ms",
+        "sqlite_metadata_ms",
+        "return_tail_ms",
+        "pre_thread_overhead_ms",
+    ):
+        assert key in STRUCTURED_FIELDS
+    configure_audit_for_process(enabled=False)
+
+
+def test_thread_resolve_marks_are_noop_when_audit_disabled():
+    configure_audit_for_process(enabled=False)
+    mark("TR0")
+    mark("TR6")
+    assert audit_snapshot() == {}
+
+
+def test_resolve_thread_id_source_keeps_original_db_sequence():
+    from pathlib import Path
+
+    src = Path("services/thread_service.py").read_text()
+    start = src.index("async def resolve_thread_id")
+    end = src.index("async def create_conversation_thread")
+    body = src[start:end]
+    assert 'mark("TR0")' in body
+    assert 'mark("TR1")' in body
+    assert 'mark("TR2")' in body
+    assert 'mark("TR3")' in body
+    assert 'mark("TR4")' in body
+    assert 'mark("TR5")' in body
+    assert 'mark("TR6")' in body
+    assert body.index('mark("TR0")') < body.index("get_db_session()")
+    assert body.index('mark("TR1")') < body.index("await _set_org")
+    assert body.index("await _set_org") < body.index('mark("TR2")')
+    assert body.index("await session.flush()") < body.index('mark("TR3")')
+    assert body.index("await session.commit()") < body.index('mark("TR4")')
+    assert body.index("upsert_thread_metadata") < body.index('mark("TR5")')
+    assert body.count("await session.flush()") == 1
+    assert body.count("await session.commit()") == 1
+    assert body.count("await _set_org") == 1
+    assert "pool_pre_ping=" not in body
+    assert "create_async_engine" not in body

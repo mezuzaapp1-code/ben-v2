@@ -22,6 +22,13 @@ MARK_ORDER = (
     "t0_accepted",
     "t1_auth",
     "admission_skipped",
+    "TR0",
+    "TR1",
+    "TR2",
+    "TR3",
+    "TR4",
+    "TR5",
+    "TR6",
     "db_thread_ready",
     "files_start",
     "files_end",
@@ -124,6 +131,13 @@ def audit_snapshot() -> dict[str, Any]:
         if name in marks and origin is not None
     }
     answer_mark = "p4_answer" if "p4_answer" in marks else "t7_first_content"
+    db_thread_ms = _ms(state, "db_thread_ready", "t1_auth") or _ms(
+        state, "db_thread_ready", "t0_accepted"
+    )
+    thread_resolve_ms = _ms(state, "TR6", "TR0")
+    pre_thread_overhead_ms = None
+    if db_thread_ms is not None and thread_resolve_ms is not None:
+        pre_thread_overhead_ms = round(db_thread_ms - thread_resolve_ms, 1)
     return {
         "path": state.get("path") or "",
         "provider": state.get("provider") or "",
@@ -151,8 +165,16 @@ def audit_snapshot() -> dict[str, Any]:
         "gate_a": {
             "B0_entry": "t0_accepted",
             "AUTH_ms": _ms(state, "t1_auth", "t0_accepted"),
-            "DB_thread_ms": _ms(state, "db_thread_ready", "t1_auth")
-            or _ms(state, "db_thread_ready", "t0_accepted"),
+            "DB_thread_ms": db_thread_ms,
+            "thread_resolve_ms": thread_resolve_ms,
+            "session_checkout_ms": _ms(state, "TR1", "TR0"),
+            "set_config_ms": _ms(state, "TR2", "TR1"),
+            "insert_flush_ms": _ms(state, "TR3", "TR2"),
+            "commit_ms": _ms(state, "TR4", "TR3"),
+            "sqlite_metadata_ms": _ms(state, "TR5", "TR4"),
+            "return_tail_ms": _ms(state, "TR6", "TR5"),
+            "pre_thread_overhead_ms": pre_thread_overhead_ms,
+            "pool_pre_ping": "UNOBSERVABLE",
             "FILE_ms": _ms(state, "files_end", "files_start"),
             "CONTEXT_ms": _ms(state, "t2_context", "db_thread_ready")
             or _ms(state, "t2_context", "t0_accepted"),
@@ -195,6 +217,14 @@ def log_latency_audit() -> dict[str, Any]:
         total_complete_ms=snap.get("total_complete_ms"),
         AUTH_ms=ga.get("AUTH_ms"),
         DB_thread_ms=ga.get("DB_thread_ms"),
+        thread_resolve_ms=ga.get("thread_resolve_ms"),
+        session_checkout_ms=ga.get("session_checkout_ms"),
+        set_config_ms=ga.get("set_config_ms"),
+        insert_flush_ms=ga.get("insert_flush_ms"),
+        commit_ms=ga.get("commit_ms"),
+        sqlite_metadata_ms=ga.get("sqlite_metadata_ms"),
+        return_tail_ms=ga.get("return_tail_ms"),
+        pre_thread_overhead_ms=ga.get("pre_thread_overhead_ms"),
         FILE_ms=ga.get("FILE_ms"),
         CONTEXT_ms=ga.get("CONTEXT_ms"),
         ADMISSION=ga.get("ADMISSION"),
