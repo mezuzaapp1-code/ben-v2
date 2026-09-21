@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from services.providers.anthropic_provider import AnthropicProvider
 from services.providers.base_provider import BaseProvider
+from services.providers.deepseek_provider import DeepSeekProvider
 from services.providers.gemini_provider import GeminiProvider
 from services.providers.openai_provider import OpenAIProvider
 from services.providers.xai_provider import XAIProvider
@@ -12,6 +13,7 @@ _GATEWAY_PROVIDERS: dict[str, BaseProvider] = {
     "anthropic": AnthropicProvider(),
     "google": GeminiProvider(),
     "xai": XAIProvider(),
+    "deepseek": DeepSeekProvider(),
 }
 
 _PROVIDER_API_KEYS = {
@@ -19,6 +21,7 @@ _PROVIDER_API_KEYS = {
     "anthropic": "ANTHROPIC_API_KEY",
     "google": "GOOGLE_API_KEY",
     "xai": "XAI_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
 }
 
 

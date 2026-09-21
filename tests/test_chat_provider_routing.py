@@ -88,7 +88,7 @@ def test_normalize_chat_provider_id_valid():
 
 
 def test_normalize_chat_provider_id_invalid():
-    with pytest.raises(ValueError, match="claude, gemini, gpt, grok"):
+    with pytest.raises(ValueError, match="claude, deepseek, gemini, gpt, grok"):
         normalize_chat_provider_id("openai")
 
 

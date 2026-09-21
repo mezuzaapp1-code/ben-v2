@@ -55,6 +55,8 @@ def _provider_id_from_resource(resource: str | None) -> str | None:
         return "gpt"
     if lower.startswith("grok"):
         return "grok"
+    if lower.startswith("deepseek"):
+        return "deepseek"
     return None
 
 
@@ -69,6 +71,8 @@ def _resolve_connector_id(resource: str | None) -> str | None:
         return "openai_adapter"
     if provider_id == "grok":
         return "xai_adapter"
+    if provider_id == "deepseek":
+        return "deepseek_adapter"
     return None
 
 

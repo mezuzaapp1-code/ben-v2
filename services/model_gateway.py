@@ -19,6 +19,7 @@ from services.providers.gemini_provider import GEMINI_FAST_MODEL, resolve_gemini
 from services.providers.model_registry import assert_model_registered, resolve_api_model, token_rates
 from services.providers.openai_provider import OPENAI_CHAT_FAST_MODEL, OPENAI_REASONING_MODEL
 from services.providers.xai_provider import XAI_FLAGSHIP_MODEL
+from services.providers.deepseek_provider import DEEPSEEK_DEFAULT_MODEL
 from services.providers.speaking_registry import (
     all_provider_ids,
     gateway_for_provider_id,
@@ -171,6 +172,8 @@ def _model_for_gateway_provider(gateway_prov: str, tier: str) -> str:
         if t in ("pro", "enterprise"):
             return os.getenv("ANTHROPIC_MODEL", "").strip() or ANTHROPIC_FLAGSHIP_MODEL
         return os.getenv("ANTHROPIC_MODEL", "").strip() or ANTHROPIC_FAST_MODEL
+    if gateway_prov == "deepseek":
+        return DEEPSEEK_DEFAULT_MODEL
     if gateway_prov == "xai":
         return XAI_FLAGSHIP_MODEL
     if gateway_prov == "google":

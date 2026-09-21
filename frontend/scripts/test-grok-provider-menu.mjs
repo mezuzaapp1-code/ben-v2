@@ -59,7 +59,7 @@ assert((panel.match(/providers\.map\(/g) || []).length >= 2, 'engines and model 
 const panelCss = readFileSync(join(root, 'src/components/AdvancedEngineSettings.css'), 'utf8')
 assert(!panelCss.includes('33.333%'), 'engine pills are not locked to a 3-column wrap')
 assert(/flex:\s*1 1 0/.test(panelCss), 'engine pills share one row equally')
-assert(ids.join(',') === 'gpt,claude,gemini,grok', 'ENGINE order is GPT Claude Gemini Grok')
+assert(ids.join(',') === 'gpt,claude,gemini,grok,deepseek', 'ENGINE order preserves existing providers and appends DeepSeek')
 
 const selector = readFileSync(join(root, 'src/components/EngineSelector.jsx'), 'utf8')
 assert(selector.includes('getSpeakingProviders()'), 'EngineSelector is data-driven')

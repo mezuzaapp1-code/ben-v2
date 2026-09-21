@@ -14,7 +14,7 @@ from services.ops.failure_classification import (
     classify_failure,
 )
 
-_GATEWAY_TO_UI_ID = {"openai": "gpt", "anthropic": "claude", "google": "gemini", "xai": "grok"}
+_GATEWAY_TO_UI_ID = {"openai": "gpt", "anthropic": "claude", "google": "gemini", "xai": "grok", "deepseek": "deepseek"}
 _SECRET_RE = re.compile(
     r"sk-[a-zA-Z0-9]{10,}|xai-[a-zA-Z0-9]{10,}|api[_-]?key[=:]\s*\S+",
     re.I,

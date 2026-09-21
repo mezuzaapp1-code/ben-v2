@@ -31,6 +31,14 @@
       "gateway": "xai",
       "api_key_env": "XAI_API_KEY",
       "accent": "#0f0f14"
+    },
+    {
+      "id": "deepseek",
+      "label": "DeepSeek",
+      "short_label": "DeepSeek",
+      "gateway": "deepseek",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "accent": "#4d6bfe"
     }
   ]
 }

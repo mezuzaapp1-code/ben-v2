@@ -22,6 +22,7 @@ export const TIER1_PROVIDER_MODELS = Object.freeze({
   claude: 'claude-opus-4.8',
   gemini: String(frontierModels?.providers?.google?.fast || 'gemini-3.8-flash'),
   grok: 'grok-4.6',
+  deepseek: frontierModels.providers.deepseek.fast,
 })
 
 const GPT_BASE_MODELS = ['gpt-4o', 'gpt-4o-mini', 'gpt-5.5-instant', 'gpt-5.5-pro']
@@ -44,6 +45,7 @@ export const PROVIDER_MODEL_OPTIONS = Object.freeze({
   claude: Object.freeze(['claude-opus-4.8', 'claude-sonnet-4.6', 'claude-sonnet-4-6']),
   gemini: Object.freeze(catalogGeminiModels()),
   grok: Object.freeze(['grok-4.6', 'grok-4.3']),
+  deepseek: Object.freeze([frontierModels.providers.deepseek.fast, frontierModels.providers.deepseek.flagship]),
 })
 
 /** @type {Record<string, string>} */
@@ -99,6 +101,7 @@ export function formatModelShortLabel(modelId) {
     .replace(/^claude-/i, '')
     .replace(/^gemini-/i, '')
     .replace(/^grok-/i, '')
+    .replace(/^deepseek-/i, '')
     .replace(/-latest$/i, '')
     .replace(/-\d{8}$/i, '')
 }

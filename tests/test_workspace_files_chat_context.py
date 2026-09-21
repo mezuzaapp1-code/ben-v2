@@ -238,7 +238,8 @@ async def test_ready_file_reaches_route_request_stream(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_gpt_and_claude_receive_identical_context(monkeypatch):
+@pytest.mark.parametrize("provider_id", ["claude", "gemini", "grok", "deepseek"])
+async def test_gpt_and_claude_receive_identical_context(monkeypatch, provider_id):
     async def fake_ctx(_org, _ws, *, max_chars, user_query=None, **_k):
         return WorkspaceFilesContext(block=_BLOCK, count=1, chars=16, truncated=False)
 
@@ -250,7 +251,7 @@ async def test_gpt_and_claude_receive_identical_context(monkeypatch):
 
     cap_claude: dict = {}
     _patch_stream_pipeline(monkeypatch, cap_claude)
-    await _run_stream("claude")
+    await _run_stream(provider_id)
 
     assert "SECRET-ANSWER-42" in cap_gpt["message"]
     assert "SECRET-ANSWER-42" in cap_claude["message"]
@@ -261,7 +262,8 @@ async def test_gpt_and_claude_receive_identical_context(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_no_workspace_means_no_injection(monkeypatch):
+@pytest.mark.parametrize("provider_id", ["gpt", "claude", "gemini", "grok", "deepseek"])
+async def test_no_workspace_means_no_injection(monkeypatch, provider_id):
     captured: dict = {}
     _patch_stream_pipeline(monkeypatch, captured)
 
@@ -269,7 +271,7 @@ async def test_no_workspace_means_no_injection(monkeypatch):
         raise AssertionError("load_ready_files_context should not be called without a workspace")
 
     monkeypatch.setattr("services.chat_service.load_ready_files_context", boom)
-    events = await _run_stream("gpt", project_id=None)
+    events = await _run_stream(provider_id, project_id=None)
     assert "<workspace_files>" not in captured["message"]
     done = next(e for e in events if e["type"] == "done")
     assert done["workspace_files_injected"] is False

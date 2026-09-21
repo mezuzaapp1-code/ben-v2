@@ -617,6 +617,9 @@ function App() {
   const [selectedGrokModel, setSelectedGrokModel] = useState(() =>
     coerceRegisteredModel('grok', DEFAULT_PROVIDER_MODELS.grok)
   )
+  const [selectedDeepSeekModel, setSelectedDeepSeekModel] = useState(() =>
+    coerceRegisteredModel('deepseek', DEFAULT_PROVIDER_MODELS.deepseek)
+  )
   const [activeProject, setActiveProject] = useState(() => clearActiveProject(null))
   const [projectOptions, setProjectOptions] = useState([])
   const [projectToast, setProjectToast] = useState(null)
@@ -792,7 +795,8 @@ function App() {
     else if (providerId === 'claude') setSelectedClaudeModel(tier1)
     else if (providerId === 'gemini') setSelectedGeminiModel(tier1)
     else if (providerId === 'grok') setSelectedGrokModel(tier1)
-  }, [])
+    else if (providerId === 'deepseek') setSelectedDeepSeekModel(tier1)
+  }, [setActiveSpeakingProviderId, setSelectedGptModel, setSelectedClaudeModel, setSelectedGeminiModel, setSelectedGrokModel, setSelectedDeepSeekModel])
 
   const activeSpeakingProvider = useMemo(
     () => getSpeakingProviderById(activeSpeakingProviderId),
@@ -805,8 +809,9 @@ function App() {
       claude: selectedClaudeModel,
       gemini: selectedGeminiModel,
       grok: selectedGrokModel,
+      deepseek: selectedDeepSeekModel,
     }),
-    [selectedGptModel, selectedClaudeModel, selectedGeminiModel, selectedGrokModel]
+    [selectedGptModel, selectedClaudeModel, selectedGeminiModel, selectedGrokModel, selectedDeepSeekModel]
   )
 
   const activeModelOverride = useMemo(() => {
@@ -819,7 +824,8 @@ function App() {
     else if (providerId === 'claude') setSelectedClaudeModel(modelId)
     else if (providerId === 'gemini') setSelectedGeminiModel(modelId)
     else if (providerId === 'grok') setSelectedGrokModel(modelId)
-  }, [])
+    else if (providerId === 'deepseek') setSelectedDeepSeekModel(modelId)
+  }, [setSelectedGptModel, setSelectedClaudeModel, setSelectedGeminiModel, setSelectedGrokModel, setSelectedDeepSeekModel])
 
   const attachMenuItems = useMemo(
     () => [

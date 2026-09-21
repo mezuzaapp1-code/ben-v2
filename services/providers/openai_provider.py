@@ -42,6 +42,19 @@ def openai_chat_payload(
 
 
 class OpenAIProvider(BaseProvider):
+    # Shared Chat Completions transport; subclasses keep provider policy isolated.
+    api_key_env = "OPENAI_API_KEY"
+    completions_url = "https://api.openai.com/v1/chat/completions"
+    _payload = staticmethod(openai_chat_payload)
+    _normalize_usage = staticmethod(normalize_openai_usage)
+    strict_stream = False
+
+    def _check_response(self, data: dict) -> None:
+        pass
+
+    def _check_stream_end(self, finish_reason: str | None) -> None:
+        pass
+
     @property
     def provider_name(self) -> str:
         return "openai"
@@ -71,18 +84,19 @@ class OpenAIProvider(BaseProvider):
         system: str | None = None,
         user_content: list[ProviderUserPart] | None = None,
     ) -> ProviderSendResult:
-        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        api_key = os.getenv(self.api_key_env, "").strip()
         r = await cx.post(
-            "https://api.openai.com/v1/chat/completions",
+            self.completions_url,
             headers={"Authorization": f"Bearer {api_key}", **tenant_header(tenant_id)},
-            json=openai_chat_payload(
+            json=self._payload(
                 model=model,
                 messages=self._messages(message, system, user_content=user_content),
             ),
         )
         r.raise_for_status()
         d = r.json()
-        usage = normalize_openai_usage(d.get("usage"))
+        self._check_response(d)
+        usage = self._normalize_usage(d.get("usage"))
         choice = (d.get("choices") or [{}])[0]
         content = str((choice.get("message") or {}).get("content") or "")
         finish = choice.get("finish_reason")
@@ -105,15 +119,17 @@ class OpenAIProvider(BaseProvider):
         system: str | None = None,
         user_content: list[ProviderUserPart] | None = None,
     ) -> AsyncIterator[str | ProviderStreamEnd]:
-        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        api_key = os.getenv(self.api_key_env, "").strip()
         usage = usage_missing()
         provider_request_id: str | None = None
         finish_reason: str | None = None
+        saw_done = False
+        saw_content = False
         async with cx.stream(
             "POST",
-            "https://api.openai.com/v1/chat/completions",
+            self.completions_url,
             headers={"Authorization": f"Bearer {api_key}", **tenant_header(tenant_id)},
-            json=openai_chat_payload(
+            json=self._payload(
                 model=model,
                 messages=self._messages(message, system, user_content=user_content),
                 stream=True,
@@ -125,15 +141,19 @@ class OpenAIProvider(BaseProvider):
                     continue
                 payload = line[5:].strip()
                 if payload == "[DONE]":
+                    saw_done = True
                     break
                 try:
                     data = json.loads(payload)
                 except json.JSONDecodeError:
+                    if self.strict_stream:
+                        raise ValueError("Provider returned malformed stream data") from None
                     continue
+                self._check_response(data)
                 if data.get("id") and not provider_request_id:
                     provider_request_id = str(data.get("id"))
                 if data.get("usage"):
-                    usage = normalize_openai_usage(data.get("usage"))
+                    usage = self._normalize_usage(data.get("usage"))
                 choices = data.get("choices") or []
                 if not choices:
                     continue
@@ -142,7 +162,13 @@ class OpenAIProvider(BaseProvider):
                     finish_reason = str(choice0.get("finish_reason"))
                 delta = (choice0.get("delta") or {}).get("content")
                 if delta:
+                    saw_content = True
                     yield str(delta)
+        if self.strict_stream and not saw_done:
+            raise ValueError("Provider stream ended before DONE")
+        if self.strict_stream and not saw_content:
+            raise ValueError("Provider stream returned no answer content")
+        self._check_stream_end(finish_reason)
         yield ProviderStreamEnd(
             usage=usage,
             provider_request_id=provider_request_id,

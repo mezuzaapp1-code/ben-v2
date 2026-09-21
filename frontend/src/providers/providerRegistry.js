@@ -8,6 +8,7 @@ export const SPEAKING_PROVIDERS = Object.freeze([
   { id: 'claude', label: 'Claude', shortLabel: 'Claude', accent: '#d97757' },
   { id: 'gemini', label: 'Gemini', shortLabel: 'Gemini', accent: '#4285f4' },
   { id: 'grok', label: 'Grok', shortLabel: 'Grok', accent: '#0f0f14' },
+  { id: 'deepseek', label: 'DeepSeek', shortLabel: 'DeepSeek', accent: '#4d6bfe' },
 ])
 
 export const DEFAULT_SPEAKING_PROVIDER_ID = 'gpt'

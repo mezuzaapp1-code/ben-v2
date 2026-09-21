@@ -65,7 +65,7 @@ def _no_db_accounting():
 def test_astra_registered_under_openai_not_new_provider():
     assert is_registered_model("openai", "gpt-6-astra")
     assert normalize_chat_provider_id("gpt") == "gpt"
-    with pytest.raises(ValueError, match="claude, gemini, gpt, grok"):
+    with pytest.raises(ValueError, match="claude, deepseek, gemini, gpt, grok"):
         normalize_chat_provider_id("astra")
     ident = model_identity("openai", "gpt-6-astra")
     assert ident["speaking_provider"] == "gpt"

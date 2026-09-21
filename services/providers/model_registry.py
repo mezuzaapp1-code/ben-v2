@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from functools import lru_cache
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +87,7 @@ def allowed_models() -> frozenset[tuple[str, str]]:
             "anthropic": "anthropic",
             "google": "google",
             "xai": "xai",
+            "deepseek": "deepseek",
         }
         for prov_key, spec in providers.items():
             gateway = gateway_map.get(str(prov_key).strip().lower())
@@ -204,6 +206,18 @@ def _pair_from_raw(raw: Any) -> tuple[float, float] | None:
     return None
 
 
+def _deepseek_time_pricing_band(provider: str, model: str) -> dict[str, Any] | None:
+    if provider != "deepseek":
+        return None
+    spec = _load_registry().get("time_pricing", {}).get(f"{provider}:{model}")
+    if not isinstance(spec, dict):
+        return None
+    # DeepSeek published UTC weekday peak windows, verified 2026-09-20.
+    now = datetime.now(timezone.utc)
+    peak = now.weekday() < 5 and (1 <= now.hour < 4 or 6 <= now.hour < 10)
+    return spec["peak" if peak else "off_peak"]
+
+
 def _context_pricing_band(provider: str, model: str, prompt_tokens: int) -> dict[str, Any] | None:
     data = _load_registry()
     pricing = data.get("context_pricing")
@@ -224,7 +238,7 @@ def _context_pricing_band(provider: str, model: str, prompt_tokens: int) -> dict
 def token_rates(provider: str, model: str, *, prompt_tokens: int = 0) -> tuple[float, float]:
     prov = (provider or "").strip().lower()
     mid = (model or "").strip()
-    band = _context_pricing_band(prov, mid, prompt_tokens)
+    band = _deepseek_time_pricing_band(prov, mid) or _context_pricing_band(prov, mid, prompt_tokens)
     if band is not None:
         parsed = _pair_from_raw(band)
         if parsed is not None:
@@ -242,7 +256,7 @@ def cached_input_rate(provider: str, model: str, *, prompt_tokens: int = 0) -> f
     """xAI documents a cheaper cached-input rate; others inherit input rate."""
     prov = (provider or "").strip().lower()
     mid = (model or "").strip()
-    band = _context_pricing_band(prov, mid, prompt_tokens)
+    band = _deepseek_time_pricing_band(prov, mid) or _context_pricing_band(prov, mid, prompt_tokens)
     if band is not None:
         try:
             return float(band["cached"])

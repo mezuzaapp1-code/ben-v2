@@ -1,7 +1,31 @@
 {
-  "version": "2026-05",
+  "version": "2026-09-20",
   "description": "Authoritative BEN frontier model allowlist and token rate hints.",
   "providers": {
+    "deepseek": {
+      "fast": "deepseek-flash",
+      "flagship": "deepseek-v4-pro",
+      "upstream_model_metadata": {
+        "deepseek-flash": {
+          "model_version": "DeepSeek-V4.1-Flash",
+          "context_length": "1M",
+          "supported_modes": ["thinking", "non-thinking"],
+          "json_output": true,
+          "tool_calls": true,
+          "openai_responses_api": true,
+          "vision": true
+        },
+        "deepseek-v4-pro": {
+          "model_version": "DeepSeek-V4-Pro-0813",
+          "context_length": "1M",
+          "supported_modes": ["thinking", "non-thinking"],
+          "json_output": true,
+          "tool_calls": true,
+          "openai_responses_api": true,
+          "vision": false
+        }
+      }
+    },
     "openai": {
       "chat_fast": "gpt-5.5-instant",
       "reasoning": "gpt-5.5-pro",
@@ -19,6 +43,16 @@
     "xai": {
       "flagship": "grok-4.6",
       "fast": "grok-4.3"
+    }
+  },
+  "time_pricing": {
+    "deepseek:deepseek-flash": {
+      "peak": {"input": 0.3e-6, "output": 1.2e-6, "cached": 0.006e-6},
+      "off_peak": {"input": 0.15e-6, "output": 0.6e-6, "cached": 0.003e-6}
+    },
+    "deepseek:deepseek-v4-pro": {
+      "peak": {"input": 1.32e-6, "output": 3.96e-6, "cached": 0.044e-6},
+      "off_peak": {"input": 0.66e-6, "output": 1.98e-6, "cached": 0.022e-6}
     }
   },
   "token_rates_usd_per_token": {
@@ -82,6 +116,8 @@
     "anthropic:claude-sonnet-4.6": ["ANTHROPIC_MODEL"]
   },
   "capabilities": {
+    "deepseek:deepseek-flash": ["vision.analyze"],
+    "deepseek:deepseek-v4-pro": [],
     "openai:gpt-5.5-instant": ["vision.analyze"],
     "openai:gpt-5.5-pro": ["vision.analyze"],
     "openai:gpt-4o": ["vision.analyze"],

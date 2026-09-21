@@ -25,7 +25,7 @@ function assert(cond, msg) {
 }
 
 const ids = getSpeakingProviders().map((p) => p.id)
-assert(ids.join(',') === 'gpt,claude,gemini,grok', 'speaking providers unchanged')
+assert(ids.join(',') === 'gpt,claude,gemini,grok,deepseek', 'speaking providers include DeepSeek; Astra remains under GPT')
 assert(!ids.includes('astra'), 'Astra is not a speaking provider')
 assert(!isSpeakingProviderId('astra'), 'astra is not a valid speaking id')
 assert(getSpeakingProviders().find((p) => p.id === 'gpt')?.label === 'GPT', 'GPT pill label unchanged')
