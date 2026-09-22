@@ -67,6 +67,7 @@ import { ProjectSuccessToast } from './components/ProjectSuccessToast.jsx'
 import { SystemTelemetryBadge } from './components/SystemTelemetryBadge.jsx'
 import { CameraCaptureInput } from './components/CameraCaptureInput.jsx'
 import { ComposerCapsule } from './components/ComposerCapsule.jsx'
+import MediaComposer from './components/MediaComposer.jsx'
 import { BasaltSelect } from './components/ui/BasaltSelect.jsx'
 import { AppTopBar } from './components/AppTopBar.jsx'
 import { ChatHeader } from './components/ChatHeader.jsx'
@@ -1953,6 +1954,15 @@ function App() {
     setStoredActiveThreadId(serverTid)
   }, [])
 
+  const ensureMediaConversation = useCallback(async () => {
+    let tid = activeId
+    if (!tid || !threads.some((thread) => thread.id === tid)) tid = newThread()
+    const ensured = await ensurePersistedThreadForUpload(tid, async () =>
+      createConversationThread(await buildAppHeaders(), { title: threads.find(t => t.id === tid)?.title || 'Conversation' }))
+    if (ensured.created) adoptPersistedThread(ensured.replacedDraftId, ensured.threadId)
+    return ensured.threadId
+  }, [activeId, threads, newThread, buildAppHeaders, adoptPersistedThread])
+
   const handleWorkspaceFileAttach = useCallback(
     async (file) => {
       if (!persistentReady || !file || fileUploading || loading || fileAttachInFlightRef.current) return
@@ -2925,6 +2935,10 @@ function App() {
             <CopyConversationButton messages={active.messages} />
           ) : null}
           <div className="composer-shell" style={{ '--shell-accent': shellAccent }}>
+            <MediaComposer key={`${sessionTenantId}:${userId}`} scope={`${sessionTenantId}:${userId}`}
+              conversationId={serverThreadIdForApi(activeId)}
+              buildHeaders={persistentReady ? persistentHeaders : null}
+              ensureConversation={ensureMediaConversation} disabled={loading || !persistentReady}>
             <ComposerCapsule
               value={input}
               onChange={setInput}
@@ -2989,6 +3003,7 @@ function App() {
                 gateProviders: false,
               }}
             />
+            </MediaComposer>
           </div>
           </div>
         </footer>

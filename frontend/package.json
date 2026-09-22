@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --port 5173",
     "build": "vite build",
+    "test:media": "node scripts/test-media.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test:news": "node scripts/test-news-ui.mjs",

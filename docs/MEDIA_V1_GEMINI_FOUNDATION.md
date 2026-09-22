@@ -1,5 +1,8 @@
 # Gemini media foundation checkpoint
 
+Historical foundation checkpoint at `c2b055f`. For subsequent runtime/composer
+implementation and outstanding gates, see [the vertical slice checkpoint](MEDIA_V1_GEMINI_VERTICAL_SLICE.md).
+
 Approved sequence: Google Gemini 3.1 Flash Image, BFL FLUX.2 Pro, Google Veo
 3.1 Fast, fal/Kling O3 Standard. This supersedes the historical BytePlus
 credential stop recorded in MEDIA_V1_MIGRATION.md. Commercial clearance is a
