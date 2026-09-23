@@ -165,8 +165,7 @@ def test_immutable_publication_and_video_seconds_accounting(tmp_path, monkeypatc
     result = ingest_mp4(mp4(), org_id=org, resource_id=resource)
     assert result == ingest_mp4(mp4(), org_id=org, resource_id=resource)
     assert result.mime_type == "video/mp4" and result.storage_key.endswith("output.mp4")
-    from services.workspace_files.storage import DurableStorageUnavailable
-    with pytest.raises(DurableStorageUnavailable):
+    with pytest.raises(ValueError, match="media video publication failed"):
         ingest_mp4(mp4(720, 1280), org_id=org, resource_id=resource, aspect_ratio="9:16")
     assert video_path(org, resource)[1].read_bytes() == mp4()
     costs = account({**usage(), "duration_seconds": result.duration_seconds}, width=1280, height=720, model=VEO_VIDEO_MODEL)

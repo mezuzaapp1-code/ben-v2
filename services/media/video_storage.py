@@ -7,6 +7,7 @@ import av
 
 from services.media.contracts import MAX_VIDEO_BYTES
 from services.media.image_storage import media_path, publish_bytes, StoredImage
+from services.workspace_files.storage import DurableStorageUnavailable
 
 
 @dataclass(frozen=True)
@@ -69,5 +70,10 @@ def inspect_mp4(data, *, aspect_ratio="16:9", duration_seconds=4):
 def ingest_mp4(data, *, org_id, resource_id, aspect_ratio="16:9", duration_seconds=4):
     width, height, duration, audio = inspect_mp4(data, aspect_ratio=aspect_ratio, duration_seconds=duration_seconds)
     key, dest = video_path(org_id, resource_id)
-    stored = publish_bytes(data, key, dest, width, height, "video/mp4")
+    try:
+        stored = publish_bytes(data, key, dest, width, height, "video/mp4")
+    except DurableStorageUnavailable:
+        # Map the existing byte-store failure to the bounded ingestion retry path.
+        # Do not leak filesystem error details or change image-provider behavior.
+        raise ValueError("media video publication failed") from None
     return StoredVideo(**stored.__dict__, duration_seconds=duration, audio_present=audio)

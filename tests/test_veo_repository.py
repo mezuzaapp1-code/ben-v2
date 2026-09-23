@@ -189,7 +189,7 @@ async def test_poll_failure_and_expiry_never_publish_or_resubmit(context, failur
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["download", "ingestion", "journal"])
+@pytest.mark.parametrize("failure", ["download", "ingestion", "journal", "durable-store"])
 async def test_ingestion_failure_recovery_never_generates_again(context, monkeypatch, failure):
     repo, admin, request = context
     calls, downloads = [], 0
@@ -205,14 +205,20 @@ async def test_ingestion_failure_recovery_never_generates_again(context, monkeyp
     initial = await admit(service_for(repo, handler), request)
     await service_for(repo, handler).tick(ORG)
     import services.media.service as module
-    if failure in ("ingestion", "journal"):
+    if failure in ("ingestion", "journal", "durable-store"):
         name = "ingest_mp4" if failure == "ingestion" else "save_result"
+        if failure == "durable-store":
+            import services.media.video_storage as module
+            name = "publish_bytes"
         real = getattr(module, name)
         attempts = 0
         def once(*args, **kwargs):
             nonlocal attempts
             attempts += 1
             if attempts == 1:
+                if failure == "durable-store":
+                    from services.workspace_files.storage import DurableStorageUnavailable
+                    raise DurableStorageUnavailable("synthetic fsync verification failure")
                 raise OSError("synthetic storage failure")
             return real(*args, **kwargs)
         monkeypatch.setattr(module, name, once)
