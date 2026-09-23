@@ -8,6 +8,11 @@ on:
         required: true
         default: false
         type: boolean
+      bfl_live_proof:
+        description: 'Authorize one protected paid BFL image proof (never rerun)'
+        required: true
+        default: false
+        type: boolean
   # Bootstrap execution without adding this workflow to the default branch.
   push:
     branches: [astra/ben-media-v1]
@@ -122,8 +127,9 @@ jobs:
           retention-days: 7
 
   gemini-live-proof:
+    name: Protected media live proof
     needs: validate
-    if: github.ref == 'refs/heads/astra/ben-media-v1' && github.event_name == 'workflow_dispatch' && inputs.gemini_live_proof
+    if: github.ref == 'refs/heads/astra/ben-media-v1' && github.event_name == 'workflow_dispatch' && (inputs.gemini_live_proof || inputs.bfl_live_proof)
     environment: media-v1-proof
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -151,6 +157,7 @@ jobs:
       - name: Refuse paid reruns and verify checkout
         run: |
           test "$GITHUB_RUN_ATTEMPT" = '1'
+          test '${{ inputs.gemini_live_proof }}' != '${{ inputs.bfl_live_proof }}'
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test -z "$(git status --porcelain)"
       - uses: actions/setup-python@v5
@@ -162,16 +169,23 @@ jobs:
             requirements-dev.txt
       - run: python -m pip install -r requirements.txt -r requirements-dev.txt
       - name: One image through BEN authorization, lifecycle and protected delivery
+        if: inputs.gemini_live_proof
         env:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           BEN_SINGLE_IMAGE_PROOF: authorized-one-image
         # No traceback/local variables or raw provider response in CI output.
         run: python -m pytest tests/test_media_live_proof.py -q --tb=no --show-capture=no
+      - name: One BFL image through durable submission, polling and protected delivery
+        if: inputs.bfl_live_proof
+        env:
+          BFL_API_KEY: ${{ secrets.BFL_API_KEY }}
+          BEN_SINGLE_BFL_PROOF: authorized-one-image
+        run: python -m pytest tests/test_bfl_live_proof.py -q --tb=no --show-capture=no
       - name: Preserve allowlisted proof evidence and generated image
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gemini-single-image-proof-${{ github.sha }}
+          name: ${{ inputs.bfl_live_proof && 'bfl' || 'gemini' }}-single-image-proof-${{ github.sha }}
           path: proof-evidence/
           if-no-files-found: ignore
           retention-days: 7
