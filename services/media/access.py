@@ -5,6 +5,11 @@ import uuid
 
 from fastapi import HTTPException, Request
 from auth.beta_gate import build_project_tenant_context_from_request
+from services.media.contracts import GEMINI_IMAGE_MODEL, BFL_IMAGE_MODEL
+
+
+def enabled_image_models():
+    return [GEMINI_IMAGE_MODEL] + ([BFL_IMAGE_MODEL] if os.getenv("BEN_MEDIA_BFL_ENABLED") == "1" else [])
 
 
 def pilot_principals() -> set[tuple[uuid.UUID, str]]:

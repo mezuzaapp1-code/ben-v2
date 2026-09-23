@@ -6,7 +6,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from services.media.access import require_pilot
+from services.media.access import require_pilot, enabled_image_models
 from services.media.contracts import GEMINI_IMAGE_MODEL, ImageRequest, MediaProviderError
 from services.media.service import MediaService, public_execution
 
@@ -21,7 +21,7 @@ class GenerateImage(BaseModel):
     model_config = ConfigDict(extra="forbid")
     conversation_id: uuid.UUID
     idempotency_key: str = Field(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
-    model: Literal["gemini-3.1-flash-image"] = GEMINI_IMAGE_MODEL
+    model: Literal["gemini-3.1-flash-image", "flux-2-pro"] = GEMINI_IMAGE_MODEL
     prompt: str = Field(min_length=1, max_length=8000)
     aspect_ratio: Literal["1:1", "16:9", "9:16"] = "1:1"
 
@@ -47,7 +47,7 @@ async def evaluate(execution_id: uuid.UUID, body: Evaluation, identity=Depends(r
 
 @router.get("/capabilities")
 async def capabilities(identity=Depends(require_pilot)):
-    return {"image": True, "models": [GEMINI_IMAGE_MODEL], "internal_only": True,
+    return {"image": True, "models": enabled_image_models(), "internal_only": True,
             "aspect_ratios": ["1:1", "16:9", "9:16"], "image_size": "1K"}
 
 

@@ -19,7 +19,7 @@ import httpx
 from PIL import Image
 
 from services.media.contracts import (
-    ImageRequest, ImageResult, MAX_IMAGE_BYTES, MAX_RESPONSE_BYTES,
+    ImageRequest, ImageResult, MAX_IMAGE_BYTES, MAX_RESPONSE_BYTES, GEMINI_IMAGE_MODEL,
     MediaProviderError, normalize_usage,
 )
 
@@ -33,6 +33,8 @@ class GeminiImageAdapter:
 
     async def generate(self, request: ImageRequest, *, transport=None) -> ImageResult:
         request.validate()
+        if request.model != GEMINI_IMAGE_MODEL:
+            raise MediaProviderError("unsupported_media_model")
         if not self._api_key:
             raise MediaProviderError("media_credentials_unavailable")
         payload = {

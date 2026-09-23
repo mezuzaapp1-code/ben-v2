@@ -29,6 +29,8 @@ function MediaImage({ resourceId, buildHeaders }) {
 /** Text child is the unchanged BEN composer; media has its own explicit path. */
 export default function MediaComposer({ children, conversationId, scope, buildHeaders, ensureConversation, disabled }) {
   const [enabled, setEnabled] = useState(false)
+  const [models, setModels] = useState(['gemini-3.1-flash-image'])
+  const [model, setModel] = useState('gemini-3.1-flash-image')
   const [mode, setMode] = useState('text')
   const [prompt, setPrompt] = useState('')
   const [ratio, setRatio] = useState('1:1')
@@ -43,7 +45,10 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
     async function check() {
       try {
         const caps = await mediaRequest('/capabilities', await buildHeaders(), { signal: controller.signal })
-        if (!controller.signal.aborted) setEnabled(caps.image === true)
+        if (!controller.signal.aborted) {
+          setEnabled(caps.image === true)
+          setModels(caps.models)
+        }
       } catch { if (!controller.signal.aborted) setEnabled(false) }
     }
     if (buildHeaders) void check()
@@ -74,7 +79,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
       const id = await ensureConversation()
       pendingScope = `${scope}:${id}`
       const body = pendingMedia(sessionStorage, pendingScope, {
-        conversation_id: id, model: 'gemini-3.1-flash-image', prompt, aspect_ratio: ratio,
+        conversation_id: id, model, prompt, aspect_ratio: ratio,
       })
       await mediaRequest('/executions', await buildHeaders(), { body })
       clearPendingMedia(sessionStorage, pendingScope)
@@ -97,14 +102,16 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
     </div>
     {rows.length > 0 && <section aria-label="Conversation images" aria-live="polite">
       {rows.map(row => <article key={row.execution_id}>
-        <p>Gemini 3.1 Flash Image · {row.status.replaceAll('_', ' ')}</p>
+        <p>{row.provider} · {row.model} · {row.status.replaceAll('_', ' ')}</p>
         {row.status === 'submission_unknown' && <p>Provider outcome unknown. BEN will not resubmit.</p>}
         {row.error_code && <p>{row.error_code.replaceAll('_', ' ')}</p>}
         {row.resource_id && <MediaImage resourceId={row.resource_id} buildHeaders={buildHeaders} />}
       </article>)}
     </section>}
     {mode === 'text' ? children : <>
-      <label>Engine <select value="gemini-3.1-flash-image" disabled><option value="gemini-3.1-flash-image">Google Gemini 3.1 Flash Image</option></select></label>
+      <label>Engine <select value={model} disabled={busy} onChange={e => setModel(e.target.value)}>
+        {models.map(value => <option key={value} value={value}>{value === 'flux-2-pro' ? 'BFL FLUX.2 Pro' : 'Google Gemini 3.1 Flash Image'}</option>)}
+      </select></label>
       <label>Aspect ratio <select value={ratio} disabled={busy} onChange={e => setRatio(e.target.value)}>
         {['1:1', '16:9', '9:16'].map(value => <option key={value}>{value}</option>)}
       </select></label>

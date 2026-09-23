@@ -90,6 +90,7 @@ jobs:
           sudo ln -s "$GITHUB_WORKSPACE" /workspace
           python -m pytest \
             tests/test_media_vertical_slice.py tests/test_media_image_foundation.py \
+            tests/test_bfl_media.py tests/test_bfl_repository.py \
             tests/test_gemini_provider_repair.py tests/test_deepseek_provider.py \
             tests/test_deepseek_chat.py tests/test_chat_provider_transparency.py \
             tests/test_chat_provider_routing.py tests/test_chat_switchboard_disconnected.py \

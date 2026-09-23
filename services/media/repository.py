@@ -5,9 +5,9 @@ import uuid
 
 from fastapi import HTTPException
 from sqlalchemy import text
-from services.media.contracts import GEMINI_IMAGE_MODEL
+from services.media.contracts import GEMINI_IMAGE_MODEL, BFL_IMAGE_MODEL
 
-ACTIVE = ("pending", "submitting", "ingesting", "submission_unknown")
+ACTIVE = ("pending", "submitting", "submitted", "running", "ingesting", "submission_unknown")
 
 
 class MediaRepository:
@@ -50,10 +50,10 @@ class MediaRepository:
                 (execution_id,org_id,created_by,conversation_id,idempotency_key,request_fingerprint,
                  request_payload,provider,model,operation,deadline_at,resource_id)
                 VALUES (:id,:org,:user,:conversation,:key,:fingerprint,CAST(:payload AS jsonb),
-                        'google',:model,'image_generation',now()+interval '30 minutes',:resource)
+                        :provider,:model,'image_generation',now()+interval '30 minutes',:resource)
                 RETURNING *"""), {"id": uuid.uuid4(), "org": org, "user": user,
                 "conversation": snapshot["destination"]["conversation_id"], "key": key,
-                "fingerprint": fingerprint, "payload": json.dumps(snapshot), "model": snapshot["model"],
+                "fingerprint": fingerprint, "payload": json.dumps(snapshot), "model": snapshot["model"], "provider": snapshot["provider"],
                 "resource": uuid.uuid4()})).mappings().one()
             return dict(row)
 
@@ -77,11 +77,11 @@ class MediaRepository:
     async def claim(self, org, owner):
         async with self.transaction(org) as s:
             row = (await s.execute(text("""SELECT * FROM ben.media_executions
-                WHERE org_id=:org AND state IN ('pending','submitting','ingesting','submission_unknown')
-                AND provider='google' AND model=:model AND operation='image_generation'
+                WHERE org_id=:org AND state IN ('pending','submitting','submitted','running','ingesting','submission_unknown')
+                AND ((provider='google' AND model=:model) OR (provider='bfl' AND model=:bfl_model)) AND operation='image_generation'
                 AND next_reconcile_at <= now() AND (lease_expires_at IS NULL OR lease_expires_at < now())
                 ORDER BY next_reconcile_at FOR UPDATE SKIP LOCKED LIMIT 1"""),
-                {"org": org, "model": GEMINI_IMAGE_MODEL})).mappings().first()
+                {"org": org, "model": GEMINI_IMAGE_MODEL, "bfl_model": BFL_IMAGE_MODEL})).mappings().first()
             if not row:
                 return None
             row = (await s.execute(text("""UPDATE ben.media_executions SET lease_owner=:owner,
@@ -93,7 +93,8 @@ class MediaRepository:
     async def change(self, row, **values):
         allowed = {"state", "submit_attempts", "ingest_attempts", "error_code", "provider_operation_ref",
                    "provider_output", "usage_dimensions", "estimated_cost", "pricing_version", "actual_charge",
-                   "storage_key", "mime_type", "byte_size", "checksum", "published_at", "next_reconcile_at"}
+                   "storage_key", "mime_type", "byte_size", "checksum", "published_at", "next_reconcile_at",
+                   "provider_state", "poll_attempts", "last_polled_at"}
         if set(values) - allowed:
             raise ValueError("invalid media mutation")
         assignments, params = [], {"id": row["execution_id"], "org": row["org_id"],
@@ -137,6 +138,17 @@ class MediaRepository:
                     "usage": json.dumps(result.usage), "id": row["execution_id"], "org": row["org_id"],
                     "owner": row["lease_owner"], "version": row["version"]})).mappings().first()
             return dict(result_row) if result_row else None
+
+    async def record_poll(self, row, *, status, output, usage):
+        """Persist private reconciliation evidence before downloading; keep fencing lease."""
+        async with self.transaction(row["org_id"]) as s:
+            result = (await s.execute(text("""UPDATE ben.media_executions SET state='running',
+                provider_state=:status,provider_output=CAST(:output AS jsonb),usage_dimensions=CAST(:usage AS jsonb),
+                poll_attempts=poll_attempts+1,last_polled_at=now(),version=version+1,updated_at=now()
+                WHERE execution_id=:id AND org_id=:org AND lease_owner=:owner AND version=:version
+                RETURNING *"""), {"status": status, "output": json.dumps(output), "usage": json.dumps(usage),
+                    "id": row["execution_id"], "org": row["org_id"], "owner": row["lease_owner"], "version": row["version"]})).mappings().first()
+            return dict(result) if result else None
 
     async def evaluate(self, org, user, execution, observation):
         async with self.transaction(org) as s:

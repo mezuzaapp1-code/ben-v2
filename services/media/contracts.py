@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image"
+BFL_IMAGE_MODEL = "flux-2-pro"
+IMAGE_PROVIDERS = {GEMINI_IMAGE_MODEL: "google", BFL_IMAGE_MODEL: "bfl"}
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 MAX_RESPONSE_BYTES = 30 * 1024 * 1024
 
@@ -30,7 +32,7 @@ class ImageRequest:
     image_size: str = "1K"
 
     def validate(self) -> None:
-        if self.model != GEMINI_IMAGE_MODEL:
+        if self.model not in IMAGE_PROVIDERS:
             raise MediaProviderError("unsupported_media_model")
         if not isinstance(self.prompt, str) or not self.prompt.strip() or len(self.prompt) > 8000:
             raise MediaProviderError("invalid_media_prompt")
@@ -40,7 +42,7 @@ class ImageRequest:
 
     def normalized(self) -> dict[str, Any]:
         self.validate()
-        return {"provider": "google", "model": self.model,
+        return {"provider": IMAGE_PROVIDERS[self.model], "model": self.model,
                 "operation": "image_generation", "prompt": self.prompt,
                 "parameters": {"aspect_ratio": self.aspect_ratio,
                                "image_size": self.image_size, "mime_type": "image/png"}}
@@ -54,7 +56,7 @@ class ImageResult:
     returned_model: str
     operation_ref: str | None = field(repr=False)
     usage: dict[str, Any]
-    duration_ms: float
+    duration_ms: float | None
 
 
 def normalize_usage(raw: Any) -> dict[str, Any]:
