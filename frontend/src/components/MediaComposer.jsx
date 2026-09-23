@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ComposerCapsule } from './ComposerCapsule.jsx'
 import { clearPendingMedia, mediaRequest, mediaTerminal, pendingMedia } from '../api/media.js'
 
-function MediaImage({ resourceId, buildHeaders }) {
+function MediaImage({ resourceId, buildHeaders, mimeType }) {
   const [url, setUrl] = useState(null)
   const [error, setError] = useState(false)
   useEffect(() => {
@@ -22,6 +22,10 @@ function MediaImage({ resourceId, buildHeaders }) {
     void load()
     return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl) }
   }, [resourceId, buildHeaders])
+  if (url && mimeType === 'video/mp4') return <div>
+    <video src={url} controls preload="metadata" aria-label="BEN generated video" style={{ maxWidth: '100%', maxHeight: 360 }} />
+    <a href={url} download="ben-video.mp4">Download video</a>
+  </div>
   return url ? <a href={url} download="ben-image.png"><img src={url} alt="BEN generated image" style={{ maxWidth: '100%', maxHeight: 360 }} /></a>
     : <p>{error ? 'Image unavailable. Reopen to retry.' : 'Loading imageâ€¦'}</p>
 }
@@ -31,6 +35,9 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
   const [enabled, setEnabled] = useState(false)
   const [models, setModels] = useState(['gemini-3.1-flash-image'])
   const [model, setModel] = useState('gemini-3.1-flash-image')
+  const [videoModels, setVideoModels] = useState([])
+  const [sourceId, setSourceId] = useState('')
+  const [videoRatio, setVideoRatio] = useState('16:9')
   const [mode, setMode] = useState('text')
   const [prompt, setPrompt] = useState('')
   const [ratio, setRatio] = useState('1:1')
@@ -48,6 +55,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
         if (!controller.signal.aborted) {
           setEnabled(caps.image === true)
           setModels(caps.models)
+          setVideoModels(caps.video_models || [])
         }
       } catch { if (!controller.signal.aborted) setEnabled(false) }
     }
@@ -79,7 +87,10 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
       const id = await ensureConversation()
       pendingScope = `${scope}:${id}`
       const body = pendingMedia(sessionStorage, pendingScope, {
-        conversation_id: id, model, prompt, aspect_ratio: ratio,
+        conversation_id: id, prompt,
+        ...(mode === 'video' ? { model: videoModels[0], source_resource_id: sourceId,
+          aspect_ratio: videoRatio, duration_seconds: 4, resolution: '720p' }
+          : { model, aspect_ratio: ratio }),
       })
       await mediaRequest('/executions', await buildHeaders(), { body })
       clearPendingMedia(sessionStorage, pendingScope)
@@ -99,25 +110,39 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
     <div aria-label="Composer mode">
       <button type="button" disabled={busy} aria-pressed={mode === 'text'} onClick={() => setMode('text')}>Text</button>
       <button type="button" disabled={busy} aria-pressed={mode === 'image'} onClick={() => setMode('image')}>Image Â· internal</button>
+      {videoModels.length > 0 && <button type="button" disabled={busy} aria-pressed={mode === 'video'} onClick={() => setMode('video')}>Video · internal</button>}
     </div>
-    {rows.length > 0 && <section aria-label="Conversation images" aria-live="polite">
+    {rows.length > 0 && <section aria-label="Conversation media" aria-live="polite">
       {rows.map(row => <article key={row.execution_id}>
         <p>{row.provider} Â· {row.model} Â· {row.status.replaceAll('_', ' ')}</p>
         {row.status === 'submission_unknown' && <p>Provider outcome unknown. BEN will not resubmit.</p>}
         {row.error_code && <p>{row.error_code.replaceAll('_', ' ')}</p>}
-        {row.resource_id && <MediaImage resourceId={row.resource_id} buildHeaders={buildHeaders} />}
+        {row.resource_id && <MediaImage resourceId={row.resource_id} buildHeaders={buildHeaders} mimeType={row.mime_type} />}
       </article>)}
     </section>}
     {mode === 'text' ? children : <>
+      {mode === 'video' ? <>
+        <p>Google Veo 3.1 Fast · 4 seconds · 720p · native audio</p>
+        <label>First frame <select value={sourceId} disabled={busy} onChange={e => setSourceId(e.target.value)}>
+          <option value="">Choose a BEN image</option>
+          {rows.filter(row => row.resource_id && row.mime_type === 'image/png').map(row =>
+            <option key={row.resource_id} value={row.resource_id}>{row.model} · {row.created_at}</option>)}
+        </select></label>
+        <label>Aspect ratio <select value={videoRatio} disabled={busy} onChange={e => setVideoRatio(e.target.value)}>
+          {['16:9', '9:16'].map(value => <option key={value}>{value}</option>)}
+        </select></label>
+      </> : <>
       <label>Engine <select value={model} disabled={busy} onChange={e => setModel(e.target.value)}>
         {models.map(value => <option key={value} value={value}>{value === 'flux-2-pro' ? 'BFL FLUX.2 Pro' : 'Google Gemini 3.1 Flash Image'}</option>)}
       </select></label>
       <label>Aspect ratio <select value={ratio} disabled={busy} onChange={e => setRatio(e.target.value)}>
         {['1:1', '16:9', '9:16'].map(value => <option key={value}>{value}</option>)}
       </select></label>
+      </>}
       <ComposerCapsule value={prompt} onChange={setPrompt} onSubmit={submit}
-        disabled={disabled || busy} loading={busy} canSend={!!prompt.trim() && !busy}
-        placeholder="Describe an image" ariaLabel="Image prompt" sendLabel="Generate image" />
+        disabled={disabled || busy} loading={busy} canSend={!!prompt.trim() && !busy && (mode !== 'video' || rows.some(row => row.resource_id === sourceId && row.mime_type === 'image/png'))}
+        placeholder={mode === 'video' ? 'Describe motion for the selected image' : 'Describe an image'}
+        ariaLabel={mode === 'video' ? 'Video prompt' : 'Image prompt'} sendLabel={mode === 'video' ? 'Generate video' : 'Generate image'} />
       {error && <p role="alert">{error}</p>}
     </>}
   </>

@@ -6,8 +6,8 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from services.media.access import require_pilot, enabled_image_models
-from services.media.contracts import GEMINI_IMAGE_MODEL, ImageRequest, MediaProviderError
+from services.media.access import require_pilot, enabled_image_models, enabled_video_models
+from services.media.contracts import GEMINI_IMAGE_MODEL, ImageRequest, VideoRequest, MediaProviderError
 from services.media.service import MediaService, public_execution
 
 router = APIRouter(prefix="/api/media", tags=["internal-media"])
@@ -24,6 +24,18 @@ class GenerateImage(BaseModel):
     model: Literal["gemini-3.1-flash-image", "flux-2-pro"] = GEMINI_IMAGE_MODEL
     prompt: str = Field(min_length=1, max_length=8000)
     aspect_ratio: Literal["1:1", "16:9", "9:16"] = "1:1"
+
+
+class GenerateVideo(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    conversation_id: uuid.UUID
+    idempotency_key: str = Field(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
+    model: Literal["veo-3.1-fast-generate-preview"]
+    prompt: str = Field(min_length=1, max_length=2000)
+    source_resource_id: uuid.UUID
+    aspect_ratio: Literal["16:9", "9:16"] = "16:9"
+    duration_seconds: Literal[4] = 4
+    resolution: Literal["720p"] = "720p"
 
 
 class Evaluation(BaseModel):
@@ -48,14 +60,19 @@ async def evaluate(execution_id: uuid.UUID, body: Evaluation, identity=Depends(r
 @router.get("/capabilities")
 async def capabilities(identity=Depends(require_pilot)):
     return {"image": True, "models": enabled_image_models(), "internal_only": True,
-            "aspect_ratios": ["1:1", "16:9", "9:16"], "image_size": "1K"}
+            "aspect_ratios": ["1:1", "16:9", "9:16"], "image_size": "1K",
+            "video_models": enabled_video_models(), "video": bool(enabled_video_models()),
+            "video_parameters": {"operation": "image_to_video", "duration_seconds": 4,
+                                 "resolution": "720p", "aspect_ratios": ["16:9", "9:16"], "audio": "native"}}
 
 
 @router.post("/executions", status_code=202)
-async def generate(body: GenerateImage, identity=Depends(require_pilot), service=Depends(media_service)):
+async def generate(body: GenerateImage | GenerateVideo, identity=Depends(require_pilot), service=Depends(media_service)):
     try:
-        row = await service.create(*identity, body.idempotency_key, body.conversation_id,
-                                   ImageRequest(body.model, body.prompt, body.aspect_ratio))
+        request = (VideoRequest(body.model, body.prompt, str(body.source_resource_id), body.aspect_ratio,
+                               body.duration_seconds, body.resolution) if isinstance(body, GenerateVideo)
+                   else ImageRequest(body.model, body.prompt, body.aspect_ratio))
+        row = await service.create(*identity, body.idempotency_key, body.conversation_id, request)
     except MediaProviderError:
         raise HTTPException(422, "Invalid media request") from None
     return public_execution(row)
@@ -75,5 +92,7 @@ async def execution(execution_id: uuid.UUID, identity=Depends(require_pilot), se
 @router.get("/resources/{resource_id}/content")
 async def resource(resource_id: uuid.UUID, identity=Depends(require_pilot), service=Depends(media_service)):
     data = await service.resource_bytes(*identity, resource_id)
-    return Response(data, media_type="image/png", headers={"Cache-Control": "private, no-store",
-        "X-Content-Type-Options": "nosniff", "Content-Disposition": 'inline; filename="ben-image.png"'})
+    row = await service.repo.read(*identity, resource=resource_id)
+    video = row["mime_type"] == "video/mp4"
+    return Response(data, media_type="video/mp4" if video else "image/png", headers={"Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff", "Content-Disposition": 'inline; filename="ben-video.mp4"' if video else 'inline; filename="ben-image.png"'})

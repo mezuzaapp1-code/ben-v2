@@ -74,6 +74,11 @@ def ingest_png(data: bytes, *, org_id: uuid.UUID, resource_id: uuid.UUID) -> Sto
     if not valid:
         raise ValueError("invalid media image")
     key, dest = image_path(org_id, resource_id)
+    return publish_bytes(data, key, dest, width, height)
+
+
+def publish_bytes(data, key, dest, width, height, mime_type="image/png"):
+    """Existing atomic immutable publication, shared by validated PNG and MP4."""
     checksum = hashlib.sha256(data).hexdigest()
     dest.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
@@ -93,7 +98,7 @@ def ingest_png(data: bytes, *, org_id: uuid.UUID, resource_id: uuid.UUID) -> Sto
         # Windows fsync requires a writable descriptor; r+b does not truncate.
         with dest.open("r+b") as handle:
             _fsync_file_and_dir(handle, dest.parent)
-        return StoredImage(key, len(data), checksum, width, height)
+        return StoredImage(key, len(data), checksum, width, height, mime_type)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)

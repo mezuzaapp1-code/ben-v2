@@ -5,7 +5,7 @@ import uuid
 
 from fastapi import HTTPException
 from sqlalchemy import text
-from services.media.contracts import GEMINI_IMAGE_MODEL, BFL_IMAGE_MODEL
+from services.media.contracts import GEMINI_IMAGE_MODEL, BFL_IMAGE_MODEL, VEO_VIDEO_MODEL
 
 ACTIVE = ("pending", "submitting", "submitted", "running", "ingesting", "submission_unknown")
 
@@ -50,11 +50,11 @@ class MediaRepository:
                 (execution_id,org_id,created_by,conversation_id,idempotency_key,request_fingerprint,
                  request_payload,provider,model,operation,deadline_at,resource_id)
                 VALUES (:id,:org,:user,:conversation,:key,:fingerprint,CAST(:payload AS jsonb),
-                        :provider,:model,'image_generation',now()+interval '30 minutes',:resource)
+                        :provider,:model,:operation,now()+interval '30 minutes',:resource)
                 RETURNING *"""), {"id": uuid.uuid4(), "org": org, "user": user,
                 "conversation": snapshot["destination"]["conversation_id"], "key": key,
                 "fingerprint": fingerprint, "payload": json.dumps(snapshot), "model": snapshot["model"], "provider": snapshot["provider"],
-                "resource": uuid.uuid4()})).mappings().one()
+                "operation": snapshot["operation"], "resource": uuid.uuid4()})).mappings().one()
             return dict(row)
 
     async def read(self, org, user, *, execution=None, resource=None, conversation=None):
@@ -78,14 +78,15 @@ class MediaRepository:
         async with self.transaction(org) as s:
             row = (await s.execute(text("""SELECT * FROM ben.media_executions
                 WHERE org_id=:org AND state IN ('pending','submitting','submitted','running','ingesting','submission_unknown')
-                AND ((provider='google' AND model=:model) OR (provider='bfl' AND model=:bfl_model)) AND operation='image_generation'
+                AND (((provider='google' AND model=:model OR provider='bfl' AND model=:bfl_model) AND operation='image_generation')
+                     OR (provider='google' AND model=:veo_model AND operation='image_to_video'))
                 AND next_reconcile_at <= now() AND (lease_expires_at IS NULL OR lease_expires_at < now())
                 ORDER BY next_reconcile_at FOR UPDATE SKIP LOCKED LIMIT 1"""),
-                {"org": org, "model": GEMINI_IMAGE_MODEL, "bfl_model": BFL_IMAGE_MODEL})).mappings().first()
+                {"org": org, "model": GEMINI_IMAGE_MODEL, "bfl_model": BFL_IMAGE_MODEL, "veo_model": VEO_VIDEO_MODEL})).mappings().first()
             if not row:
                 return None
             row = (await s.execute(text("""UPDATE ben.media_executions SET lease_owner=:owner,
-                lease_expires_at=now()+CASE WHEN provider='bfl' THEN interval '2 minutes' ELSE interval '10 minutes' END,
+                lease_expires_at=now()+CASE WHEN provider='bfl' OR operation='image_to_video' THEN interval '2 minutes' ELSE interval '10 minutes' END,
                 version=version+1, updated_at=now()
                 WHERE execution_id=:id AND org_id=:org RETURNING *"""),
                 {"owner": owner, "id": row["execution_id"], "org": org})).mappings().one()

@@ -5,7 +5,7 @@ import uuid
 
 from fastapi import HTTPException, Request
 from auth.beta_gate import build_project_tenant_context_from_request
-from services.media.contracts import GEMINI_IMAGE_MODEL, BFL_IMAGE_MODEL
+from services.media.contracts import GEMINI_IMAGE_MODEL, BFL_IMAGE_MODEL, VEO_VIDEO_MODEL
 
 
 def enabled_image_models():
@@ -31,3 +31,11 @@ async def require_pilot(request: Request):
     if (org, user) not in pilot_principals():
         raise HTTPException(404, "Media unavailable")
     return org, user
+
+
+def enabled_video_models():
+    return [VEO_VIDEO_MODEL] if os.getenv("BEN_MEDIA_VEO_ENABLED") == "1" else []
+
+
+def enabled_media_models():
+    return enabled_image_models() + enabled_video_models()

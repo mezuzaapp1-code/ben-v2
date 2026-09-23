@@ -7,6 +7,10 @@ from typing import Any
 GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image"
 BFL_IMAGE_MODEL = "flux-2-pro"
 IMAGE_PROVIDERS = {GEMINI_IMAGE_MODEL: "google", BFL_IMAGE_MODEL: "bfl"}
+VEO_VIDEO_MODEL = "veo-3.1-fast-generate-preview"
+MEDIA_PROVIDERS = {**IMAGE_PROVIDERS, VEO_VIDEO_MODEL: "google"}
+MAX_VIDEO_BYTES = 64 * 1024 * 1024
+MAX_VIDEO_JOURNAL_BYTES = 90 * 1024 * 1024
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 MAX_RESPONSE_BYTES = 30 * 1024 * 1024
 
@@ -89,3 +93,38 @@ def normalize_usage(raw: Any) -> dict[str, Any]:
     if clean:
         result["provider_usage"] = {"unit": "tokens", "source": "provider_reported", **clean}
     return result
+
+
+@dataclass(frozen=True)
+class VideoRequest:
+    model: str
+    prompt: str = field(repr=False)
+    source_resource_id: str
+    aspect_ratio: str = "16:9"
+    duration_seconds: int = 4
+    resolution: str = "720p"
+
+    def validate(self):
+        import uuid
+        if self.model != VEO_VIDEO_MODEL:
+            raise MediaProviderError("unsupported_media_model")
+        if not isinstance(self.prompt, str) or not self.prompt.strip() or len(self.prompt) > 2000:
+            raise MediaProviderError("invalid_media_prompt")
+        try:
+            uuid.UUID(self.source_resource_id)
+        except (ValueError, TypeError, AttributeError):
+            raise MediaProviderError("invalid_media_source") from None
+        if (self.aspect_ratio not in ("16:9", "9:16") or type(self.duration_seconds) is not int
+                or self.duration_seconds != 4 or self.resolution != "720p"):
+            raise MediaProviderError("unsupported_media_parameters")
+
+    def normalized(self):
+        self.validate()
+        return {"provider": "google", "model": self.model, "operation": "image_to_video",
+                "prompt": self.prompt, "parameters": {"aspect_ratio": self.aspect_ratio,
+                "duration_seconds": self.duration_seconds, "resolution": self.resolution,
+                "audio": "native", "person_generation": "allow_adult", "mime_type": "video/mp4"}}
+
+
+# Same internal byte-result contract and journal for both media modalities.
+VideoResult = ImageResult

@@ -5,7 +5,7 @@ https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-flash-image
 No invoice charge is inferred. Unknown dimensions remain unknown.
 """
 from decimal import Decimal
-from services.media.contracts import GEMINI_IMAGE_MODEL, BFL_IMAGE_MODEL
+from services.media.contracts import GEMINI_IMAGE_MODEL, BFL_IMAGE_MODEL, VEO_VIDEO_MODEL
 
 PRICING_VERSION = "google-gemini-3.1-flash-image-standard-2026-09-22"
 
@@ -23,6 +23,19 @@ def account(usage: dict, *, width: int, height: int, model: str = GEMINI_IMAGE_M
             "actual_charge_source": "not_reported", "currency": "USD"}
         # Provider credits are recorded with their submission/settled provenance.
         # This conversion is not an invoice charge; no token approximation.
+        return {"usage_dimensions": dimensions, "estimated_cost": estimate, "pricing_version": version, "actual_charge": None}
+    if model == VEO_VIDEO_MODEL:
+        version = "google-veo-3.1-fast-720p-audio-standard-2026-09-23"
+        seconds = usage.get("duration_seconds")
+        valid = (type(seconds) in (int, float) and 3.9 <= seconds <= 4.1
+                 and sorted((width, height)) == [720, 1280])
+        estimate = Decimal(str(seconds)) * Decimal("0.10") if valid else None
+        dimensions["resolution_tier"] = "720p"
+        dimensions["cost_estimate"] = {"schema_version": "media-cost-v1", "pricing_version": version,
+            "components": {"observed_video_seconds": seconds, "usd_per_second": "0.10"},
+            "status": "complete" if valid else "partial",
+            "missing_reason": None if valid else "video_dimensions_not_verified",
+            "basis": "public_tariff_times_observed_seconds", "actual_charge_source": "not_reported", "currency": "USD"}
         return {"usage_dimensions": dimensions, "estimated_cost": estimate, "pricing_version": version, "actual_charge": None}
     if model != GEMINI_IMAGE_MODEL:
         raise ValueError("unsupported media accounting model")

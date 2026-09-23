@@ -13,3 +13,6 @@ stripe
 pypdf==6.15.0
 # Decode/verify generated image bytes before media storage publication.
 Pillow==12.2.0
+
+# Bounded MP4 decode/validation before immutable media publication.
+av==18.1.0

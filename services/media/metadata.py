@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 
 from services.inference.measurement_contracts import ExecutionEvent
-from services.media.contracts import ImageRequest, ImageResult, IMAGE_PROVIDERS, BFL_IMAGE_MODEL
+from services.media.contracts import ImageRequest, ImageResult, MEDIA_PROVIDERS, BFL_IMAGE_MODEL, VEO_VIDEO_MODEL
 
 VERSION = "media-v1"
 
@@ -58,8 +58,8 @@ def request_fingerprint(snapshot: dict) -> str:
 
 def result_observation(result: ImageResult) -> dict:
     """No prompt, credential, operation ID, URL, bytes or storage key in telemetry."""
-    return {"schema_version": VERSION, "provider": IMAGE_PROVIDERS[result.returned_model], "gateway": None,
-            "model_identity_source": "exact_dispatch_endpoint" if result.returned_model == BFL_IMAGE_MODEL else "provider_response",
+    return {"schema_version": VERSION, "provider": MEDIA_PROVIDERS[result.returned_model], "gateway": None,
+            "model_identity_source": "exact_dispatch_endpoint" if result.returned_model in (BFL_IMAGE_MODEL, VEO_VIDEO_MODEL) else "provider_response",
             "provider_operation_ref_reported": result.operation_ref is not None,
             "provider_operation_ref_missing_reason": None if result.operation_ref else "not_reported_stateless_response",
             "upstream_model": result.returned_model, "model_snapshot": None,

@@ -9,13 +9,17 @@ import os
 import tempfile
 from pathlib import Path
 
-from services.media.contracts import ImageResult, MAX_RESPONSE_BYTES
+from services.media.contracts import ImageResult, MAX_RESPONSE_BYTES, MAX_VIDEO_JOURNAL_BYTES, VEO_VIDEO_MODEL
 from services.media.image_storage import image_path
 from services.workspace_files.storage import _fsync_file_and_dir
 
 
 def journal_path(row):
     return image_path(row["org_id"], row["resource_id"])[1].with_name("result.json")
+
+
+def limit(row):
+    return MAX_VIDEO_JOURNAL_BYTES if row["model"] == VEO_VIDEO_MODEL else MAX_RESPONSE_BYTES
 
 
 def save_result(row, result):
@@ -26,7 +30,7 @@ def save_result(row, result):
                          "mime_type": result.mime_type, "returned_model": result.returned_model,
                          "operation_ref": result.operation_ref, "usage": result.usage,
                          "duration_ms": result.duration_ms}, separators=(",", ":")).encode()
-    if len(payload) > MAX_RESPONSE_BYTES:
+    if len(payload) > limit(row):
         raise ValueError("media journal too large")
     temporary = None
     try:
@@ -52,8 +56,8 @@ def load_result(row):
     if not path.exists():
         return None
     with path.open("rb") as handle:
-        raw = handle.read(MAX_RESPONSE_BYTES + 1)
-    if len(raw) > MAX_RESPONSE_BYTES:
+        raw = handle.read(limit(row) + 1)
+    if len(raw) > limit(row):
         raise ValueError("media journal too large")
     data = json.loads(raw)
     if data.pop("execution_id") != str(row["execution_id"]) or data["returned_model"] != row["model"]:

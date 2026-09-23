@@ -9,15 +9,17 @@ import uuid
 
 from fastapi import HTTPException
 
-from services.media.access import pilot_principals, enabled_image_models
+from services.media.access import pilot_principals, enabled_media_models
 from services.media.accounting import account
-from services.media.contracts import ImageRequest, MediaProviderError, MAX_IMAGE_BYTES, BFL_IMAGE_MODEL, IMAGE_PROVIDERS
+from services.media.contracts import ImageRequest, MediaProviderError, MAX_IMAGE_BYTES, BFL_IMAGE_MODEL, MEDIA_PROVIDERS, VEO_VIDEO_MODEL, VideoRequest, MAX_VIDEO_BYTES
 from services.media.bfl_image import BflImageAdapter
 from services.media.gemini_image import GeminiImageAdapter
 from services.media.image_storage import image_path, ingest_png
 from services.media.journal import journal_path, load_result, save_result
 from services.media.metadata import request_snapshot, request_fingerprint, result_observation
 from services.media.repository import MediaRepository
+from services.media.veo_video import VeoVideoAdapter
+from services.media.video_storage import ingest_mp4, video_path
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +29,7 @@ def public_execution(row):
     return {"execution_id": str(row["execution_id"]), "status": row["state"],
             "provider": row["provider"], "model": row["model"], "error_code": row["error_code"],
             "created_at": row["created_at"].isoformat(),
+            "mime_type": row.get("mime_type"), "operation": row.get("operation", "image_generation"),
             "resource_id": str(row["resource_id"]) if row["state"] == "succeeded" else None,
             "training_status": "not_approved", "usage": row["usage_dimensions"],
             "estimated_cost": str(row["estimated_cost"]) if row["estimated_cost"] is not None else None,
@@ -34,15 +37,22 @@ def public_execution(row):
 
 
 class MediaService:
-    def __init__(self, repository=None, adapter=None, bfl_adapter=None):
+    def __init__(self, repository=None, adapter=None, bfl_adapter=None, veo_adapter=None):
         self.repo = repository or MediaRepository()
         self.adapter = adapter or GeminiImageAdapter(os.getenv("GOOGLE_API_KEY", ""))
         self.bfl_adapter = bfl_adapter or BflImageAdapter(os.getenv("BFL_API_KEY", ""))
+        self.veo_adapter = veo_adapter or VeoVideoAdapter(os.getenv("GOOGLE_API_KEY", ""))
 
     async def create(self, org, user, key, conversation, request):
-        if request.model not in enabled_image_models():
+        if request.model not in enabled_media_models():
             raise HTTPException(404, "Media unavailable")
         snapshot = request_snapshot(request, conversation_id=str(conversation), workspace_id=None)
+        if isinstance(request, VideoRequest):
+            source = await self.repo.read(org, user, resource=uuid.UUID(request.source_resource_id))
+            if source["state"] != "succeeded" or source["mime_type"] != "image/png":
+                raise HTTPException(422, "Ready BEN image required")
+            snapshot["input_resource_refs"] = [{"resource_id": str(source["resource_id"]),
+                "checksum": source["checksum"], "mime_type": "image/png", "role": "first_frame"}]
         return await self.repo.create(org, user, key, snapshot, request_fingerprint(snapshot))
 
     async def tick(self, org):
@@ -56,15 +66,19 @@ class MediaService:
         if (org, row["created_by"]) not in pilot_principals():
             await self.repo.change(row, state="failed", error_code="media_access_revoked")
             return True
-        if IMAGE_PROVIDERS.get(row["model"]) != row["provider"]:
+        if MEDIA_PROVIDERS.get(row["model"]) != row["provider"]:
             await self.repo.change(row, state="failed", error_code="media_provider_identity_mismatch")
             return True
         try:
-            if row["model"] == BFL_IMAGE_MODEL:
-                resolved = await self._bfl_result(row)
+            if row["model"] in (BFL_IMAGE_MODEL, VEO_VIDEO_MODEL):
+                resolved = await self._async_result(row)
                 if resolved is None:
                     return True
                 row, result = resolved
+                if row["model"] == VEO_VIDEO_MODEL:
+                    # Persist bytes while DB still retains the Ready download reference.
+                    # A crash here can resume GET/ingestion, never another submission.
+                    await asyncio.to_thread(save_result, row, result)
                 row = await self.repo.record_result(row, result, result_observation(result))
                 if row is None:
                     return True
@@ -97,8 +111,18 @@ class MediaService:
                 row = await self.repo.record_result(row, result, result_observation(result))
                 if row is None:
                     return True
-            stored = await asyncio.to_thread(ingest_png, result.data, org_id=org, resource_id=row["resource_id"])
-            costs = account(result.usage, width=stored.width, height=stored.height, model=row["model"])
+            dimensions = result.usage
+            if row["model"] == VEO_VIDEO_MODEL:
+                params = row["request_payload"]["parameters"]
+                stored = await asyncio.to_thread(ingest_mp4, result.data, org_id=org,
+                    resource_id=row["resource_id"], aspect_ratio=params["aspect_ratio"],
+                    duration_seconds=params["duration_seconds"])
+                dimensions = {**dimensions, "video_count": 1, "video_count_source": "observed_output",
+                    "duration_seconds": stored.duration_seconds, "duration_source": "decoded_output",
+                    "audio_present": stored.audio_present, "requested_audio": "native"}
+            else:
+                stored = await asyncio.to_thread(ingest_png, result.data, org_id=org, resource_id=row["resource_id"])
+            costs = account(dimensions, width=stored.width, height=stored.height, model=row["model"])
             observation = result_observation(result)
             observation.update({"usage_dimensions": costs["usage_dimensions"],
                                 "estimated_cost": str(costs["estimated_cost"]) if costs["estimated_cost"] is not None else None,
@@ -127,32 +151,51 @@ class MediaService:
             # Retry only private journal ingestion, never submission; bounded by
             # both attempt count and deadline. Raw exception text is never logged.
             attempts = row["ingest_attempts"] + 1
-            await self.repo.change(row, state="failed" if attempts >= 3 else "ingesting",
+            retry_state = ("running" if row["model"] == VEO_VIDEO_MODEL and row["state"] == "running"
+                           and row["provider_state"] == "Ready" else "ingesting")
+            await self.repo.change(row, state="failed" if attempts >= 3 else retry_state,
                                    ingest_attempts=attempts, error_code="media_ingestion_failed",
                                    next_reconcile_at=now + timedelta(seconds=10))
         return True
 
-    async def _bfl_result(self, row):
+    async def _async_result(self, row):
         """Use the existing row/lease/deadline for one submit and bounded GET reconciliation."""
         now = datetime.now(timezone.utc)
-        if row["model"] not in enabled_image_models():
+        video = row["model"] == VEO_VIDEO_MODEL
+        adapter = self.veo_adapter if video else self.bfl_adapter
+        if row["model"] not in enabled_media_models():
             await self.repo.change(row, state="failed", error_code="media_access_revoked")
             return None
         if row["state"] == "pending":
+            p = row["request_payload"]
+            if video:
+                source = p["input_resource_refs"][0]
+                try:
+                    image = await self.resource_bytes(row["org_id"], row["created_by"], uuid.UUID(source["resource_id"]))
+                except HTTPException:
+                    await self.repo.change(row, state="failed", error_code="media_source_unavailable")
+                    return None
+                if hashlib.sha256(image).hexdigest() != source["checksum"]:
+                    await self.repo.change(row, state="failed", error_code="media_source_changed")
+                    return None
+                request = VideoRequest(row["model"], p["prompt"], source["resource_id"],
+                    p["parameters"]["aspect_ratio"], p["parameters"]["duration_seconds"], p["parameters"]["resolution"])
             row = await self.repo.mark_submitting(row)
             if row is None:
                 return None
-            p = row["request_payload"]
             try:
-                submitted = await self.bfl_adapter.submit(ImageRequest(row["model"], p["prompt"],
-                    p["parameters"]["aspect_ratio"], p["parameters"]["image_size"]))
+                if video:
+                    submitted = await adapter.submit(request, image)
+                else:
+                    submitted = await adapter.submit(ImageRequest(row["model"], p["prompt"],
+                        p["parameters"]["aspect_ratio"], p["parameters"]["image_size"]))
             except MediaProviderError as exc:
                 await self.repo.change(row, state="submission_unknown" if exc.submission_unknown else "failed",
                     error_code=exc.code, next_reconcile_at=row["deadline_at"])
                 return None
             await self.repo.change(row, state="submitted", provider_operation_ref=submitted.operation_ref,
                 provider_state="Pending", usage_dimensions=submitted.usage,
-                provider_output={"schema_version": "media-bfl-reconcile-v1", "polling_url": submitted.polling_url},
+                provider_output={"schema_version": "media-veo-reconcile-v1" if video else "media-bfl-reconcile-v1", "polling_url": submitted.polling_url},
                 next_reconcile_at=now + timedelta(seconds=2))
             return None
         if row["state"] not in ("submitted", "running"):
@@ -168,7 +211,7 @@ class MediaService:
         private = dict(row["provider_output"] or {})
         try:
             if row["provider_state"] != "Ready":
-                status, sample, usage = await self.bfl_adapter.poll(row["provider_operation_ref"], private.get("polling_url"))
+                status, sample, usage = await adapter.poll(row["provider_operation_ref"], private.get("polling_url"))
                 if sample:
                     private["sample"] = sample
                 row = await self.repo.record_poll(row, status=status, output=private, usage=usage)
@@ -179,11 +222,14 @@ class MediaService:
                         "Content Moderated": "media_content_moderated", "Task not found": "media_provider_not_found"}.get(status, "media_provider_failed"))
                     return None
                 if status != "Ready":
-                    await self.repo.change(row, next_reconcile_at=now + timedelta(seconds=5), error_code=None)
+                    await self.repo.change(row, next_reconcile_at=now + timedelta(seconds=10 if video else 5), error_code=None)
                     return None
-            result = await self.bfl_adapter.download(row["provider_operation_ref"], private.get("sample"), row["usage_dimensions"])
+            result = await adapter.download(row["provider_operation_ref"], private.get("sample"), row["usage_dimensions"])
             return row, result
         except MediaProviderError as exc:
+            if video and exc.code == "media_provider_expired":
+                await self.repo.change(row, state="expired", error_code=exc.code)
+                return None
             # GET-only retry of a known operation/immutable output. Never another POST.
             downloading = row["provider_state"] == "Ready"
             attempts = row["ingest_attempts"] + 1 if downloading else row["ingest_attempts"]
@@ -197,12 +243,13 @@ class MediaService:
         row = await self.repo.read(org, user, resource=resource)
         if row["state"] != "succeeded":
             raise HTTPException(404, "Media not ready")
-        key, path = image_path(org, row["resource_id"])
+        video = row["mime_type"] == "video/mp4"
+        key, path = (video_path if video else image_path)(org, row["resource_id"])
         if key != row["storage_key"]:
             raise HTTPException(503, "Media unavailable")
         def read():
             with path.open("rb") as handle:
-                return handle.read(MAX_IMAGE_BYTES + 1)
+                return handle.read((MAX_VIDEO_BYTES if video else MAX_IMAGE_BYTES) + 1)
         try:
             data = await asyncio.to_thread(read)
         except OSError:
