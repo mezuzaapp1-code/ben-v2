@@ -13,6 +13,11 @@ on:
         required: true
         default: false
         type: boolean
+      veo_live_proof:
+        description: 'Authorize one protected paid Veo video proof (never rerun)'
+        required: true
+        default: false
+        type: boolean
   # Bootstrap execution without adding this workflow to the default branch.
   push:
     branches: [astra/ben-media-v1]
@@ -96,7 +101,7 @@ jobs:
           python -m pytest \
             tests/test_media_vertical_slice.py tests/test_media_image_foundation.py \
             tests/test_bfl_media.py tests/test_bfl_repository.py \
-            tests/test_veo_media.py tests/test_veo_repository.py \
+            tests/test_veo_media.py tests/test_veo_repository.py tests/test_veo_proof_harness.py \
             tests/test_gemini_provider_repair.py tests/test_deepseek_provider.py \
             tests/test_deepseek_chat.py tests/test_chat_provider_transparency.py \
             tests/test_chat_provider_routing.py tests/test_chat_switchboard_disconnected.py \
@@ -130,7 +135,7 @@ jobs:
   gemini-live-proof:
     name: Protected media live proof
     needs: validate
-    if: github.ref == 'refs/heads/astra/ben-media-v1' && github.event_name == 'workflow_dispatch' && (inputs.gemini_live_proof || inputs.bfl_live_proof)
+    if: github.ref == 'refs/heads/astra/ben-media-v1' && github.event_name == 'workflow_dispatch' && (inputs.gemini_live_proof || inputs.bfl_live_proof || inputs.veo_live_proof)
     environment: media-v1-proof
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -158,7 +163,10 @@ jobs:
       - name: Refuse paid reruns and verify checkout
         run: |
           test "$GITHUB_RUN_ATTEMPT" = '1'
-          test '${{ inputs.gemini_live_proof }}' != '${{ inputs.bfl_live_proof }}'
+          python - <<'PY'
+          selected = ['${{ inputs.gemini_live_proof }}', '${{ inputs.bfl_live_proof }}', '${{ inputs.veo_live_proof }}']
+          assert selected.count('true') == 1, 'Select exactly one paid proof'
+          PY
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test -z "$(git status --porcelain)"
       - uses: actions/setup-python@v5
@@ -182,11 +190,17 @@ jobs:
           BFL_API_KEY: ${{ secrets.BFL_API_KEY }}
           BEN_SINGLE_BFL_PROOF: authorized-one-image
         run: python -m pytest tests/test_bfl_live_proof.py -q --tb=no --show-capture=no
-      - name: Preserve allowlisted proof evidence and generated image
+      - name: One Veo video through the existing BEN lifecycle
+        if: inputs.veo_live_proof
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          BEN_SINGLE_VEO_PROOF: authorized-one-video
+        run: python -m pytest tests/test_veo_live_proof.py -q --tb=no --show-capture=no
+      - name: Preserve allowlisted proof evidence and generated media
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.bfl_live_proof && 'bfl' || 'gemini' }}-single-image-proof-${{ github.sha }}
+          name: ${{ inputs.veo_live_proof && 'veo-single-video' || inputs.bfl_live_proof && 'bfl-single-image' || 'gemini-single-image' }}-proof-${{ github.sha }}
           path: proof-evidence/
           if-no-files-found: ignore
           retention-days: 7
