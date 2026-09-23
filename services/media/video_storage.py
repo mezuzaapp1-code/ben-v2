@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import av
 
 from services.media.contracts import MAX_VIDEO_BYTES
-from services.media.image_storage import image_path, publish_bytes, StoredImage
+from services.media.image_storage import media_path, publish_bytes, StoredImage
 
 
 @dataclass(frozen=True)
@@ -16,8 +16,7 @@ class StoredVideo(StoredImage):
 
 
 def video_path(org_id, resource_id):
-    key, path = image_path(org_id, resource_id)
-    return key.removesuffix(".png") + ".mp4", path.with_suffix(".mp4")
+    return media_path(org_id, resource_id, extension="mp4")
 
 
 def inspect_mp4(data, *, aspect_ratio="16:9", duration_seconds=4):

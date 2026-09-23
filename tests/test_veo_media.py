@@ -11,7 +11,7 @@ import pytest
 
 from services.media.contracts import VEO_VIDEO_MODEL, VideoRequest, MediaProviderError
 from services.media.veo_video import VeoVideoAdapter, ENDPOINT, BASE, operation_url, download_url, usage
-from services.media.video_storage import inspect_mp4, ingest_mp4
+from services.media.video_storage import inspect_mp4, ingest_mp4, video_path
 from services.media.accounting import account
 from tests.test_media_image_foundation import png
 
@@ -165,10 +165,27 @@ def test_immutable_publication_and_video_seconds_accounting(tmp_path, monkeypatc
     result = ingest_mp4(mp4(), org_id=org, resource_id=resource)
     assert result == ingest_mp4(mp4(), org_id=org, resource_id=resource)
     assert result.mime_type == "video/mp4" and result.storage_key.endswith("output.mp4")
+    from services.workspace_files.storage import DurableStorageUnavailable
+    with pytest.raises(DurableStorageUnavailable):
+        ingest_mp4(mp4(720, 1280), org_id=org, resource_id=resource, aspect_ratio="9:16")
+    assert video_path(org, resource)[1].read_bytes() == mp4()
     costs = account({**usage(), "duration_seconds": result.duration_seconds}, width=1280, height=720, model=VEO_VIDEO_MODEL)
     assert str(costs["estimated_cost"]) == "0.400" and costs["actual_charge"] is None
     assert costs["usage_dimensions"]["provider_usage"] is None
     assert account(usage(), width=1280, height=720, model=VEO_VIDEO_MODEL)["estimated_cost"] is None
+
+
+def test_video_path_rejects_escape_symlink(tmp_path, monkeypatch):
+    root = tmp_path / "store"
+    monkeypatch.setenv("BEN_PROJECTS_DATA_DIR", str(root))
+    org, resource = uuid.uuid4(), uuid.uuid4()
+    _, destination = video_path(org, resource)
+    destination.parent.mkdir(parents=True)
+    external = tmp_path / "external.mp4"
+    external.write_bytes(b"never publish")
+    destination.symlink_to(external)
+    with pytest.raises(ValueError, match="invalid media storage path"):
+        video_path(org, resource)
 
 
 @pytest.mark.parametrize("changes", [{"duration_seconds": 8}, {"duration_seconds": True}, {"resolution": "1080p"},

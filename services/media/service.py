@@ -1,4 +1,4 @@
-"""One-shot Gemini execution and bounded durable recovery; no chat integration."""
+"""One BEN media lifecycle: single submission, durable reconciliation and publication."""
 import asyncio
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone

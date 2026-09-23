@@ -145,7 +145,7 @@ async def test_no_second_post_after_submission_failure_or_crash(context, failure
     if failure == "crash-after-acceptance":
         with pytest.raises(asyncio.CancelledError):
             await service.tick(ORG)
-        await admin.execute("UPDATE ben.media_executions SET lease_expires_at=now()-interval '1 second'")
+        await admin.execute("UPDATE ben.media_executions SET lease_expires_at=now()-interval '1 second' WHERE execution_id=$1", initial["execution_id"])
     else:
         await service.tick(ORG)
     await due(admin)
@@ -174,7 +174,7 @@ async def test_poll_failure_and_expiry_never_publish_or_resubmit(context, failur
     initial = await admit(service_for(repo, handler), request)
     await service_for(repo, handler).tick(ORG)
     if failure == "deadline":
-        await admin.execute("UPDATE ben.media_executions SET deadline_at=now()-interval '1 second' WHERE execution_id=$1", initial["execution_id"])
+        await admin.execute("UPDATE ben.media_executions SET created_at=now()-interval '1 hour', deadline_at=now()-interval '1 second' WHERE execution_id=$1", initial["execution_id"])
     await due(admin)
     await service_for(repo, handler).tick(ORG)
     row = await repo.read(ORG, USER, execution=initial["execution_id"])

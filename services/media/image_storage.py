@@ -43,10 +43,16 @@ def _resolved(path: Path) -> Path:
 
 
 def image_path(org_id: uuid.UUID, resource_id: uuid.UUID) -> tuple[str, Path]:
+    return media_path(org_id, resource_id, extension="png")
+
+
+def media_path(org_id: uuid.UUID, resource_id: uuid.UUID, *, extension: str) -> tuple[str, Path]:
+    if extension not in ("png", "mp4"):
+        raise ValueError("unsupported media extension")
     if not isinstance(org_id, uuid.UUID) or not isinstance(resource_id, uuid.UUID):
         raise ValueError("trusted UUID identities required")
     root = _resolved(files_root())
-    key = f"_media/{org_id}/{resource_id}/output.png"
+    key = f"_media/{org_id}/{resource_id}/output.{extension}"
     dest = _resolved(root / key)
     if not dest.is_relative_to(root):
         raise ValueError("invalid media storage path")
