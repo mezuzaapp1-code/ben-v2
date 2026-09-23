@@ -95,6 +95,9 @@ async def test_single_authorized_gemini_image(repository, monkeypatch, tmp_path)
             assert not await service.tick(org)
             public = (await client.get(f"/api/media/executions/{execution}", headers=headers)).json()
             resource = public["resource_id"]
+            history = await client.get(f"/api/media/executions?conversation_id={THREAD}", headers=headers)
+            assert history.status_code == 200
+            assert history.json()["executions"] == [public]
             path = f"/api/media/resources/{resource}/content"
             image = await client.get(path, headers=headers)
             assert image.status_code == 200 and image.headers["content-type"] == "image/png"
@@ -127,7 +130,7 @@ async def test_single_authorized_gemini_image(repository, monkeypatch, tmp_path)
                 provider_duration_ms=observation["provider_duration_ms"], usage=row["usage_dimensions"],
                 estimated_cost=public["estimated_cost"], actual_charge=None,
                 checks=["authorization", "tenant_rls", "idempotency", "one_submission", "ingestion",
-                        "protected_delivery", "persisted_restart_read", "accounting", "provenance", "evaluation"])
+                        "protected_delivery", "conversation_history", "persisted_restart_read", "accounting", "provenance", "evaluation"])
     finally:
         evidence.update(phase=phase, provider_submissions=calls)
         # Allowlisted evidence only: never serialize responses, exceptions or keys.

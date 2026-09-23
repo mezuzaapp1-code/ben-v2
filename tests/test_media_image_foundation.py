@@ -45,6 +45,48 @@ def http_response(data, code=200, headers=None):
 
 
 @pytest.mark.asyncio
+async def test_jpeg_result_normalized_ingested_and_provenance_survives_journal(tmp_path, monkeypatch):
+    import hashlib
+    from services.media.journal import save_result, load_result
+    monkeypatch.setenv("BEN_PROJECTS_DATA_DIR", str(tmp_path))
+    raw = io.BytesIO()
+    Image.new("RGB", (16, 16), "red").save(raw, format="JPEG")
+    source = raw.getvalue()
+    data = response_data()
+    data["steps"][0]["content"][0].update(mime_type="image/jpeg", data=base64.b64encode(source).decode())
+    result = await GeminiImageAdapter(KEY).generate(REQUEST, transport=httpx.MockTransport(lambda r: http_response(data)))
+    assert result.mime_type == "image/png" and result.data.startswith(b"\x89PNG\r\n\x1a\n")
+    with Image.open(io.BytesIO(result.data)) as decoded, Image.open(io.BytesIO(source)) as original:
+        assert decoded.size == original.size and decoded.tobytes() == original.convert("RGB").tobytes()
+    encoding = result.usage["image_encoding"]
+    assert encoding["source_sha256"] == hashlib.sha256(source).hexdigest()
+    assert encoding["normalization"] == "jpeg-to-rgb-png-v1"
+    row = {"org_id": uuid.uuid4(), "resource_id": uuid.uuid4(), "execution_id": uuid.uuid4(), "model": GEMINI_IMAGE_MODEL}
+    save_result(row, result)
+    restored = load_result(row)
+    assert restored == result
+    stored = ingest_png(restored.data, org_id=row["org_id"], resource_id=row["resource_id"])
+    assert stored.mime_type == "image/png" and stored.byte_size == len(result.data)
+    assert result_observation(restored)["usage_dimensions"]["image_encoding"] == encoding
+
+
+@pytest.mark.parametrize("raw", [b"invalid", png(), b"\xff\xd8\xfftruncated"])
+def test_jpeg_normalization_rejects_corruption_and_mime_mismatch(raw):
+    from services.media.gemini_image import jpeg_to_png
+    with pytest.raises(MediaProviderError, match="media_invalid_image"):
+        jpeg_to_png(raw)
+
+
+def test_jpeg_normalization_enforces_output_bound(monkeypatch):
+    from services.media.gemini_image import jpeg_to_png
+    raw = io.BytesIO()
+    Image.new("RGB", (16, 16), "red").save(raw, format="JPEG")
+    monkeypatch.setattr("services.media.gemini_image.MAX_IMAGE_BYTES", 10)
+    with pytest.raises(MediaProviderError, match="media_invalid_image"):
+        jpeg_to_png(raw.getvalue())
+
+
+@pytest.mark.asyncio
 async def test_exact_dispatch_header_stateless_and_no_ownership_sent():
     calls = []
     def handler(request):
@@ -55,7 +97,7 @@ async def test_exact_dispatch_header_stateless_and_no_ownership_sent():
         assert json.loads(request.content) == {
             "model": GEMINI_IMAGE_MODEL, "input": REQUEST.prompt,
             "store": False, "background": False, "stream": False,
-            "response_format": {"type": "image", "mime_type": "image/png",
+            "response_format": {"type": "image", "mime_type": "image/jpeg",
                                 "aspect_ratio": "1:1", "image_size": "1K"}}
         return http_response(response_data())
     result = await GeminiImageAdapter(KEY).generate(REQUEST, transport=httpx.MockTransport(handler))

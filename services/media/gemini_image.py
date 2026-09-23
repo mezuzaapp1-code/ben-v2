@@ -9,10 +9,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import hashlib
+import io
 import json
 import time
+import warnings
 
 import httpx
+from PIL import Image
 
 from services.media.contracts import (
     ImageRequest, ImageResult, MAX_IMAGE_BYTES, MAX_RESPONSE_BYTES,
@@ -34,7 +38,7 @@ class GeminiImageAdapter:
         payload = {
             "model": request.model, "input": request.prompt,
             "store": False, "background": False, "stream": False,
-            "response_format": {"type": "image", "mime_type": "image/png",
+            "response_format": {"type": "image", "mime_type": "image/jpeg",
                                 "aspect_ratio": request.aspect_ratio,
                                 "image_size": request.image_size},
         }
@@ -108,7 +112,8 @@ def parse_result(body: bytes, request: ImageRequest, duration_ms: float) -> Imag
         raise MediaProviderError("media_output_count_invalid")
     output = images[0]
     encoded = output.get("data")
-    if (output.get("mime_type") != "image/png" or not isinstance(encoded, str) or
+    source_mime = output.get("mime_type")
+    if (source_mime not in ("image/png", "image/jpeg") or not isinstance(encoded, str) or
             len(encoded) > ((MAX_IMAGE_BYTES + 2) // 3) * 4):
         raise MediaProviderError("media_invalid_image")
     image = None
@@ -116,8 +121,42 @@ def parse_result(body: bytes, request: ImageRequest, duration_ms: float) -> Imag
         image = base64.b64decode(encoded, validate=True)
     except (ValueError, binascii.Error):
         pass
-    if not image or len(image) > MAX_IMAGE_BYTES or not image.startswith(b"\x89PNG\r\n\x1a\n"):
+    if not image or len(image) > MAX_IMAGE_BYTES:
         raise MediaProviderError("media_invalid_image")
+    source_checksum = hashlib.sha256(image).hexdigest()
+    if source_mime == "image/jpeg":
+        image = jpeg_to_png(image)
+    elif not image.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise MediaProviderError("media_invalid_image")
+    usage = normalize_usage(data.get("usage"))
+    # Preserve the provider-byte fingerprint and explicit normalization provenance
+    # through the existing durable journal, without retaining duplicate assets.
+    usage["image_encoding"] = {"schema_version": "media-image-encoding-v1",
+        "source_mime_type": source_mime, "source_sha256": source_checksum,
+        "stored_mime_type": "image/png",
+        "normalization": "jpeg-to-rgb-png-v1" if source_mime == "image/jpeg" else "identity"}
     # Full decoding/MIME integrity checks are required again at ingestion.
     return ImageResult(image, "image/png", data["model"], operation,
-                       normalize_usage(data.get("usage")), duration_ms)
+                       usage, duration_ms)
+
+
+def jpeg_to_png(data: bytes) -> bytes:
+    """Bounded provider-format normalization; BEN's PNG storage stays unchanged."""
+    result = None
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(data)) as source:
+                if source.format != "JPEG" or source.width * source.height > 20_000_000:
+                    raise ValueError("invalid source image")
+                source.verify()
+            with Image.open(io.BytesIO(data)) as source:
+                source.load()
+                target = io.BytesIO()
+                source.convert("RGB").save(target, format="PNG")
+                result = target.getvalue()
+    except (ValueError, OSError, SyntaxError, Image.DecompressionBombWarning, Image.DecompressionBombError):
+        pass
+    if not result or len(result) > MAX_IMAGE_BYTES:
+        raise MediaProviderError("media_invalid_image", submission_unknown=True)
+    return result

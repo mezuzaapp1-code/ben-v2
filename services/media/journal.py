@@ -1,7 +1,7 @@
 """Private bounded result journal closes the ingestion/restart gap, not a job queue.
 
 Only media_executions determines state. A missing journal after uncertain submit
-never permits resubmission. Keep original provider bytes and private references.
+never permits resubmission. Keep normalized bytes, source provenance and private references.
 """
 import base64
 import json
