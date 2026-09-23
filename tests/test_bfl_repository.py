@@ -191,6 +191,50 @@ async def test_model_is_part_of_idempotency_and_bfl_disabled_gate(context, monke
 
 
 @pytest.mark.asyncio
+async def test_expired_temporary_output_stops_after_three_gets_without_regeneration(context):
+    repo, admin = context
+    methods = []
+    def handler(req):
+        methods.append(req.method)
+        if req.method == "POST":
+            return response({"id": OP, "polling_url": POLL})
+        if str(req.url) == POLL:
+            return response({"id": OP, "status": "Ready", "cost": 3, "result": {"sample": SAMPLE}})
+        return httpx.Response(404)
+    service = MediaService(repo, bfl_adapter=adapter(handler))
+    initial = await admit(service)
+    await service.tick(ORG)
+    for _ in range(3):
+        await due(admin)
+        await MediaService(repo, bfl_adapter=adapter(handler)).tick(ORG)
+    row = await repo.read(ORG, USER, execution=initial["execution_id"])
+    assert row["state"] == "failed" and row["ingest_attempts"] == 3
+    assert row["usage_dimensions"]["provider_usage"]["cost"] == 3
+    assert methods == ["POST", "GET", "GET", "GET", "GET"]
+    assert not await service.tick(ORG)
+
+
+@pytest.mark.asyncio
+async def test_poll_transport_failure_preserves_reference_for_restart(context):
+    repo, admin = context
+    methods = []
+    def handler(req):
+        methods.append(req.method)
+        if req.method == "POST":
+            return response({"id": OP, "polling_url": POLL})
+        raise httpx.ReadTimeout(KEY, request=req)
+    service = MediaService(repo, bfl_adapter=adapter(handler))
+    initial = await admit(service)
+    await service.tick(ORG)
+    for _ in range(2):
+        await due(admin)
+        await MediaService(repo, bfl_adapter=adapter(handler)).tick(ORG)
+    row = await repo.read(ORG, USER, execution=initial["execution_id"])
+    assert row["state"] == "submitted" and row["provider_operation_ref"] == OP
+    assert row["poll_attempts"] == 2 and methods == ["POST", "GET", "GET"]
+
+
+@pytest.mark.asyncio
 async def test_poll_limit_deadline_and_stale_fencing(context):
     repo, admin = context
     service = MediaService(repo)
@@ -203,6 +247,8 @@ async def test_poll_limit_deadline_and_stale_fencing(context):
     assert (await repo.read(ORG, USER, execution=row["execution_id"]))["state"] == "expired"
     second = await admit(service, "second")
     first = await repo.claim(ORG, "old")
+    from datetime import datetime, timezone
+    assert (first["lease_expires_at"] - datetime.now(timezone.utc)).total_seconds() < 121
     await admin.execute("UPDATE ben.media_executions SET lease_expires_at=now()-interval '1 second' WHERE execution_id=$1", second["execution_id"])
     await repo.claim(ORG, "new")
     assert await repo.record_poll(first, status="Ready", output={}, usage={}) is None

@@ -106,6 +106,7 @@ async def test_status_mapping_does_not_download(status):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("data", [{"id":"other","status":"Ready"}, {"id":OP,"status":"unknown"},
+    {"id":OP,"status":"Ready","model":"flux-2-pro-preview"},
     {"id":OP,"status":"Ready","result":{"sample":"http://localhost/secret"}}, []])
 async def test_untrusted_poll_responses_fail_closed(data):
     with pytest.raises(MediaProviderError):
@@ -144,3 +145,16 @@ def test_unknown_usage_stays_unknown_and_rights_not_approved():
     assert account(usage, width=1024, height=1024, model=BFL_IMAGE_MODEL)["estimated_cost"] is None
     snapshot = request_snapshot(REQUEST, conversation_id="thread", workspace_id=None)
     assert snapshot["provider"] == "bfl" and snapshot["rights"]["training_status"] == "not_approved"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("data", [{}, {"id": OP, "polling_url": "https://api.bfl.ai/v1/get_result?id=other"},
+    {"id": OP, "polling_url": "https://evil.test/"}, {"id": [], "polling_url": POLL}])
+async def test_malformed_submission_is_uncertain_without_second_post(data):
+    calls = []
+    def handler(req):
+        calls.append(req.method)
+        return response(data)
+    with pytest.raises(MediaProviderError) as error:
+        await BflImageAdapter(KEY, transport=httpx.MockTransport(handler)).submit(REQUEST)
+    assert error.value.submission_unknown and calls == ["POST"]

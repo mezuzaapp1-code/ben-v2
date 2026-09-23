@@ -124,6 +124,8 @@ class BflImageAdapter:
         data = await self._request("GET", url)
         if data.get("id") != operation:
             raise MediaProviderError("media_operation_identity_mismatch", submission_unknown=True)
+        if data.get("model") not in (None, BFL_IMAGE_MODEL):
+            raise MediaProviderError("media_model_identity_mismatch", submission_unknown=True)
         status = data.get("status")
         if status not in ("Pending", "Reasoning", "Generating", "Ready", "Error", "Failed",
                           "Request Moderated", "Content Moderated", "Task not found"):

@@ -85,7 +85,8 @@ class MediaRepository:
             if not row:
                 return None
             row = (await s.execute(text("""UPDATE ben.media_executions SET lease_owner=:owner,
-                lease_expires_at=now()+interval '10 minutes', version=version+1, updated_at=now()
+                lease_expires_at=now()+CASE WHEN provider='bfl' THEN interval '2 minutes' ELSE interval '10 minutes' END,
+                version=version+1, updated_at=now()
                 WHERE execution_id=:id AND org_id=:org RETURNING *"""),
                 {"owner": owner, "id": row["execution_id"], "org": org})).mappings().one()
             return dict(row)
@@ -144,7 +145,8 @@ class MediaRepository:
         async with self.transaction(row["org_id"]) as s:
             result = (await s.execute(text("""UPDATE ben.media_executions SET state='running',
                 provider_state=:status,provider_output=CAST(:output AS jsonb),usage_dimensions=CAST(:usage AS jsonb),
-                poll_attempts=poll_attempts+1,last_polled_at=now(),version=version+1,updated_at=now()
+                poll_attempts=poll_attempts+1,last_polled_at=now(),version=version+1,updated_at=now(),
+                lease_expires_at=now()+interval '2 minutes'
                 WHERE execution_id=:id AND org_id=:org AND lease_owner=:owner AND version=:version
                 RETURNING *"""), {"status": status, "output": json.dumps(output), "usage": json.dumps(usage),
                     "id": row["execution_id"], "org": row["org_id"], "owner": row["lease_owner"], "version": row["version"]})).mappings().first()
