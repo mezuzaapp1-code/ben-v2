@@ -114,7 +114,10 @@ async def test_single_authorized_gemini_image(repository, monkeypatch, tmp_path)
             assert not await service.tick(org)
             observation = row["provider_output"]
             assert observation["upstream_model"] == GEMINI_IMAGE_MODEL
-            assert row["provider_operation_ref"] and row["storage_key"]
+            assert row["storage_key"]
+            assert observation["provider_operation_ref_reported"] == bool(row["provider_operation_ref"])
+            if row["provider_operation_ref"] is None:
+                assert observation["provider_operation_ref_missing_reason"] == "not_reported_stateless_response"
             assert row["request_payload"]["rights"]["training_status"] == "not_approved"
             assert observation["training_status"] == "not_approved"
             assert row["usage_dimensions"]["image_count"] == 1 and row["pricing_version"]

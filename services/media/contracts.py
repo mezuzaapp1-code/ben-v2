@@ -52,7 +52,7 @@ class ImageResult:
     data: bytes = field(repr=False)
     mime_type: str
     returned_model: str
-    operation_ref: str = field(repr=False)
+    operation_ref: str | None = field(repr=False)
     usage: dict[str, Any]
     duration_ms: float
 

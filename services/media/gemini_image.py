@@ -95,8 +95,12 @@ def parse_result(body: bytes, request: ImageRequest, duration_ms: float) -> Imag
     if data.get("model") != request.model:
         raise MediaProviderError("media_model_identity_mismatch")
     operation = data.get("id")
-    if not isinstance(operation, str) or not operation or len(operation) > 2048:
-        raise MediaProviderError("media_missing_operation_reference", submission_unknown=True)
+    # Stateless synchronous completions need no retrievable provider resource.
+    # BEN owns identity; never fabricate a provider operation ID.
+    if operation is None or operation == "":
+        operation = None
+    elif not isinstance(operation, str) or len(operation) > 2048:
+        raise MediaProviderError("media_invalid_operation_reference", submission_unknown=True)
     steps = data.get("steps")
     if not isinstance(steps, list):
         raise MediaProviderError("media_invalid_output")

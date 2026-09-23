@@ -59,6 +59,8 @@ def request_fingerprint(snapshot: dict) -> str:
 def result_observation(result: ImageResult) -> dict:
     """No prompt, credential, operation ID, URL, bytes or storage key in telemetry."""
     return {"schema_version": VERSION, "provider": "google", "gateway": None,
+            "provider_operation_ref_reported": result.operation_ref is not None,
+            "provider_operation_ref_missing_reason": None if result.operation_ref else "not_reported_stateless_response",
             "upstream_model": result.returned_model, "model_snapshot": None,
             "snapshot_missing_reason": "not_reported",
             "provider_duration_ms": result.duration_ms,

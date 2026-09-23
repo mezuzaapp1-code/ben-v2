@@ -53,6 +53,7 @@ async def test_jpeg_result_normalized_ingested_and_provenance_survives_journal(t
     Image.new("RGB", (16, 16), "red").save(raw, format="JPEG")
     source = raw.getvalue()
     data = response_data()
+    data.pop("id")  # Stateless completion must survive journal/storage without a provider ID.
     data["steps"][0]["content"][0].update(mime_type="image/jpeg", data=base64.b64encode(source).decode())
     result = await GeminiImageAdapter(KEY).generate(REQUEST, transport=httpx.MockTransport(lambda r: http_response(data)))
     assert result.mime_type == "image/png" and result.data.startswith(b"\x89PNG\r\n\x1a\n")
@@ -65,6 +66,8 @@ async def test_jpeg_result_normalized_ingested_and_provenance_survives_journal(t
     save_result(row, result)
     restored = load_result(row)
     assert restored == result
+    assert restored.operation_ref is None
+    assert result_observation(restored)["provider_operation_ref_missing_reason"] == "not_reported_stateless_response"
     stored = ingest_png(restored.data, org_id=row["org_id"], resource_id=row["resource_id"])
     assert stored.mime_type == "image/png" and stored.byte_size == len(result.data)
     assert result_observation(restored)["usage_dimensions"]["image_encoding"] == encoding
@@ -159,7 +162,8 @@ async def test_timeout_is_unknown_and_exception_has_no_http_request():
     (lambda d: d.update(model="different-model"), "identity_mismatch"),
     (lambda d: d.update(status="in_progress"), "not_completed"),
     (lambda d: d.update(status="failed"), "not_completed"),
-    (lambda d: d.pop("id"), "missing_operation"),
+    (lambda d: d.update(id=123), "invalid_operation"),
+    (lambda d: d.update(id="x" * 2049), "invalid_operation"),
     (lambda d: d.update(steps=[]), "output_count"),
     (lambda d: d["steps"].append(d["steps"][0]), "output_count"),
     (lambda d: d["steps"][0]["content"][0].update(mime_type="text/html"), "invalid_image"),
