@@ -1,3 +1,6 @@
 # Dev/test only — not required for production runtime (Railway).
 pytest==9.0.3
 pytest-asyncio==1.4.0
+
+# Protected CI recovery artifacts only.
+cryptography==46.0.7
