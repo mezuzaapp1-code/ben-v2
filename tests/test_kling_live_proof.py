@@ -80,14 +80,24 @@ class OneGenerationTransport(httpx.AsyncBaseTransport):
         if request.method == "POST":
             metrics["submission_http_status"] = response.status_code
             metrics["submission_duration_ms"] = round((time.monotonic()-metrics["submission_started"]) * 1000, 2)
-        if response.status_code >= 400:
+        if request.url.host == "queue.fal.run":
+            from tests.kling_existing_recovery import shape
+            import re
             raw = bytearray()
             async for part in response.aiter_bytes():
                 raw.extend(part[:65537-len(raw)])
                 if len(raw) > 65536:
                     break
             await response.aclose()
-            safe_error(bytes(raw) if len(raw) <= 65536 else b"", response.status_code, metrics)
+            diagnostic, _ = shape(bytes(raw)) if len(raw) <= 65536 else ({"body_type": "oversized"}, None)
+            diagnostic.update(http_status=response.status_code, method=request.method,
+                endpoint="https://queue.fal.run" + re.sub(r"/requests/[^/]+", "/requests/{request_id}", request.url.path))
+            metrics.setdefault("http_observations", []).append(diagnostic)
+            if response.status_code >= 400:
+                safe_error(bytes(raw) if len(raw) <= 65536 else b"", response.status_code, metrics)
+            # Preserve the decoded body/status for the real adapter, including 202/3xx.
+            headers = {k: v for k, v in response.headers.items() if k not in ("content-encoding", "content-length")}
+            response = httpx.Response(response.status_code, headers=headers, content=bytes(raw))
         return response
 
     async def aclose(self):
@@ -98,14 +108,18 @@ class OneGenerationTransport(httpx.AsyncBaseTransport):
 
 class ObservedAdapter(FalKlingVideoAdapter):
     """Inspect decoded results, never change normalization, dispatch or lifecycle."""
-    def __init__(self, key, metrics, evidence_dir, **kwargs):
+    def __init__(self, key, metrics, evidence_dir, *, checkpoint=None, **kwargs):
         super().__init__(key, **kwargs)
         self.metrics, self.evidence_dir = metrics, evidence_dir
+        self.checkpoint = checkpoint
 
     async def _json(self, method, url, body=None):
         result = await super()._json(method, url, body)
         if method == "POST":
             self.metrics["operation_reference_returned"] = isinstance(result.get("request_id"), str)
+            if self.checkpoint:
+                # Preserve acceptance even if the following DB reference commit fails.
+                await self.checkpoint({k: result.get(k) for k in ("request_id", "status_url", "response_url")})
         if method == "GET" and url.endswith("/status"):
             status = result.get("status")
             if status in ("IN_QUEUE", "IN_PROGRESS", "COMPLETED"):
@@ -194,10 +208,40 @@ async def run_proof(repository, monkeypatch, tmp_path, *, inner_factory, credent
             raise AssertionError("Image generation forbidden")
         async def submit(self, *_):
             raise AssertionError("Image generation forbidden")
+    acceptance_receipt = None
+    async def checkpoint(receipt=None):
+        nonlocal acceptance_receipt
+        from tests.kling_recovery_snapshot import capture
+        if receipt:
+            row = await admin.fetchrow("SELECT execution_id FROM ben.media_executions WHERE org_id=$1 AND model=$2", org, KLING_VIDEO_MODEL)
+            acceptance_receipt = {**receipt, "execution_id": str(row["execution_id"])}
+        await capture(admin, org, tmp_path / "media-store", evidence_dir / "recovery.enc", credential,
+                      diagnostics=metrics, receipt=acceptance_receipt)
+    class ProofRepository(MediaRepository):
+        async def create(self, *args, **kwargs):
+            row = await super().create(*args, **kwargs)
+            await checkpoint()
+            return row
+        async def mark_submitting(self, row):
+            result = await super().mark_submitting(row)
+            await checkpoint()
+            return result
+        async def change(self, row, **values):
+            result = await super().change(row, **values)
+            await checkpoint()
+            return result
+        async def record_poll(self, *args, **kwargs):
+            result = await super().record_poll(*args, **kwargs)
+            await checkpoint()
+            return result
+        async def record_result(self, *args, **kwargs):
+            result = await super().record_result(*args, **kwargs)
+            await checkpoint()
+            return result
     def fresh_service():
         # Only counters are shared. No provider operation/job state survives.
-        return MediaService(MediaRepository(repo.sessions), NoImage(), NoImage(), NoImage(),
-            ObservedAdapter(credential, metrics, evidence_dir,
+        return MediaService(ProofRepository(repo.sessions), NoImage(), NoImage(), NoImage(),
+            ObservedAdapter(credential, metrics, evidence_dir, checkpoint=checkpoint,
                 transport=OneGenerationTransport(metrics, inner_factory)))
     original_ingest = service_module.ingest_mp4
     def measured_ingest(*args, **kwargs):
@@ -314,6 +358,7 @@ async def run_proof(repository, monkeypatch, tmp_path, *, inner_factory, credent
         raise
     finally:
         if execution:
+            await checkpoint()
             final = await repo.read(org, alias, execution=execution)
             evidence.update(state=final["state"], error_code=final["error_code"],
                 reserved_resource_id=str(final["resource_id"]), resource_published=final["state"] == "succeeded",

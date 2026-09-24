@@ -43,6 +43,15 @@ async def test_exact_proof_harness_without_network(repository, monkeypatch, tmp_
             await run_proof(repository, monkeypatch, tmp_path, **kwargs)
     text = (tmp_path / "proof-evidence/proof.json").read_text()
     evidence = json.loads(text)
+    from tests.kling_recovery_snapshot import unseal
+    snapshot = unseal(tmp_path / "proof-evidence/recovery.enc", "synthetic-secret")
+    original = next(r for r in snapshot["rows"] if r["execution_id"] == evidence["execution_id"])
+    assert original["state"] == evidence["state"] and snapshot["files"]
+    if outcome != "rejection":
+        assert original["provider_operation_ref"] == OP
+        assert snapshot["acceptance_receipt"]["request_id"] == OP
+    if outcome == "poll_failure":
+        assert snapshot["diagnostics"]["http_observations"][-1]["http_status"] == 503
     assert sum(method == "POST" for method, _ in calls) == evidence["metrics"]["generation_requests"] == 1
     assert "synthetic-secret" not in text and OP not in text and FILE not in text
     assert evidence["status"] == ("PASS" if outcome == "success" else "FAIL")
