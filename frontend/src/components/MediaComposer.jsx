@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import CreativeEditLab from './CreativeEditLab.jsx'
 import { ComposerCapsule } from './ComposerCapsule.jsx'
 import { clearPendingMedia, mediaRequest, mediaTerminal, pendingMedia } from '../api/media.js'
 
@@ -31,7 +32,9 @@ function MediaImage({ resourceId, buildHeaders, mimeType }) {
 }
 
 /** Text child is the unchanged BEN composer; media has its own explicit path. */
-export default function MediaComposer({ children, conversationId, scope, buildHeaders, ensureConversation, disabled }) {
+export default function MediaComposer({ children, conversationId, scope, buildHeaders, ensureConversation, disabled, workspaceId }) {
+  const [labEnabled, setLabEnabled] = useState(false)
+  const [labOpen, setLabOpen] = useState(false)
   const [enabled, setEnabled] = useState(false)
   const [models, setModels] = useState(['gemini-3.1-flash-image'])
   const [model, setModel] = useState('gemini-3.1-flash-image')
@@ -57,6 +60,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
       try {
         const caps = await mediaRequest('/capabilities', await buildHeaders(), { signal: controller.signal })
         if (!controller.signal.aborted) {
+          setLabEnabled(caps.creative_lab === true)
           setEnabled(caps.image === true)
           setModels(caps.models)
           setVideoModels(caps.video_models || [])
@@ -112,6 +116,10 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
   }
   if (!enabled || !buildHeaders) return children
   return <>
+    {labEnabled && <div>
+      <button type="button" aria-expanded={labOpen} onClick={() => setLabOpen(open => !open)}>Creative Edit Lab - internal</button>
+      {labOpen && <CreativeEditLab key={`${scope}:${workspaceId}`} workspaceId={workspaceId} buildHeaders={buildHeaders} />}
+    </div>}
     <div aria-label="Composer mode">
       <button type="button" disabled={busy} aria-pressed={mode === 'text'} onClick={() => setMode('text')}>Text</button>
       <button type="button" disabled={busy} aria-pressed={mode === 'image'} onClick={() => setMode('image')}>Image · internal</button>

@@ -9,8 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from services.media.access import require_pilot, enabled_image_models, enabled_video_models
 from services.media.contracts import GEMINI_IMAGE_MODEL, KLING_VIDEO_MODEL, ImageRequest, VideoRequest, MediaProviderError
 from services.media.service import MediaService, public_execution
+from routers.creative_lab import router as creative_lab_router, lab_enabled
 
 router = APIRouter(prefix="/api/media", tags=["internal-media"])
+router.include_router(creative_lab_router)
 
 
 def media_service():
@@ -60,6 +62,7 @@ async def evaluate(execution_id: uuid.UUID, body: Evaluation, identity=Depends(r
 @router.get("/capabilities")
 async def capabilities(identity=Depends(require_pilot)):
     return {"image": True, "models": enabled_image_models(), "internal_only": True,
+            "creative_lab": lab_enabled(),
             "aspect_ratios": ["1:1", "16:9", "9:16"], "image_size": "1K",
             "video_models": enabled_video_models(), "video": bool(enabled_video_models()),
             "video_model_parameters": {model: {"duration_seconds": 3 if model == KLING_VIDEO_MODEL else 4,

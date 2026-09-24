@@ -2936,6 +2936,7 @@ function App() {
           ) : null}
           <div className="composer-shell" style={{ '--shell-accent': shellAccent }}>
             <MediaComposer key={`${sessionTenantId}:${userId}`} scope={`${sessionTenantId}:${userId}`}
+              workspaceId={activeProjectId}
               conversationId={serverThreadIdForApi(activeId)}
               buildHeaders={persistentReady ? persistentHeaders : null}
               ensureConversation={ensureMediaConversation} disabled={loading || !persistentReady}>

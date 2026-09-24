@@ -35,7 +35,7 @@ on:
         type: string
   # Bootstrap execution without adding this workflow to the default branch.
   push:
-    branches: [astra/ben-media-v1]
+    branches: [astra/ben-media-v1, astra/creative-edit-lab-v0]
 
 permissions:
   contents: read
@@ -46,7 +46,7 @@ concurrency:
 
 jobs:
   validate:
-    if: github.ref == 'refs/heads/astra/ben-media-v1'
+    if: github.ref == 'refs/heads/astra/ben-media-v1' || github.ref == 'refs/heads/astra/creative-edit-lab-v0'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
@@ -114,7 +114,7 @@ jobs:
           # Supply that path; do not patch the assertions or application code.
           sudo ln -s "$GITHUB_WORKSPACE" /workspace
           python -m pytest \
-            tests/test_media_vertical_slice.py tests/test_media_image_foundation.py \
+            tests/test_creative_lab.py tests/test_media_vertical_slice.py tests/test_media_image_foundation.py \
             tests/test_bfl_media.py tests/test_bfl_repository.py \
             tests/test_veo_media.py tests/test_veo_repository.py tests/test_veo_proof_harness.py \
             tests/test_kling_media.py tests/test_kling_repository.py tests/test_kling_proof_harness.py tests/test_kling_recovery.py \
@@ -136,7 +136,7 @@ jobs:
           npm --prefix frontend run test:chat-stream-ownership
           npm --prefix frontend run test:conversation-surface
           npm --prefix frontend run test:deepseek-provider-menu
-          node frontend/node_modules/eslint/bin/eslint.js frontend/src/components/MediaComposer.jsx frontend/src/api/media.js frontend/scripts/test-media.mjs
+          node frontend/node_modules/eslint/bin/eslint.js frontend/src/components/CreativeEditLab.jsx frontend/src/components/MediaComposer.jsx frontend/src/api/media.js frontend/scripts/test-media.mjs
       - name: Preserve test reports only
         if: always()
         uses: actions/upload-artifact@v4
