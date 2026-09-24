@@ -5,7 +5,7 @@ https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-flash-image
 No invoice charge is inferred. Unknown dimensions remain unknown.
 """
 from decimal import Decimal
-from services.media.contracts import GEMINI_IMAGE_MODEL, BFL_IMAGE_MODEL, VEO_VIDEO_MODEL
+from services.media.contracts import GEMINI_IMAGE_MODEL, BFL_IMAGE_MODEL, VEO_VIDEO_MODEL, KLING_VIDEO_MODEL
 
 PRICING_VERSION = "google-gemini-3.1-flash-image-standard-2026-09-22"
 
@@ -23,6 +23,21 @@ def account(usage: dict, *, width: int, height: int, model: str = GEMINI_IMAGE_M
             "actual_charge_source": "not_reported", "currency": "USD"}
         # Provider credits are recorded with their submission/settled provenance.
         # This conversion is not an invoice charge; no token approximation.
+        return {"usage_dimensions": dimensions, "estimated_cost": estimate, "pricing_version": version, "actual_charge": None}
+    if model == KLING_VIDEO_MODEL:
+        version = "fal-kling-o3-standard-audio-off-2026-09-24"
+        seconds = usage.get("duration_seconds")
+        valid = (type(seconds) in (int, float) and 2.9 <= seconds <= 3.1
+                 and sorted((width, height)) == [720, 1280] and usage.get("requested_audio") == "off")
+        estimate = Decimal("3") * Decimal("0.084") if valid else None
+        dimensions["resolution_tier"] = "720p"
+        dimensions["cost_estimate"] = {"schema_version": "media-cost-v1", "pricing_version": version,
+            "components": {"requested_video_seconds": 3, "observed_video_seconds": seconds,
+                           "usd_per_second": "0.084", "requested_audio": "off"},
+            "status": "complete" if valid else "partial",
+            "missing_reason": None if valid else "video_dimensions_not_verified",
+            "basis": "public_tariff_times_requested_seconds_validated_against_output",
+            "actual_charge_source": "not_reported", "currency": "USD"}
         return {"usage_dimensions": dimensions, "estimated_cost": estimate, "pricing_version": version, "actual_charge": None}
     if model == VEO_VIDEO_MODEL:
         version = "google-veo-3.1-fast-720p-audio-standard-2026-09-23"

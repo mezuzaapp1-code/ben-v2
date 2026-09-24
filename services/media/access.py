@@ -5,7 +5,7 @@ import uuid
 
 from fastapi import HTTPException, Request
 from auth.beta_gate import build_project_tenant_context_from_request
-from services.media.contracts import GEMINI_IMAGE_MODEL, BFL_IMAGE_MODEL, VEO_VIDEO_MODEL
+from services.media.contracts import GEMINI_IMAGE_MODEL, BFL_IMAGE_MODEL, VEO_VIDEO_MODEL, KLING_VIDEO_MODEL
 
 
 def enabled_image_models():
@@ -34,7 +34,8 @@ async def require_pilot(request: Request):
 
 
 def enabled_video_models():
-    return [VEO_VIDEO_MODEL] if os.getenv("BEN_MEDIA_VEO_ENABLED") == "1" else []
+    return ([VEO_VIDEO_MODEL] if os.getenv("BEN_MEDIA_VEO_ENABLED") == "1" else []) + (
+        [KLING_VIDEO_MODEL] if os.getenv("BEN_MEDIA_KLING_ENABLED") == "1" else [])
 
 
 def enabled_media_models():

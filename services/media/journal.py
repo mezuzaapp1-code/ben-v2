@@ -9,7 +9,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from services.media.contracts import ImageResult, MAX_RESPONSE_BYTES, MAX_VIDEO_JOURNAL_BYTES, VEO_VIDEO_MODEL
+from services.media.contracts import ImageResult, MAX_RESPONSE_BYTES, MAX_VIDEO_JOURNAL_BYTES, VIDEO_MODELS
 from services.media.image_storage import image_path
 from services.workspace_files.storage import _fsync_file_and_dir
 
@@ -19,7 +19,7 @@ def journal_path(row):
 
 
 def limit(row):
-    return MAX_VIDEO_JOURNAL_BYTES if row["model"] == VEO_VIDEO_MODEL else MAX_RESPONSE_BYTES
+    return MAX_VIDEO_JOURNAL_BYTES if row["model"] in VIDEO_MODELS else MAX_RESPONSE_BYTES
 
 
 def save_result(row, result):

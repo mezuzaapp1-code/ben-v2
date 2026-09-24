@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 
 from services.inference.measurement_contracts import ExecutionEvent
-from services.media.contracts import ImageRequest, ImageResult, MEDIA_PROVIDERS, BFL_IMAGE_MODEL, VEO_VIDEO_MODEL
+from services.media.contracts import ImageRequest, ImageResult, MEDIA_PROVIDERS, BFL_IMAGE_MODEL, VEO_VIDEO_MODEL, KLING_VIDEO_MODEL
 
 VERSION = "media-v1"
 
@@ -36,8 +36,9 @@ def request_snapshot(request: ImageRequest, *, conversation_id: str | None,
         "experiment_id": str(experiment_id) if experiment_id else None,
         "provenance": {"output_origin": "provider_generated",
                        "model_snapshot": None, "snapshot_missing_reason": "not_reported",
-                       "terms_reference": "https://bfl.ai/legal/flux-api-service-terms" if request.model == BFL_IMAGE_MODEL else "https://ai.google.dev/gemini-api/terms",
-                       "terms_reviewed_on": None if request.model == BFL_IMAGE_MODEL else "2026-09-22"},
+                       **({"upstream_provider": "kling"} if request.model == KLING_VIDEO_MODEL else {}),
+                       "terms_reference": "https://fal.ai/legal/api-services" if request.model == KLING_VIDEO_MODEL else "https://bfl.ai/legal/flux-api-service-terms" if request.model == BFL_IMAGE_MODEL else "https://ai.google.dev/gemini-api/terms",
+                       "terms_reviewed_on": None if request.model in (BFL_IMAGE_MODEL, KLING_VIDEO_MODEL) else "2026-09-22"},
         "rights": {"schema_version": "media-rights-v1", "training_status": "not_approved",
                    "fine_tuning_status": "not_approved", "distillation_status": "not_approved",
                    "evaluation_status": "requires_applicable_clearance",
@@ -58,8 +59,9 @@ def request_fingerprint(snapshot: dict) -> str:
 
 def result_observation(result: ImageResult) -> dict:
     """No prompt, credential, operation ID, URL, bytes or storage key in telemetry."""
-    return {"schema_version": VERSION, "provider": MEDIA_PROVIDERS[result.returned_model], "gateway": None,
-            "model_identity_source": "exact_dispatch_endpoint" if result.returned_model in (BFL_IMAGE_MODEL, VEO_VIDEO_MODEL) else "provider_response",
+    return {"schema_version": VERSION, "provider": MEDIA_PROVIDERS[result.returned_model], "gateway": "fal" if result.returned_model == KLING_VIDEO_MODEL else None,
+            **({"upstream_provider": "kling"} if result.returned_model == KLING_VIDEO_MODEL else {}),
+            "model_identity_source": "exact_dispatch_endpoint" if result.returned_model in (BFL_IMAGE_MODEL, VEO_VIDEO_MODEL, KLING_VIDEO_MODEL) else "provider_response",
             "provider_operation_ref_reported": result.operation_ref is not None,
             "provider_operation_ref_missing_reason": None if result.operation_ref else "not_reported_stateless_response",
             "upstream_model": result.returned_model, "model_snapshot": None,

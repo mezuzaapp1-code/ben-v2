@@ -8,7 +8,9 @@ GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image"
 BFL_IMAGE_MODEL = "flux-2-pro"
 IMAGE_PROVIDERS = {GEMINI_IMAGE_MODEL: "google", BFL_IMAGE_MODEL: "bfl"}
 VEO_VIDEO_MODEL = "veo-3.1-fast-generate-preview"
-MEDIA_PROVIDERS = {**IMAGE_PROVIDERS, VEO_VIDEO_MODEL: "google"}
+KLING_VIDEO_MODEL = "fal-ai/kling-video/o3/standard/image-to-video"
+VIDEO_MODELS = (VEO_VIDEO_MODEL, KLING_VIDEO_MODEL)
+MEDIA_PROVIDERS = {**IMAGE_PROVIDERS, VEO_VIDEO_MODEL: "google", KLING_VIDEO_MODEL: "fal"}
 MAX_VIDEO_BYTES = 64 * 1024 * 1024
 MAX_VIDEO_JOURNAL_BYTES = 90 * 1024 * 1024
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
@@ -106,7 +108,7 @@ class VideoRequest:
 
     def validate(self):
         import uuid
-        if self.model != VEO_VIDEO_MODEL:
+        if self.model not in VIDEO_MODELS:
             raise MediaProviderError("unsupported_media_model")
         if not isinstance(self.prompt, str) or not self.prompt.strip() or len(self.prompt) > 2000:
             raise MediaProviderError("invalid_media_prompt")
@@ -115,15 +117,18 @@ class VideoRequest:
         except (ValueError, TypeError, AttributeError):
             raise MediaProviderError("invalid_media_source") from None
         if (self.aspect_ratio not in ("16:9", "9:16") or type(self.duration_seconds) is not int
-                or self.duration_seconds != 4 or self.resolution != "720p"):
+                or self.duration_seconds != (3 if self.model == KLING_VIDEO_MODEL else 4)
+                or self.resolution != "720p"):
             raise MediaProviderError("unsupported_media_parameters")
 
     def normalized(self):
         self.validate()
-        return {"provider": "google", "model": self.model, "operation": "image_to_video",
-                "prompt": self.prompt, "parameters": {"aspect_ratio": self.aspect_ratio,
-                "duration_seconds": self.duration_seconds, "resolution": self.resolution,
-                "audio": "native", "person_generation": "allow_adult", "mime_type": "video/mp4"}}
+        parameters = {"aspect_ratio": self.aspect_ratio, "duration_seconds": self.duration_seconds,
+                      "resolution": self.resolution, "mime_type": "video/mp4"}
+        parameters.update({"audio": "off"} if self.model == KLING_VIDEO_MODEL else
+                          {"audio": "native", "person_generation": "allow_adult"})
+        return {"provider": MEDIA_PROVIDERS[self.model], "model": self.model, "operation": "image_to_video",
+                "prompt": self.prompt, "parameters": parameters}
 
 
 # Same internal byte-result contract and journal for both media modalities.

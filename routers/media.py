@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from services.media.access import require_pilot, enabled_image_models, enabled_video_models
-from services.media.contracts import GEMINI_IMAGE_MODEL, ImageRequest, VideoRequest, MediaProviderError
+from services.media.contracts import GEMINI_IMAGE_MODEL, KLING_VIDEO_MODEL, ImageRequest, VideoRequest, MediaProviderError
 from services.media.service import MediaService, public_execution
 
 router = APIRouter(prefix="/api/media", tags=["internal-media"])
@@ -30,11 +30,11 @@ class GenerateVideo(BaseModel):
     model_config = ConfigDict(extra="forbid")
     conversation_id: uuid.UUID
     idempotency_key: str = Field(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
-    model: Literal["veo-3.1-fast-generate-preview"]
+    model: Literal["veo-3.1-fast-generate-preview", "fal-ai/kling-video/o3/standard/image-to-video"]
     prompt: str = Field(min_length=1, max_length=2000)
     source_resource_id: uuid.UUID
     aspect_ratio: Literal["16:9", "9:16"] = "16:9"
-    duration_seconds: Literal[4] = 4
+    duration_seconds: Literal[3, 4] = 4
     resolution: Literal["720p"] = "720p"
 
 
@@ -62,6 +62,9 @@ async def capabilities(identity=Depends(require_pilot)):
     return {"image": True, "models": enabled_image_models(), "internal_only": True,
             "aspect_ratios": ["1:1", "16:9", "9:16"], "image_size": "1K",
             "video_models": enabled_video_models(), "video": bool(enabled_video_models()),
+            "video_model_parameters": {model: {"duration_seconds": 3 if model == KLING_VIDEO_MODEL else 4,
+                "resolution": "720p", "audio": "off" if model == KLING_VIDEO_MODEL else "native",
+                "source_aspect_ratio_required": model == KLING_VIDEO_MODEL} for model in enabled_video_models()},
             "video_parameters": {"operation": "image_to_video", "duration_seconds": 4,
                                  "resolution": "720p", "aspect_ratios": ["16:9", "9:16"], "audio": "native"}}
 

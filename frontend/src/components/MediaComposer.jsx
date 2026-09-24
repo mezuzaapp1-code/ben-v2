@@ -36,6 +36,10 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
   const [models, setModels] = useState(['gemini-3.1-flash-image'])
   const [model, setModel] = useState('gemini-3.1-flash-image')
   const [videoModels, setVideoModels] = useState([])
+  const [videoModel, setVideoModel] = useState('')
+  const [videoParameters, setVideoParameters] = useState({})
+  const videoChoice = videoModels.includes(videoModel) ? videoModel : videoModels[0]
+  const videoSettings = videoParameters[videoChoice] || { duration_seconds: 4, resolution: '720p', audio: 'native' }
   const [sourceId, setSourceId] = useState('')
   const [videoRatio, setVideoRatio] = useState('16:9')
   const [mode, setMode] = useState('text')
@@ -56,6 +60,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
           setEnabled(caps.image === true)
           setModels(caps.models)
           setVideoModels(caps.video_models || [])
+          setVideoParameters(caps.video_model_parameters || {})
         }
       } catch { if (!controller.signal.aborted) setEnabled(false) }
     }
@@ -88,8 +93,8 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
       pendingScope = `${scope}:${id}`
       const body = pendingMedia(sessionStorage, pendingScope, {
         conversation_id: id, prompt,
-        ...(mode === 'video' ? { model: videoModels[0], source_resource_id: sourceId,
-          aspect_ratio: videoRatio, duration_seconds: 4, resolution: '720p' }
+        ...(mode === 'video' ? { model: videoChoice, source_resource_id: sourceId,
+          aspect_ratio: videoRatio, duration_seconds: videoSettings.duration_seconds, resolution: videoSettings.resolution }
           : { model, aspect_ratio: ratio }),
       })
       await mediaRequest('/executions', await buildHeaders(), { body })
@@ -122,7 +127,11 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
     </section>}
     {mode === 'text' ? children : <>
       {mode === 'video' ? <>
-        <p>Google Veo 3.1 Fast · 4 seconds · 720p · native audio</p>
+        <label>Video engine <select value={videoChoice} disabled={busy} onChange={e => setVideoModel(e.target.value)}>
+          {videoModels.map(value => <option key={value} value={value}>{value === 'veo-3.1-fast-generate-preview' ? 'Google Veo 3.1 Fast' : 'Kling O3 Standard via fal'}</option>)}
+        </select></label>
+        <p>{videoSettings.duration_seconds} seconds · {videoSettings.resolution} · audio {videoSettings.audio}</p>
+        {videoSettings.source_aspect_ratio_required && <p>Choose an image matching the selected aspect ratio, at least 300 pixels on each side.</p>}
         <label>First frame <select value={sourceId} disabled={busy} onChange={e => setSourceId(e.target.value)}>
           <option value="">Choose a BEN image</option>
           {rows.filter(row => row.resource_id && row.mime_type === 'image/png').map(row =>

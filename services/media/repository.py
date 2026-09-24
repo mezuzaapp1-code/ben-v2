@@ -5,7 +5,7 @@ import uuid
 
 from fastapi import HTTPException
 from sqlalchemy import text
-from services.media.contracts import GEMINI_IMAGE_MODEL, BFL_IMAGE_MODEL, VEO_VIDEO_MODEL
+from services.media.contracts import GEMINI_IMAGE_MODEL, BFL_IMAGE_MODEL, VEO_VIDEO_MODEL, KLING_VIDEO_MODEL
 
 ACTIVE = ("pending", "submitting", "submitted", "running", "ingesting", "submission_unknown")
 
@@ -79,10 +79,11 @@ class MediaRepository:
             row = (await s.execute(text("""SELECT * FROM ben.media_executions
                 WHERE org_id=:org AND state IN ('pending','submitting','submitted','running','ingesting','submission_unknown')
                 AND (((provider='google' AND model=:model OR provider='bfl' AND model=:bfl_model) AND operation='image_generation')
-                     OR (provider='google' AND model=:veo_model AND operation='image_to_video'))
+                     OR (provider='google' AND model=:veo_model AND operation='image_to_video')
+                     OR (provider='fal' AND model=:kling_model AND operation='image_to_video'))
                 AND next_reconcile_at <= now() AND (lease_expires_at IS NULL OR lease_expires_at < now())
                 ORDER BY next_reconcile_at FOR UPDATE SKIP LOCKED LIMIT 1"""),
-                {"org": org, "model": GEMINI_IMAGE_MODEL, "bfl_model": BFL_IMAGE_MODEL, "veo_model": VEO_VIDEO_MODEL})).mappings().first()
+                {"org": org, "model": GEMINI_IMAGE_MODEL, "bfl_model": BFL_IMAGE_MODEL, "veo_model": VEO_VIDEO_MODEL, "kling_model": KLING_VIDEO_MODEL})).mappings().first()
             if not row:
                 return None
             row = (await s.execute(text("""UPDATE ben.media_executions SET lease_owner=:owner,

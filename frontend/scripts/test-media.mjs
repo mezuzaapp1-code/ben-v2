@@ -41,6 +41,13 @@ await mediaRequest('/executions', {}, { body: video })
 assert.equal(JSON.parse(captured.options.body).source_resource_id, 'ben-source-image')
 assert.equal(JSON.parse(captured.options.body).model, 'veo-3.1-fast-generate-preview')
 assert.deepEqual(pendingMedia(storage, 'veo-conversation', intent), video)
+const kling = pendingMedia(storage, 'kling-conversation', { ...intent,
+  model: 'fal-ai/kling-video/o3/standard/image-to-video', source_resource_id: 'ben-source-image',
+  duration_seconds: 3, resolution: '720p', aspect_ratio: '16:9' })
+await mediaRequest('/executions', {}, { body: kling })
+assert.equal(JSON.parse(captured.options.body).model, 'fal-ai/kling-video/o3/standard/image-to-video')
+assert.equal(JSON.parse(captured.options.body).duration_seconds, 3)
+assert.deepEqual(pendingMedia(storage, 'kling-conversation', intent), kling)
 const videoBlob = new Blob(['synthetic-video'], { type: 'video/mp4' })
 globalThis.fetch = async () => ({ ok: true, blob: async () => videoBlob })
 assert.equal((await mediaRequest('/resources/video/content', {}, { binary: true })).type, 'video/mp4')
