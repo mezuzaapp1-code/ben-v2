@@ -280,6 +280,8 @@ jobs:
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}
           BEN_PROJECTS_DATA_DIR: ${{ runner.temp }}/kling-recovered-store
+          # Storage imports initialize a lazy engine; no database connection is used.
+          DATABASE_URL: postgresql+asyncpg://unused:unused@127.0.0.1:9/media_v1_test_recovery
         run: python -m tests.kling_recovered_ingestion
       - uses: actions/upload-artifact@v4
         if: always()
