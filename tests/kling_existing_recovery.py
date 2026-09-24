@@ -4,12 +4,46 @@ import json
 import os
 from pathlib import Path
 import re
+import base64
+import io
+import math
 from urllib.parse import urlsplit, urljoin
 
 import httpx
 
 ROOT = "https://queue.fal.run/fal-ai/kling-video"
 MODEL = "fal-ai/kling-video/o3/standard/image-to-video"
+
+
+async def retrieve_video(client, value, report, destination, key):
+    """One GET of the existing output; credentials never go to the media host."""
+    from tests.kling_recovery_snapshot import seal
+    url = value.get("url")
+    parsed = urlsplit(url)
+    assert parsed.scheme == "https" and parsed.port in (None, 443) and not parsed.username and not parsed.password
+    assert parsed.hostname == "fal.media" or (parsed.hostname or "").endswith(".fal.media")
+    assert not parsed.fragment and not any(ord(c) < 33 or c == chr(92) for c in url)
+    report["download_requests"] = 1
+    async with client.stream("GET", url) as response:
+        report["download_http_status"] = response.status_code
+        if response.status_code != 200:
+            report["video_recovered"] = False
+            return
+        data = bytearray()
+        async for chunk in response.aiter_bytes():
+            data.extend(chunk)
+            assert len(data) <= 64 * 1024 * 1024
+    import av
+    import hashlib
+    properties = {"byte_size": len(data), "checksum": hashlib.sha256(data).hexdigest()}
+    with av.open(io.BytesIO(data), format="mp4", options={"protocol_whitelist": ""}) as video:
+        stream = video.streams.video[0]
+        factor = math.gcd(stream.width, stream.height)
+        properties.update(width=stream.width, height=stream.height,
+            aspect_ratio=f"{stream.width//factor}:{stream.height//factor}",
+            duration_seconds=float(stream.duration*stream.time_base), audio_present=bool(video.streams.audio))
+    seal(destination / "provider-video.enc", {"bytes_base64": base64.b64encode(data).decode(), "properties": properties}, key)
+    report.update(video_recovered=True, actual_output=properties)
 
 
 def shape(raw):
@@ -67,6 +101,10 @@ async def investigate(reference, key, destination, *, transport=None):
                             summary["redirect_allowed"] = permitted(location, reference)
                             summary["redirect_endpoint"] = location.replace(reference, "{request_id}") if permitted(location, reference) else "unapproved"
                         report["requests"].append(summary)
+                        metrics = value.get("metrics") if isinstance(value, dict) else None
+                        seconds = metrics.get("inference_time") if isinstance(metrics, dict) else None
+                        if type(seconds) in (int, float) and math.isfinite(seconds):
+                            summary["provider_inference_seconds"] = seconds
                         if response.status_code in (301, 302, 303, 307, 308) and permitted(location, reference):
                             url = location
                             continue
@@ -79,6 +117,7 @@ async def investigate(reference, key, destination, *, transport=None):
                                        "original_ben_execution_id": "9a8a062c-9d30-41cb-bd3e-8f791f4360fd"}
                             seal(destination / "provider-result.enc", private, key)
                             report["result_recovered"] = True
+                            await retrieve_video(client, value["video"], report, destination, key)
                         break
     finally:
         text = json.dumps(report, indent=2)
