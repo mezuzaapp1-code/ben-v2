@@ -1,0 +1,18 @@
+{
+  "contract": "file-scope-v2-gate0-private-default",
+  "status": "acceptance-specification-not-runtime-enforcement",
+  "scenarios": [
+    {"id":"own_chat", "principal":"user_a", "tenant":"org_a", "owner":"user_a", "resource_container":"chat_a", "execution_container":"chat_a", "category":"file", "lifecycle":"active", "expected":"allow"},
+    {"id":"same_org_other_user", "principal":"user_b", "tenant":"org_a", "owner":"user_a", "resource_container":"chat_a", "execution_container":"chat_a", "category":"file", "lifecycle":"active", "expected":"deny"},
+    {"id":"same_org_admin", "principal":"user_b", "tenant":"org_a", "org_role":"admin", "owner":"user_a", "resource_container":"chat_a", "execution_container":"chat_a", "category":"file", "lifecycle":"active", "expected":"deny"},
+    {"id":"wrong_chat", "principal":"user_a", "tenant":"org_a", "owner":"user_a", "resource_container":"chat_a", "execution_container":"chat_b", "category":"file", "lifecycle":"active", "expected":"deny"},
+    {"id":"wrong_tenant", "principal":"user_a", "tenant":"org_b", "resource_tenant":"org_a", "owner":"user_a", "resource_container":"chat_a", "execution_container":"chat_a", "category":"file", "lifecycle":"active", "expected":"deny"},
+    {"id":"unknown_legacy_owner", "principal":"user_a", "tenant":"org_a", "owner":null, "uploaded_by":"user_a", "resource_container":"chat_a", "execution_container":"chat_a", "category":"file", "lifecycle":"active", "expected":"deny"},
+    {"id":"private_project_other_member", "principal":"user_b", "tenant":"org_a", "owner":"user_a", "resource_container":"project_a", "execution_container":"project_a", "category":"file", "lifecycle":"active", "expected":"deny"},
+    {"id":"deleted_initial_read", "principal":"user_a", "tenant":"org_a", "owner":"user_a", "resource_container":"chat_a", "execution_container":"chat_a", "category":"initial_read", "lifecycle":"deleted", "expected":"deny"},
+    {"id":"revoked_excerpt", "principal":"user_a", "tenant":"org_a", "owner":"user_a", "resource_container":"chat_a", "execution_container":"chat_a", "category":"stored_excerpt", "access":"revoked", "lifecycle":"active", "expected":"deny"},
+    {"id":"historical_ordinary_answer", "principal":"user_a", "tenant":"org_a", "conversation_access":"allow", "category":"ordinary_answer", "original_source_lifecycle":"deleted", "expected":"allow"},
+    {"id":"unauthorized_conversation", "principal":"user_b", "tenant":"org_a", "conversation_access":"deny", "category":"ordinary_answer", "expected":"deny"},
+    {"id":"job_revoked_after_enqueue", "principal":"user_a", "tenant":"org_a", "category":"initial_read_publication", "enqueue_access":"allow", "publication_access":"deny", "expected":"deny"}
+  ]
+}
