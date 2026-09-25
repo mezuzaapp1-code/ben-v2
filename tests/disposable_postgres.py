@@ -8,15 +8,18 @@ import socket
 import subprocess
 import sys
 import time
+import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 
-BIN = Path("/usr/lib/postgresql/16/bin")
-INITDB = BIN / "initdb"
-PG_CTL = BIN / "pg_ctl"
-PSQL = BIN / "psql"
-ALEMBIC_INI = Path("/workspace/database/migrations/alembic.ini")
+ROOT = Path(__file__).resolve().parents[1]
+BIN = Path(os.environ.get("BEN_TEST_PG_BIN", "/usr/lib/postgresql/16/bin"))
+EXE = ".exe" if os.name == "nt" else ""
+INITDB = BIN / f"initdb{EXE}"
+PG_CTL = BIN / f"pg_ctl{EXE}"
+PSQL = BIN / f"psql{EXE}"
+ALEMBIC_INI = ROOT / "database/migrations/alembic.ini"
 START_WAIT = 30
 STOP_WAIT = 30
 
@@ -86,10 +89,11 @@ class DisposablePostgres:
     """One owned cluster; multiple databases. Credentials never printed."""
 
     def __init__(self) -> None:
-        if os.geteuid() == 0:
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
             raise ClusterError("refusing to run PostgreSQL as root")
         self.run_id = secrets.token_hex(8)
-        self.run_dir = Path(f"/tmp/mig-baseline-{self.run_id}")
+        self.run_root = Path(os.environ.get("BEN_TEST_PG_ROOT", tempfile.gettempdir())).resolve()
+        self.run_dir = self.run_root / f"mig-baseline-{self.run_id}"
         self.pgdata = self.run_dir / "pgdata"
         self.sockdir = self.run_dir / "sock"
         self.log_path = self.run_dir / "pg.log"
@@ -135,6 +139,9 @@ class DisposablePostgres:
         }
 
     def start(self) -> None:
+        for executable in (INITDB, PG_CTL, PSQL):
+            if not executable.is_file():
+                raise ClusterError(f"missing PostgreSQL executable: {executable}; set BEN_TEST_PG_BIN")
         self.run_dir.mkdir(mode=0o700)
         os.chmod(self.run_dir, 0o700)
         self.sockdir.mkdir(mode=0o700)
@@ -160,16 +167,17 @@ class DisposablePostgres:
                 "--auth-local=scram-sha-256",
                 "--auth-host=scram-sha-256",
                 "--encoding=UTF8",
-                "--locale=C.utf8",
+                "--locale=C" if os.name == "nt" else "--locale=C.utf8",
                 "--no-instructions",
             ],
             secrets_list=self._secrets(),
         )
+        socket_dirs = "" if os.name == "nt" else str(self.sockdir)
         with (self.pgdata / "postgresql.conf").open("a", encoding="utf-8") as f:
             f.write(
                 "\nlisten_addresses = '127.0.0.1'\n"
                 f"port = {self.port}\n"
-                f"unix_socket_directories = '{self.sockdir}'\n"
+                f"unix_socket_directories = '{socket_dirs}'\n"
                 "unix_socket_permissions = 0700\n"
                 "password_encryption = scram-sha-256\n"
                 "ssl = off\n"
@@ -186,7 +194,7 @@ class DisposablePostgres:
                 str(START_WAIT),
                 "start",
                 "-o",
-                f"-h 127.0.0.1 -p {self.port} -k {self.sockdir}",
+                f"-h 127.0.0.1 -p {self.port}",
             ],
             secrets_list=self._secrets(),
             timeout=START_WAIT + 15,
@@ -242,7 +250,7 @@ class DisposablePostgres:
         for k in _INHERITED:
             env.pop(k, None)
         env["DATABASE_URL"] = self.alembic_url(dbname)
-        env["PYTHONPATH"] = "/workspace"
+        env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
         env["PGSSLMODE"] = "disable"
         _run(
             [
@@ -261,7 +269,8 @@ class DisposablePostgres:
     def cleanup(self) -> None:
         if not self._cleanup_registered:
             return
-        if self.started and self.pgdata.exists():
+        # A startup timeout can leave a live server; never remove its data.
+        if self.pgdata.exists() and (self.started or (self.pgdata / "postmaster.pid").exists()):
             _run(
                 [
                     str(PG_CTL),
@@ -290,8 +299,8 @@ class DisposablePostgres:
             raise ClusterError(
                 f"owned server shutdown not confirmed; retaining {self.run_dir}"
             )
-        expected = Path(f"/tmp/mig-baseline-{self.run_id}")
-        if self.run_dir != expected or not str(self.run_dir).startswith("/tmp/mig-baseline-"):
+        expected = self.run_root / f"mig-baseline-{self.run_id}"
+        if self.run_dir.resolve() != expected or self.run_dir.resolve().parent != self.run_root:
             raise ClusterError("refusing to delete unverified path")
         if self.run_dir.exists():
             shutil.rmtree(self.run_dir)

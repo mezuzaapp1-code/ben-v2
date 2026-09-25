@@ -13,7 +13,7 @@ A user's personal resources remain private even when the authenticated tenant
 is an organization. Tenant equality is necessary, never sufficient. Neither
 organization role nor department membership grants access. No organization
 hierarchy, departments, public/shared libraries, approvals, enterprise sharing,
-RBAC, or policy platform will be built here. Library is a future extension only.
+Rooms, RBAC, or policy platform will be built here. Library is a future extension only.
 
 New Chat ownership must come from authenticated creation and a durable,
 authoritative binding to the principal. A private Project likewise requires
@@ -21,12 +21,13 @@ authoritative access, not merely a matching tenant. File ownership binds to its
 container. `uploaded_by` and `source_chat_id` remain provenance.
 
 Legacy records with no authoritative individual owner/access binding are
-UNRESOLVED and denied by the V2 contract. Do not assign them to the first opener,
-the latest caller, or a guessed uploader. A verified personal-tenant identity
-may establish a basis for ownership only after proving the tenant derivation
-and record binding. Existing organization-tenant records do not establish an
-individual owner. Safe attribution/backfill remains a release blocker for those
-records. This is not permission to mutate or hide legacy records in Gate 0.
+UNRESOLVED and denied for NEW protected-resource capabilities. Do not infer
+ownership from uploaded_by, source_chat_id, opener, tenant membership, or
+historical behavior. No automatic attribution/backfill is required for V2.
+Existing ordinary legacy Chat remains intact where possible; this compatibility
+does not grant permission to reuse direct-source artifacts in new executions.
+This bounded exclusion resolves the Gate-0 ownership policy blocker. It is a
+contract, not runtime enforcement or permission to mutate legacy records here.
 
 Preserve legitimate Project-file IDs, bytes, processing, and authorized use.
 Do not freeze tenant-wide access as a desired security regression contract.

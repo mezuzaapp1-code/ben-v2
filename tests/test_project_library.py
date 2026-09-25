@@ -208,10 +208,10 @@ def test_gate4a_remains_off():
 
 
 def test_file_lifecycle_inventory_clear_on_workspace_change_still_present():
-    src = Path("frontend/src/lib/workspaceFileInventory.js").read_text()
+    src = Path("frontend/src/lib/workspaceFileInventory.js").read_text(encoding="utf-8")
     assert "scopeChanged" in src
     assert "files = []" in src
-    app = Path("frontend/src/App.jsx").read_text()
+    app = Path("frontend/src/App.jsx").read_text(encoding="utf-8")
     assert "bindActiveProject" in app
     assert "reconcileActiveProject" in app
     assert "applyTenantScopeChange" in app
@@ -225,7 +225,7 @@ def test_file_lifecycle_inventory_clear_on_workspace_change_still_present():
 
 
 def test_active_project_is_tenant_bound_and_not_derived_from_page1_cache():
-    app = Path("frontend/src/App.jsx").read_text()
+    app = Path("frontend/src/App.jsx").read_text(encoding="utf-8")
     helper = Path("frontend/src/lib/activeProject.js").read_text()
     tenant = Path("frontend/src/lib/tenantIdentity.js").read_text()
     assert "reconcileActiveProject" in helper
