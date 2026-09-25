@@ -1,25 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import PropTypes from 'prop-types'
 
-const DEFAULT_LOCATION = 'Or Akiva'
-
 export function NewProjectModal({ open, onClose, onSubmit, submitting, error, canSubmit = true }) {
+  // Closing unmounts the draft. Every New Project action starts with fresh fields.
+  if (!open) return null
+  return <NewProjectForm {...{ onClose, onSubmit, submitting, error, canSubmit }} />
+}
+
+function NewProjectForm({ onClose, onSubmit, submitting, error, canSubmit }) {
   const [projectName, setProjectName] = useState('')
   const [softwareDescription, setSoftwareDescription] = useState('')
-  const [locationBase, setLocationBase] = useState(DEFAULT_LOCATION)
+  const [locationBase, setLocationBase] = useState('')
   const [keyContacts, setKeyContacts] = useState('')
   const [initialTacticalTasks, setInitialTacticalTasks] = useState('')
-
-  useEffect(() => {
-    if (!open) return
-    setProjectName('')
-    setSoftwareDescription('')
-    setLocationBase(DEFAULT_LOCATION)
-    setKeyContacts('')
-    setInitialTacticalTasks('')
-  }, [open])
-
-  if (!open) return null
 
   const handleSubmit = (event) => {
     event.preventDefault()
@@ -29,7 +22,7 @@ export function NewProjectModal({ open, onClose, onSubmit, submitting, error, ca
     onSubmit?.({
       name,
       software_description,
-      location_base: locationBase.trim() || DEFAULT_LOCATION,
+      location_base: locationBase.trim(),
       key_contacts: keyContacts.trim(),
       initial_tactical_tasks: initialTacticalTasks.trim(),
     })
@@ -53,7 +46,7 @@ export function NewProjectModal({ open, onClose, onSubmit, submitting, error, ca
               className="project-form__input"
               value={projectName}
               onChange={(event) => setProjectName(event.target.value)}
-              placeholder="Mission-critical data center fit-out"
+              placeholder="Enter project name"
               required
               maxLength={512}
               autoFocus
@@ -82,7 +75,7 @@ export function NewProjectModal({ open, onClose, onSubmit, submitting, error, ca
               className="project-form__input"
               value={locationBase}
               onChange={(event) => setLocationBase(event.target.value)}
-              placeholder="Or Akiva"
+              placeholder="Enter location (optional)"
               maxLength={256}
             />
           </label>
@@ -92,7 +85,7 @@ export function NewProjectModal({ open, onClose, onSubmit, submitting, error, ca
               className="project-form__textarea"
               value={keyContacts}
               onChange={(event) => setKeyContacts(event.target.value)}
-              placeholder={'Foreman — Yossi Levi (052-xxx)\nSite inspector — Dana Cohen'}
+              placeholder="Add contacts (optional)"
               rows={3}
               maxLength={8000}
             />
@@ -103,9 +96,7 @@ export function NewProjectModal({ open, onClose, onSubmit, submitting, error, ca
               className="project-form__textarea"
               value={initialTacticalTasks}
               onChange={(event) => setInitialTacticalTasks(event.target.value)}
-              placeholder={
-                'Mobilize crane access lane\nConfirm height-safety roster\nSchedule electrical rough-in inspection'
-              }
+              placeholder="Add tasks (optional)"
               rows={4}
               maxLength={8000}
             />
