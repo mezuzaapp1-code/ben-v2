@@ -20,7 +20,7 @@ jobs:
     env:
       PRODUCT_CHECKPOINT: 0668cb97e208d17b0dcf89dba430765940e055f9
       BEN_TEST_PG_BIN: /usr/lib/postgresql/16/bin
-      BEN_TEST_PG_ROOT: ${{ runner.temp }}/gate0-pg
+      BEN_TEST_PG_ROOT: /tmp/gate0-pg
       BEN_DB_CONNECT_TIMEOUT_S: '2'
     steps:
       - uses: actions/checkout@v4
