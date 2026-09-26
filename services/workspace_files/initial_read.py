@@ -6,10 +6,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from fastapi import HTTPException
 from sqlalchemy import func, select, text, update
 
 from database.connection import get_db_session
-from database.models import Message, WorkspaceFile, WorkspaceFileChunk, WorkspaceFilePage
+from database.models import Message, Thread, WorkspaceFile, WorkspaceFileChunk, WorkspaceFilePage
 from database.thread_store import list_thread_messages
 from services.chat_prompt import GLOBAL_CHAT_SYSTEM
 from services.message_format import decode_message, encode_chat_assistant
@@ -43,6 +44,7 @@ from services.workspace_files.source_policy import (
     INITIAL_READ_PENDING,
     INITIAL_READ_SKIPPED,
 )
+from services.workspace_files.resource_access import authorize_destination_on_session
 from services.workspace_files.thread_sources import (
     is_vision_upload,
     log_source_state_error,
@@ -130,6 +132,12 @@ async def claim_initial_read(
             return None
         if getattr(row, "status", None) != "ready":
             return None
+        destination = await session.get(Thread, thread_id)
+        decision = authorize_destination_on_session(
+            org_id, destination, expected_id=thread_id, action="initial_read_publish"
+        )
+        if not decision.allowed:
+            raise HTTPException(status_code=decision.http_status, detail="Not found")
         if sqlite_has_initial_read(thread_id, file_id):
             row.initial_read_status = INITIAL_READ_COMPLETE
             row.initial_read_at = datetime.now(timezone.utc)
@@ -244,9 +252,25 @@ def _fallback_prefix_text(extracted_text: str | None, max_chars: int = 4000) -> 
     return body
 
 
+async def _require_publish_destination(org_id: uuid.UUID, thread_id: uuid.UUID) -> None:
+    """Re-validate destination authority immediately before protected publication."""
+    async with get_db_session() as session:
+        await _set_org(session, org_id)
+        destination = await session.get(Thread, thread_id)
+        decision = authorize_destination_on_session(
+            org_id, destination, expected_id=thread_id, action="initial_read_publish"
+        )
+        if not decision.allowed:
+            raise HTTPException(status_code=decision.http_status, detail="Not found")
+
+
 async def run_initial_read(org_id: uuid.UUID, workspace_id: uuid.UUID, file_id: uuid.UUID) -> dict[str, Any]:
     """Generate at most one grounded overview. Safe to call concurrently."""
-    claimed = await claim_initial_read(org_id, file_id)
+    try:
+        claimed = await claim_initial_read(org_id, file_id)
+    except HTTPException:
+        await _mark_initial_read(org_id, file_id, INITIAL_READ_SKIPPED)
+        return {"outcome": "skipped"}
     if claimed is None:
         return {"outcome": "skipped"}
 
@@ -319,6 +343,11 @@ async def run_initial_read(org_id: uuid.UUID, workspace_id: uuid.UUID, file_id: 
             source_event=FILE_INITIAL_READ_EVENT,
             source_file_id=str(claimed.id),
         )
+        try:
+            await _require_publish_destination(org_id, thread_id)
+        except HTTPException:
+            await _mark_initial_read(org_id, file_id, INITIAL_READ_SKIPPED)
+            return {"outcome": "skipped"}
         persist_assistant_message_sqlite(
             thread_id,
             encoded_content=encoded,

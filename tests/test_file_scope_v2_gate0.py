@@ -1,6 +1,5 @@
-"""Gate-0 characterization and strict, unresolved security acceptance tests.
+"""Gate-0 characterization and Gate-1 authorization acceptance tests.
 
-No V2 policy implementation. No real DB, storage writes, or provider calls.
 XFAIL means a confirmed release blocker, not a passed security requirement.
 """
 from contextlib import asynccontextmanager
@@ -109,8 +108,6 @@ def test_ordinary_answer_remains_conversation_content():
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason='V2 blocker: Initial Read history is replayed without current source authorization')
 async def test_deleted_initial_read_is_not_replayed_as_ordinary_history(monkeypatch):
     message = encode_chat_assistant('SECRET_DIRECT_SOURCE', model_used='test',
                                    cost_usd=0, provider_id='gpt',
@@ -125,8 +122,6 @@ async def test_deleted_initial_read_is_not_replayed_as_ordinary_history(monkeypa
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason='Gate 1 blocker: anchored opinion reads SQLite before thread authorization')
 async def test_anchored_opinion_authorizes_before_sqlite_read(monkeypatch):
     def forbidden_history(*args):
         raise AssertionError('unvalidated destination reached SQLite history')
@@ -145,8 +140,6 @@ async def test_anchored_opinion_authorizes_before_sqlite_read(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason='Gate 1 blocker: Initial Read trusts source_chat_id before destination authorization')
 async def test_initial_read_authorizes_destination_before_history(monkeypatch):
     row = SimpleNamespace(id=FILE, org_id=ORG, media_type='text/plain',
                           original_filename='A.txt', source_chat_id=str(THREAD), status='ready')

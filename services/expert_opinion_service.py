@@ -29,6 +29,7 @@ from services.workspace_files.multi_source import (
     wrap_with_grounding_hint,
 )
 from services.workspace_files.response_evidence import sanitize_response_evidence
+from services.workspace_files.resource_access import require_thread_access
 from services.workspace_files.service import load_ready_files_context
 from services.workspace_files.thread_sources import load_source_state, log_source_state_error
 
@@ -134,6 +135,8 @@ async def stream_expert_opinion(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if normalized_provider is None:
         raise HTTPException(status_code=400, detail="provider_id is required")
+
+    await require_thread_access(org_id, thread_id, action="anchored_opinion")
 
     tid = str(thread_id)
     if anchor_message_id is not None and not list_thread_messages_until(tid, anchor_message_id):

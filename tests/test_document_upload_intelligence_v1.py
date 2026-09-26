@@ -608,6 +608,15 @@ async def test_initial_read_claim_is_idempotent(monkeypatch):
         async def refresh(self, row):
             return None
 
+        async def get(self, entity, ident, **kwargs):
+            from database.models import Thread
+            from services.workspace_files.thread_sources import parse_thread_uuid
+
+            src = parse_thread_uuid(getattr(self.row, "source_chat_id", None))
+            if entity is Thread and src is not None and ident == src:
+                return types.SimpleNamespace(id=src, org_id=self.row.org_id)
+            return None
+
     monkeypatch.setattr(
         "services.workspace_files.initial_read.get_db_session",
         lambda: _ClaimSession(wf),
@@ -764,6 +773,9 @@ async def test_initial_read_persists_grounded_chat_message(monkeypatch):
             persisted["pg_role"] = obj.role
             persisted["pg_content"] = obj.content
 
+        async def get(self, entity, ident, **kwargs):
+            return types.SimpleNamespace(id=ident, org_id=ORG_A)
+
         async def commit(self):
             persisted["pg_committed"] = True
 
@@ -868,6 +880,9 @@ async def test_initial_read_crash_then_recovery_persists_once(monkeypatch):
 
         def add(self, obj):
             return None
+
+        async def get(self, entity, ident, **kwargs):
+            return types.SimpleNamespace(id=ident, org_id=ORG_A)
 
         async def commit(self):
             return None

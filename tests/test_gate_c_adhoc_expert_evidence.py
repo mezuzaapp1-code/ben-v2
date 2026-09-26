@@ -66,6 +66,10 @@ def opinion_env(tmp_path, monkeypatch):
     monkeypatch.setenv("BEN_SYSTEM_DB_PATH", str(system_db))
     monkeypatch.setenv("BEN_THREADS_DATA_DIR", str(threads_dir))
     monkeypatch.setenv("ENFORCE_AUTH", "false")
+    monkeypatch.setattr(
+        "services.expert_opinion_service.require_thread_access",
+        AsyncMock(),
+    )
     init_global_service_schema()
     init_thread_store()
     return {"system_db": system_db, "threads_dir": threads_dir}
