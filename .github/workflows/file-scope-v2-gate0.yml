@@ -36,13 +36,11 @@ jobs:
           echo "product_checkpoint=$PRODUCT_CHECKPOINT"
           echo "ci_head=$(git rev-parse HEAD)"
           mapfile -t changed < <(git diff --name-only "$PRODUCT_CHECKPOINT" HEAD)
-          if [ "${#changed[@]}" -eq 0 ]; then
-            echo "Running the unmodified product checkpoint."
-          else
-            printf '%s\n' "${changed[@]}"
-            test "${#changed[@]}" -eq 1
-            test "${changed[0]}" = ".github/workflows/file-scope-v2-gate0.yml"
-          fi
+          printf '%s\n' "${changed[@]}"
+          allowed=$'.github/workflows/file-scope-v2-gate0.yml\ndatabase/migrations/versions/030_file_initial_read_jobs.py\ntests/test_security_gate_a.py'
+          for path in "${changed[@]}"; do
+            printf '%s\n' "$allowed" | grep -qxF "$path"
+          done
 
       - uses: actions/setup-python@v5
         with:

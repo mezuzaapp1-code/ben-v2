@@ -60,6 +60,16 @@ def upgrade() -> None:
     op.execute(f"GRANT USAGE ON SCHEMA {SCHEMA} TO {SYSTEM_ROLE}")
     op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON {SCHEMA}.{T} TO {SYSTEM_ROLE}")
     op.execute(f"GRANT SELECT, UPDATE ON {SCHEMA}.workspace_files TO {SYSTEM_ROLE}")
+    # 022 FORCE-RLS on workspace_files has only org isolation. Jobs already have a
+    # system policy so SECURITY DEFINER reapers work without app.current_org_id.
+    # sync_failed_file_initial_reads() is the same cross-org recovery path.
+    op.execute(
+        f"""
+        CREATE POLICY workspace_files_system ON {SCHEMA}.workspace_files
+        FOR ALL TO {SYSTEM_ROLE}
+        USING (true) WITH CHECK (true)
+        """
+    )
 
     # Extraction drains must never claim Initial Read jobs (LLM is a separate drain).
     op.execute(
@@ -382,6 +392,7 @@ def downgrade() -> None:
     (job_type filter is strictly narrower). Production policy is upgrade-only.
     """
     op.execute(f"GRANT {SYSTEM_ROLE} TO CURRENT_USER")
+    op.execute(f"DROP POLICY IF EXISTS workspace_files_system ON {SCHEMA}.workspace_files")
     op.execute(f"DROP FUNCTION IF EXISTS {SCHEMA}.{_SYNC_FAILED}()")
     op.execute(f"DROP FUNCTION IF EXISTS {SCHEMA}.{_REAP_IR}({_REAP_IR_ARGS})")
     op.execute(f"DROP FUNCTION IF EXISTS {SCHEMA}.{_CLAIM_IR_FILE}({_CLAIM_IR_FILE_ARGS})")

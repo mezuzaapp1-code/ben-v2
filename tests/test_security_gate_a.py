@@ -242,6 +242,12 @@ def test_two_unsigned_clients_do_not_share_persistent_pool():
 
 
 def test_health_and_ready_remain_public():
+    # TestClient uses a new event loop. Earlier pytest-asyncio/TestClient cases
+    # leave pool connections bound to a closed loop; forget them without closing
+    # on the dead loop so /health can ping on this client.
+    from database.connection import get_engine
+
+    get_engine().sync_engine.dispose()
     client = TestClient(main.app)
     health = client.get("/health")
     ready = client.get("/ready")
