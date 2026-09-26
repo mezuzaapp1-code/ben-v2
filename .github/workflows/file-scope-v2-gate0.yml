@@ -1,7 +1,7 @@
 name: File Scope V2 Gate 0 validation
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
   push:
     branches: [gate/file-scope-v2-gate0]
 
