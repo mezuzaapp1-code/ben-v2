@@ -1,0 +1,182 @@
+name: File Scope V2 Gate 0 validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [gate/file-scope-v2-gate0]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: file-scope-v2-gate0-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/gate/file-scope-v2-gate0'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PRODUCT_CHECKPOINT: 0668cb97e208d17b0dcf89dba430765940e055f9
+      BEN_TEST_PG_BIN: /usr/lib/postgresql/16/bin
+      BEN_TEST_PG_ROOT: ${{ runner.temp }}/gate0-pg
+      BEN_DB_CONNECT_TIMEOUT_S: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify product checkpoint lineage and CI-only diff
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+          git merge-base --is-ancestor "$PRODUCT_CHECKPOINT" HEAD
+          echo "product_checkpoint=$PRODUCT_CHECKPOINT"
+          echo "ci_head=$(git rev-parse HEAD)"
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_CHECKPOINT" HEAD)
+          if [ "${#changed[@]}" -eq 0 ]; then
+            echo "Running the unmodified product checkpoint."
+          else
+            printf '%s\n' "${changed[@]}"
+            test "${#changed[@]}" -eq 1
+            test "${changed[0]}" = ".github/workflows/file-scope-v2-gate0.yml"
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install PostgreSQL 16 binaries for the owned test cluster
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-16 postgresql-client-16
+          test -x "$BEN_TEST_PG_BIN/initdb"
+          test -x "$BEN_TEST_PG_BIN/pg_ctl"
+          test -x "$BEN_TEST_PG_BIN/psql"
+          "$BEN_TEST_PG_BIN/initdb" --version
+          mkdir -m 700 "$BEN_TEST_PG_ROOT"
+
+      - name: Install locked Python and frontend dependencies
+        run: |
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+          npm --prefix frontend ci
+          python --version
+          node --version
+
+      - name: Production frontend build
+        run: npm --prefix frontend run build
+
+      - name: Owned PostgreSQL 16 Gate 0 runner
+        run: |
+          set -o pipefail
+          python -m tests.run_file_scope_gate0_postgres | tee gate0-postgres.log
+
+      - name: Confirm four security RED/XFAIL fixtures remain visible
+        run: |
+          python -m pytest tests/test_file_scope_v2_gate0.py -q -rx --junitxml=gate0-security.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          required = {
+              "test_unresolved_private_project_is_not_authorized_by_tenant_alone",
+              "test_deleted_initial_read_is_not_replayed_as_ordinary_history",
+              "test_anchored_opinion_authorizes_before_sqlite_read",
+              "test_initial_read_authorizes_destination_before_history",
+          }
+          found = {}
+          for case in ET.parse("gate0-security.xml").findall(".//testcase"):
+              name = case.get("name", "")
+              if name not in required:
+                  continue
+              skipped = case.find("skipped")
+              failed = case.find("failure")
+              if skipped is not None:
+                  found[name] = "xfail"
+              elif failed is not None:
+                  found[name] = "fail"
+              else:
+                  found[name] = "pass"
+          missing = sorted(required - set(found))
+          if missing:
+              raise SystemExit(f"missing RED fixtures: {missing}")
+          unexpected = {name: state for name, state in found.items() if state != "xfail"}
+          if unexpected:
+              raise SystemExit(f"RED fixtures not xfailed: {unexpected}")
+          print("four_security_red_xfails_visible=YES")
+          PY
+
+      - name: Gate-0 backend and Project regression tests
+        run: |
+          set +e
+          python -m pytest -q -p no:cacheprovider -rx --junitxml=gate0-backend.xml \
+            tests/test_workspace_files_chat_context.py \
+            tests/test_current_turn_vision.py \
+            tests/test_chat_provider_routing.py \
+            tests/test_gate_c_adhoc_expert_evidence.py \
+            tests/test_provider_adapters.py \
+            tests/test_inference_accounting_pass1.py \
+            tests/test_large_paste_v1.py \
+            tests/test_disposable_postgres_safety.py
+          set -e
+          test -f gate0-backend.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          allowed_fail = {
+              "test_large_paste_does_not_touch_workspace_file_modules",
+          }
+          unexpected = []
+          skipped = []
+          failed_known = []
+          passed = 0
+          for case in ET.parse("gate0-backend.xml").findall(".//testcase"):
+              name = case.get("name")
+              if case.find("skipped") is not None:
+                  skipped.append(name)
+              elif case.find("failure") is not None or case.find("error") is not None:
+                  if name in allowed_fail:
+                      failed_known.append(name)
+                  else:
+                      unexpected.append(name)
+              else:
+                  passed += 1
+          print(f"backend_passed={passed}")
+          print(f"backend_known_fail={failed_known}")
+          if skipped:
+              raise SystemExit(f"unexpected skipped tests: {skipped}")
+          if unexpected:
+              raise SystemExit(f"unexpected failures: {unexpected}")
+          PY
+
+      - name: Existing Project and related frontend regressions
+        run: |
+          npm --prefix frontend run test:project-library
+          npm --prefix frontend run test:large-paste
+          npm --prefix frontend run test:clean-chat
+          npm --prefix frontend run test:chat-stream-ownership
+          npm --prefix frontend run test:draft-upload-source-state
+          npm --prefix frontend run test:grok-provider-menu
+          npm --prefix frontend run test:deepseek-provider-menu
+          npm --prefix frontend run test:astra-gpt-menu
+
+      - name: Preserve Gate 0 reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: file-scope-v2-gate0-${{ github.sha }}
+          path: |
+            gate0-postgres.log
+            gate0-security.xml
+            gate0-backend.xml
+          if-no-files-found: ignore
+          retention-days: 7
