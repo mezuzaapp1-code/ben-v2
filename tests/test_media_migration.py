@@ -23,8 +23,8 @@ ORG_A = uuid.UUID('11111111-1111-4111-8111-111111111111')
 ORG_B = uuid.UUID('22222222-2222-4222-8222-222222222222')
 
 
-def migration_sql(direction='upgrade'):
-    path = Path(__file__).resolve().parents[1] / 'database/migrations/versions/033_media_executions.py'
+def migration_sql(direction='upgrade', filename='033_media_executions.py'):
+    path = Path(__file__).resolve().parents[1] / 'database/migrations/versions' / filename
     spec = importlib.util.spec_from_file_location('media_migration', path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

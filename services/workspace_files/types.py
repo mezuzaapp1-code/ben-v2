@@ -28,6 +28,7 @@ REJECTED_EXTENSIONS = frozenset(
 
 # extension -> (media_type, processable)
 SUPPORTED_TYPES: dict[str, tuple[str, bool]] = {
+    ".wav": ("audio/wav", False),  # store only; composer validates PCM16/48k before use
     ".pdf": ("application/pdf", True),
     ".docx": (
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

@@ -34,6 +34,8 @@ jobs:
           python-version: '3.11'
       - name: Install repository requirements
         run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Install local composer
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Record environment
         run: |
           git rev-parse HEAD
@@ -59,6 +61,16 @@ jobs:
           assert len(cases) == 11, len(cases)
           assert all(not any(c.find(tag) is not None for tag in ('skipped', 'failure', 'error')) for c in cases)
           PY
+      - name: Narration replacement acceptance
+        run: python -m pytest tests/test_narration_replacement.py -v --junitxml=narration-results.xml
+      - name: Require all narration cases without skips
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases = ET.parse('narration-results.xml').findall('.//testcase')
+          assert len(cases) == 13, len(cases)
+          assert all(not any(c.find(tag) is not None for tag in ('skipped', 'failure', 'error')) for c in cases)
+          PY
       - name: Existing media and Direct Chat regressions
         run: >-
           python -m pytest tests/test_media_migration.py tests/test_media_repository.py
@@ -77,3 +89,4 @@ jobs:
             baseline-environment.txt
             attempt-results.xml
             regression-results.xml
+            narration-results.xml

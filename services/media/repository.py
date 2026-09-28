@@ -74,20 +74,21 @@ class MediaRepository:
             await self.destination(s, org, rows[0]["conversation_id"])
             return dict(rows[0])
 
-    async def claim(self, org, owner):
+    async def claim(self, org, owner, *, local=False):
         async with self.transaction(org) as s:
             row = (await s.execute(text("""SELECT * FROM ben.media_executions
                 WHERE org_id=:org AND state IN ('pending','submitting','submitted','running','ingesting','submission_unknown')
                 AND (((provider='google' AND model=:model OR provider='bfl' AND model=:bfl_model) AND operation='image_generation')
                      OR (provider='google' AND model=:veo_model AND operation='image_to_video')
-                     OR (provider='fal' AND model=:kling_model AND operation='image_to_video'))
+                     OR (provider='fal' AND model=:kling_model AND operation='image_to_video')
+                     OR (:local AND provider='local_composer' AND model='ffmpeg_stream_copy' AND operation='narration_replacement'))
                 AND next_reconcile_at <= now() AND (lease_expires_at IS NULL OR lease_expires_at < now())
                 ORDER BY next_reconcile_at FOR UPDATE SKIP LOCKED LIMIT 1"""),
-                {"org": org, "model": GEMINI_IMAGE_MODEL, "bfl_model": BFL_IMAGE_MODEL, "veo_model": VEO_VIDEO_MODEL, "kling_model": KLING_VIDEO_MODEL})).mappings().first()
+                {"local": local, "org": org, "model": GEMINI_IMAGE_MODEL, "bfl_model": BFL_IMAGE_MODEL, "veo_model": VEO_VIDEO_MODEL, "kling_model": KLING_VIDEO_MODEL})).mappings().first()
             if not row:
                 return None
             row = (await s.execute(text("""UPDATE ben.media_executions SET lease_owner=:owner,
-                lease_expires_at=now()+CASE WHEN provider='bfl' OR operation='image_to_video' THEN interval '2 minutes' ELSE interval '10 minutes' END,
+                lease_expires_at=now()+CASE WHEN provider='bfl' OR operation IN ('image_to_video','narration_replacement') THEN interval '2 minutes' ELSE interval '10 minutes' END,
                 version=version+1, updated_at=now()
                 WHERE execution_id=:id AND org_id=:org RETURNING *"""),
                 {"owner": owner, "id": row["execution_id"], "org": org})).mappings().one()
@@ -134,7 +135,7 @@ provider lifecycle methods remain unchanged. A lost commit reply is not retried.
                     or current["lease_owner"] != row["lease_owner"] or not current["lease_owner"]
                     or any(current[k] != row[k] for k in ("resource_id", "created_by", "request_fingerprint"))):
                 return None
-            if current["operation"] != "image_to_video" or stored.mime_type != "video/mp4":
+            if current["operation"] not in ("image_to_video", "narration_replacement") or stored.mime_type != "video/mp4":
                 raise ValueError("MP4 attempt requires video execution")
             resolve_attempt_key(current["org_id"], current["resource_id"],
                                 current["execution_id"], stored.storage_key)
@@ -151,6 +152,22 @@ provider lifecycle methods remain unchanged. A lost commit reply is not retried.
                 RETURNING *"""), {"id": current["execution_id"], "org": current["org_id"],
                 "version": row["version"], "owner": row["lease_owner"], "key": stored.storage_key,
                 "mime": stored.mime_type, "size": stored.byte_size, "checksum": stored.checksum})).mappings().first()
+            return dict(result) if result else None
+
+    async def local_transition(self, row, state):
+        """Keep ownership through local work; expired attempts cannot advance."""
+        if state not in ("running", "ingesting"):
+            raise ValueError("invalid local transition")
+        async with self.transaction(row["org_id"]) as s:
+            result = (await s.execute(text("""UPDATE ben.media_executions
+                SET state=:state, version=version+1, updated_at=clock_timestamp()
+                WHERE org_id=:org AND execution_id=:id AND version=:version
+                AND lease_owner=:owner AND lease_expires_at > clock_timestamp()
+                AND deadline_at > clock_timestamp() AND deleted_at IS NULL
+                AND operation='narration_replacement' AND provider='local_composer'
+                AND model='ffmpeg_stream_copy' AND state IN ('pending','running','ingesting')
+                RETURNING *"""), {"state": state, "org": row["org_id"], "id": row["execution_id"],
+                "version": row["version"], "owner": row["lease_owner"]})).mappings().first()
             return dict(result) if result else None
 
     async def mark_submitting(self, row):
