@@ -13,14 +13,18 @@ ACTIVE = ("pending", "submitting", "submitted", "running", "ingesting", "submiss
 class MediaRepository:
     def __init__(self, session_factory=None):
         if session_factory is None:
-            from database.connection import get_db_session
-            session_factory = get_db_session
+            from services.media.connection import get_media_session
+            session_factory = get_media_session
         self.sessions = session_factory
 
     @asynccontextmanager
     async def transaction(self, org):
         async with self.sessions() as session:
             async with session.begin():
+                bypass = await session.scalar(text(
+                    "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname=current_user"))
+                if bypass is not False:
+                    raise HTTPException(503, "Media database role unavailable")
                 await session.execute(text("SELECT set_config('app.current_org_id', :org, true)"),
                                       {"org": str(org)})
                 yield session

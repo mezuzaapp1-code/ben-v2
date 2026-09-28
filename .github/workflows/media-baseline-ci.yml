@@ -81,6 +81,16 @@ jobs:
           tests/test_chat_provider_routing.py tests/test_chat_provider_transparency.py
           tests/test_workspace_files_v1.py tests/test_workspace_files_durable_storage.py
           -q --junitxml=regression-results.xml
+      - name: Dedicated media database role gate
+        run: python -m pytest tests/test_media_connection.py -v --junitxml=media-connection-results.xml
+      - name: Require role gate without skips
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases = ET.parse('media-connection-results.xml').findall('.//testcase')
+          assert len(cases) == 5, len(cases)
+          assert all(not any(c.find(tag) is not None for tag in ('skipped', 'failure', 'error')) for c in cases)
+          PY
       - name: Narration API and authorization
         run: python -m pytest tests/test_narration_api.py -v --junitxml=narration-api-results.xml
       - name: Require all API cases without skips
@@ -102,3 +112,4 @@ jobs:
             regression-results.xml
             narration-results.xml
             narration-api-results.xml
+            media-connection-results.xml
