@@ -69,7 +69,7 @@ class MediaService:
         if (org, row["created_by"]) not in pilot_principals():
             await self.repo.change(row, state="failed", error_code="media_access_revoked")
             return True
-        if row["operation"] == "narration_replacement" and self.local_narration:
+        if self.local_narration and row.get("operation") == "narration_replacement":
             from services.media.narration import run_local
             await run_local(self, row)
             return True

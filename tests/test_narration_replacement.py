@@ -160,3 +160,21 @@ def test_real_composer_and_duration_guard():
     assert output != video
     with pytest.raises(ValueError, match="narration_longer_than_video"):
         preflight(video, wav(4), wav(4.01))
+
+
+@pytest.mark.asyncio
+async def test_local_lease_takeover_and_expired_transition(setup):
+    from services.media.narration import run_local
+    svc, admin, create, *_ = setup
+    created = await create()
+    alpha = await svc.repo.claim(ORG, "alpha", local=True)
+    alpha = await svc.repo.local_transition(alpha, "running")
+    assert await svc.repo.claim(ORG, "beta", local=True) is None
+    await admin.execute("UPDATE ben.media_executions SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE execution_id=$1", alpha["execution_id"])
+    assert await svc.repo.local_transition(alpha, "ingesting") is None
+    beta = await svc.repo.claim(ORG, "beta", local=True)
+    assert beta["version"] > alpha["version"]
+    assert await svc.repo.local_transition(alpha, "ingesting") is None
+    await run_local(svc, beta)
+    result = await svc.repo.read(ORG, "tester", execution=created["execution_id"])
+    assert result["state"] == "succeeded" and result["lease_owner"] is None

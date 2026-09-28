@@ -83,7 +83,7 @@ def compose(video, music, narration):
         output = root / "output.mp4"
         args = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-n"]
         for path in sources:
-            args += ["-i", str(path)]
+            args += ["-protocol_whitelist", "file,pipe", "-i", str(path)]
         _run(args + ["-filter_complex", graph, "-map", "0:v:0", "-map", "[a]",
                      "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
                      "-ac", "2", "-map_metadata", "-1", "-movflags", "+faststart", str(output)])
