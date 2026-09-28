@@ -3,6 +3,7 @@
 The PostgreSQL case uses the native disposable-database fixture. It terminates
 only the backend opened by this test, never an arbitrary database connection.
 """
+import asyncio
 import hashlib
 import uuid
 
@@ -41,8 +42,17 @@ async def test_real_disconnect_then_takeover_rejects_stale_owner(repository):
     with pytest.raises(DBAPIError):
         async with repo.transaction(ORG) as session:
             backend = await session.scalar(text("SELECT pg_backend_pid()"))
+            connection = await session.connection()
+            raw = await connection.get_raw_connection()
             assert backend != await admin.fetchval("SELECT pg_backend_pid()")
             assert await admin.fetchval("SELECT pg_terminate_backend($1)", backend)
+            # Termination is asynchronous: wait for driver closure, not lease expiry.
+            # Querying during protocol shutdown can yield InternalClientError.
+            for _ in range(200):
+                if raw.driver_connection.is_closed():
+                    break
+                await asyncio.sleep(0.01)
+            assert raw.driver_connection.is_closed(), "target backend did not disconnect"
             await session.execute(text("SELECT 1"))
     # Disconnect does not undo the lease committed by claim().
     assert await repo.claim(ORG, "local-proof-beta") is None
