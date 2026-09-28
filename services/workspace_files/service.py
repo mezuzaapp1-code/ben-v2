@@ -190,7 +190,7 @@ def _validate_upload_name(filename: str | None) -> tuple[str, str, str, bool]:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             f"Unsupported file type: {suffix or 'unknown'}. "
-            "Supported: PDF, DOCX, TXT, Markdown, CSV, XLSX, PPTX, common images.",
+            "Supported: PDF, DOCX, TXT, Markdown, CSV, XLSX, PPTX, WAV, common images.",
         )
     media_type, processable = SUPPORTED_TYPES[suffix]
     return display_name, storage_name, media_type, processable
@@ -230,7 +230,8 @@ async def upload_file(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
     # Gate 3B activation flag (fail-safe OFF -> synchronous, current production).
-    async_enabled = _doc_processing_enabled()
+    # WAVs are stored assets; they must never enter document extraction jobs.
+    async_enabled = _doc_processing_enabled() and media_type != "audio/wav"
 
     async with get_db_session() as session:
         await _set_org(session, org_id)

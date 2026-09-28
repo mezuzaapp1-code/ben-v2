@@ -109,6 +109,8 @@ from routers.news_product import router as news_product_router
 from routers.news_sources import router as news_sources_router
 from routers.projects import router as projects_router
 from routers.public_basalt import router as public_basalt_router
+from routers.media import router as media_router
+from services.media.service import media_worker
 
 
 
@@ -187,7 +189,8 @@ async def lifespan(app: FastAPI):
             outcome="error",
         )
 
-    yield
+    async with media_worker():
+        yield
 
 
 
@@ -196,6 +199,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 app.include_router(projects_router)
+app.include_router(media_router)
 app.include_router(workspace_files_router)
 app.include_router(workspace_files_project_router)
 app.include_router(document_processing_router)
