@@ -7,7 +7,28 @@ workspace_id=..., music_file_id=..., narration_file_id=...)`.
 Requires migration 034, the existing pilot principal allowlist, and an explicitly
 enabled `MediaService(local_narration=True)`. The background worker enables it
 only when `BEN_MEDIA_LOCAL_NARRATION_ENABLED=1`. Default is disabled. No public
-endpoint, timeline or paid provider is introduced.
+timeline or paid provider is introduced.
+
+The authenticated `POST /api/media/narration-replacements` accepts only UUID
+asset selectors, conversation/workspace IDs and an idempotency key. It returns
+202 with the existing public execution fields. Extra request fields are rejected.
+Its dependency checks the narration flag before constructing a media service;
+the existing tenant authentication and exact org/user pilot allowlist follow.
+Disabled/outside-pilot requests receive 404 with
+`{"detail":{"code":"MEDIA_UNAVAILABLE","message":"Media unavailable"}}`.
+No asset lookup, disk read or execution insert is performed on that path.
+
+`GET /api/media/executions/{execution_id}` retains its existing authorization and
+now declares a closed top-level Pydantic/OpenAPI response contract. Existing
+public provider/model/usage metadata is retained for compatibility. Internal
+paths, request payloads and leases are not response fields; resource_id is null
+until succeeded. Status reads never dispatch work and remain available to the
+existing authorized media pilot after narration admission is disabled.
+
+Admission emits ben.ops outcome/duration events using its existing request-id
+context. It never logs inputs, bytes, IDs of source files, paths or exceptions.
+There is no new telemetry backend or orphan collector. Environment configuration
+requires normal process restart; there is no remote dynamic kill switch.
 
 The video must be a ready BEN MP4 resource owned by the caller. WAVs use existing
 Workspace File Library IDs, with org/project scope and uploader identity checked

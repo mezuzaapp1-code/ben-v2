@@ -1,12 +1,15 @@
 """Internal-only media routes. Polling reads BEN state and never submits work."""
 import uuid
+import time
 from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from services.media.access import require_pilot, enabled_image_models, enabled_video_models
+from services.media.access import require_pilot, require_narration_pilot, enabled_image_models, enabled_video_models
+from services.media.narration import create_narration
+from services.ops.structured_log import log_info
 from services.media.contracts import GEMINI_IMAGE_MODEL, KLING_VIDEO_MODEL, ImageRequest, VideoRequest, MediaProviderError
 from services.media.service import MediaService, public_execution
 from routers.creative_lab import router as creative_lab_router, lab_enabled
@@ -17,6 +20,69 @@ router.include_router(creative_lab_router)
 
 def media_service():
     return MediaService()
+
+
+def narration_service(identity=Depends(require_narration_pilot)):
+    return MediaService(local_narration=True)
+
+
+class ExecutionResponse(BaseModel):
+    """Closed top-level contract retaining existing public client metadata."""
+    model_config = ConfigDict(extra="forbid")
+    execution_id: uuid.UUID
+    status: Literal["pending", "submitting", "submitted", "running", "ingesting",
+                    "succeeded", "submission_unknown", "failed", "expired"]
+    resource_id: uuid.UUID | None
+    error_code: str | None
+    provider: str
+    model: str
+    created_at: datetime
+    mime_type: str | None
+    operation: str
+    training_status: Literal["not_approved"]
+    usage: dict
+    estimated_cost: str | None
+    pricing_version: str | None
+    actual_charge: None = None
+
+    @model_validator(mode="after")
+    def hide_unfinished_resource(self):
+        if self.status != "succeeded":
+            self.resource_id = None
+        return self
+
+
+class ReplaceNarration(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    conversation_id: uuid.UUID
+    idempotency_key: str = Field(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
+    video_resource_id: uuid.UUID
+    workspace_id: uuid.UUID
+    music_file_id: uuid.UUID
+    narration_file_id: uuid.UUID
+
+
+@router.post("/narration-replacements", status_code=202, response_model=ExecutionResponse)
+async def replace_narration(body: ReplaceNarration, identity=Depends(require_narration_pilot),
+                            service=Depends(narration_service)):
+    started, outcome = time.monotonic(), "failed"
+    try:
+        row = await create_narration(service, *identity, body.idempotency_key,
+            body.conversation_id, video_resource_id=body.video_resource_id,
+            workspace_id=body.workspace_id, music_file_id=body.music_file_id,
+            narration_file_id=body.narration_file_id)
+        outcome = "accepted"
+        return public_execution(row)
+    except ValueError:
+        outcome = "rejected"
+        raise HTTPException(422, detail={"code": "INVALID_NARRATION_INPUT",
+                                        "message": "Invalid narration inputs"}) from None
+    except HTTPException:
+        outcome = "rejected"
+        raise
+    finally:
+        log_info("Narration admission", subsystem="media", operation="narration_admission",
+                 outcome=outcome, duration_ms=int((time.monotonic()-started)*1000))
 
 
 class GenerateImage(BaseModel):
@@ -90,7 +156,7 @@ async def executions(conversation_id: uuid.UUID, identity=Depends(require_pilot)
     return {"executions": [public_execution(r) for r in rows]}
 
 
-@router.get("/executions/{execution_id}")
+@router.get("/executions/{execution_id}", response_model=ExecutionResponse)
 async def execution(execution_id: uuid.UUID, identity=Depends(require_pilot), service=Depends(media_service)):
     return public_execution(await service.repo.read(*identity, execution=execution_id))
 

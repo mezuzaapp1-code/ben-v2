@@ -6,7 +6,7 @@ import uuid
 from fastapi import HTTPException
 from sqlalchemy import text
 
-from services.media.access import pilot_principals
+from services.media.access import pilot_principals, media_unavailable
 from services.media.local_composer import MAX_AUDIO_BYTES, PROFILE, compose, preflight, wav_duration
 from services.media.metadata import request_fingerprint
 from services.workspace_files.storage import files_root, sanitize_filename
@@ -65,7 +65,7 @@ async def load_sources(service, org, user, refs):
 async def create_narration(service, org, user, key, conversation, *, video_resource_id,
                            workspace_id, music_file_id, narration_file_id):
     if not service.local_narration or (org, user) not in pilot_principals():
-        raise HTTPException(404, "Local narration unavailable")
+        raise media_unavailable()
     source = await service.repo.read(org, user, resource=uuid.UUID(str(video_resource_id)))
     if source["state"] != "succeeded" or source["mime_type"] != "video/mp4":
         raise HTTPException(422, "Ready BEN video required")

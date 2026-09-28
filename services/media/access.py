@@ -33,6 +33,22 @@ async def require_pilot(request: Request):
     return org, user
 
 
+def media_unavailable():
+    return HTTPException(404, detail={"code": "MEDIA_UNAVAILABLE", "message": "Media unavailable"})
+
+
+async def require_narration_pilot(request: Request):
+    # Check before authentication dependencies can reach asset/service factories.
+    if os.getenv("BEN_MEDIA_LOCAL_NARRATION_ENABLED") != "1":
+        raise media_unavailable()
+    try:
+        return await require_pilot(request)
+    except HTTPException as exc:
+        if exc.status_code in (401, 403, 404):
+            raise media_unavailable() from None
+        raise
+
+
 def enabled_video_models():
     return ([VEO_VIDEO_MODEL] if os.getenv("BEN_MEDIA_VEO_ENABLED") == "1" else []) + (
         [KLING_VIDEO_MODEL] if os.getenv("BEN_MEDIA_KLING_ENABLED") == "1" else [])

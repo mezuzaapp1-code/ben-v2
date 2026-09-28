@@ -81,6 +81,16 @@ jobs:
           tests/test_chat_provider_routing.py tests/test_chat_provider_transparency.py
           tests/test_workspace_files_v1.py tests/test_workspace_files_durable_storage.py
           -q --junitxml=regression-results.xml
+      - name: Narration API and authorization
+        run: python -m pytest tests/test_narration_api.py -v --junitxml=narration-api-results.xml
+      - name: Require all API cases without skips
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases = ET.parse('narration-api-results.xml').findall('.//testcase')
+          assert len(cases) == 11, len(cases)
+          assert all(not any(c.find(tag) is not None for tag in ('skipped', 'failure', 'error')) for c in cases)
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -91,3 +101,4 @@ jobs:
             attempt-results.xml
             regression-results.xml
             narration-results.xml
+            narration-api-results.xml
