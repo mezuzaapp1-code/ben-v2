@@ -118,6 +118,41 @@ class MediaRepository:
                 RETURNING *"""), params)).mappings().first()
             return dict(result) if result else None
 
+    async def complete_attempt(self, row, stored):
+        """Choose already durable bytes. No filesystem I/O under the row lock.
+
+Only the new internal attempt path uses this stricter publication gate. Existing
+provider lifecycle methods remain unchanged. A lost commit reply is not retried.
+        """
+        from services.media.attempt_storage import resolve_attempt_key
+        async with self.transaction(row["org_id"]) as s:
+            current = (await s.execute(text("""SELECT * FROM ben.media_executions
+                WHERE org_id=:org AND execution_id=:id FOR UPDATE"""),
+                {"org": row["org_id"], "id": row["execution_id"]})).mappings().first()
+            if (not current or current["state"] != "ingesting" or current["deleted_at"] is not None
+                    or current["version"] != row["version"]
+                    or current["lease_owner"] != row["lease_owner"] or not current["lease_owner"]
+                    or any(current[k] != row[k] for k in ("resource_id", "created_by", "request_fingerprint"))):
+                return None
+            if current["operation"] != "image_to_video" or stored.mime_type != "video/mp4":
+                raise ValueError("MP4 attempt requires video execution")
+            resolve_attempt_key(current["org_id"], current["resource_id"],
+                                current["execution_id"], stored.storage_key)
+            await self.destination(s, current["org_id"], current["conversation_id"])
+            # Check wall clock AFTER acquiring row and destination locks.
+            result = (await s.execute(text("""UPDATE ben.media_executions SET
+                state='succeeded',version=version+1,storage_key=:key,mime_type=:mime,
+                byte_size=:size,checksum=:checksum,published_at=clock_timestamp(),
+                updated_at=clock_timestamp(),lease_owner=NULL,lease_expires_at=NULL,
+                ingest_attempts=ingest_attempts+1,error_code=NULL
+                WHERE execution_id=:id AND org_id=:org AND version=:version
+                AND lease_owner=:owner AND state='ingesting'
+                AND lease_expires_at > clock_timestamp() AND deadline_at > clock_timestamp()
+                RETURNING *"""), {"id": current["execution_id"], "org": current["org_id"],
+                "version": row["version"], "owner": row["lease_owner"], "key": stored.storage_key,
+                "mime": stored.mime_type, "size": stored.byte_size, "checksum": stored.checksum})).mappings().first()
+            return dict(result) if result else None
+
     async def mark_submitting(self, row):
         # Keep lease through the sole external submission; commit BEFORE network I/O.
         async with self.transaction(row["org_id"]) as s:

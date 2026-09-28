@@ -67,9 +67,14 @@ def inspect_mp4(data, *, aspect_ratio="16:9", duration_seconds=4):
     raise ValueError("invalid media video")
 
 
-def ingest_mp4(data, *, org_id, resource_id, aspect_ratio="16:9", duration_seconds=4):
+def ingest_mp4(data, *, org_id, resource_id, aspect_ratio="16:9", duration_seconds=4,
+               execution_id=None, attempt_id=None):
     width, height, duration, audio = inspect_mp4(data, aspect_ratio=aspect_ratio, duration_seconds=duration_seconds)
-    key, dest = video_path(org_id, resource_id)
+    if execution_id is None and attempt_id is None:
+        key, dest = video_path(org_id, resource_id)
+    else:
+        from services.media.attempt_storage import attempt_path
+        key, dest = attempt_path(org_id, resource_id, execution_id, attempt_id)
     try:
         stored = publish_bytes(data, key, dest, width, height, "video/mp4")
     except DurableStorageUnavailable:

@@ -245,6 +245,35 @@ class MediaService:
                 next_reconcile_at=now + timedelta(seconds=10))
             return None
 
+    async def publish_video_attempt(self, row, data, *, attempt_id):
+        """Internal opt-in boundary; no provider dispatch, admission or new worker.
+
+On publication error the immutable file remains. The caller must resolve the
+execution through read_video_attempt_outcome before deciding further action.
+        """
+        current = await self.repo.read(row["org_id"], row["created_by"], execution=row["execution_id"])
+        if (current["state"] != "ingesting" or current["operation"] != "image_to_video"
+                or any(current[k] != row[k] for k in ("version", "lease_owner", "request_fingerprint", "resource_id"))):
+            return None
+        params = current["request_payload"]["parameters"]
+        stored = await asyncio.to_thread(ingest_mp4, data, org_id=current["org_id"],
+            resource_id=current["resource_id"], execution_id=current["execution_id"], attempt_id=attempt_id,
+            aspect_ratio=params["aspect_ratio"], duration_seconds=params["duration_seconds"])
+        # ingest_mp4 already reloads/checks persisted bytes. DB selects that exact receipt.
+        return await self.repo.complete_attempt(row, stored)
+
+    async def read_video_attempt_outcome(self, org, user, execution):
+        """Fresh authoritative read after uncertain commit; never claims or renders.
+
+None means not currently succeeded, NOT proof of a failed transaction. A caller
+must retain the file and respect ownership; no orphan adoption occurs here.
+        """
+        row = await self.repo.read(org, user, execution=execution)
+        if row["state"] != "succeeded":
+            return None
+        data = await self.resource_bytes(org, user, row["resource_id"])
+        return row, data
+
     async def resource_bytes(self, org, user, resource):
         row = await self.repo.read(org, user, resource=resource)
         if row["state"] != "succeeded":
@@ -252,7 +281,13 @@ class MediaService:
         video = row["mime_type"] == "video/mp4"
         key, path = (video_path if video else image_path)(org, row["resource_id"])
         if key != row["storage_key"]:
-            raise HTTPException(503, "Media unavailable")
+            from services.media.attempt_storage import resolve_attempt_key
+            try:
+                if not video or row["operation"] != "image_to_video":
+                    raise ValueError("invalid attempt media type")
+                path = resolve_attempt_key(org, row["resource_id"], row["execution_id"], row["storage_key"])
+            except ValueError:
+                raise HTTPException(503, "Media unavailable") from None
         def read():
             with path.open("rb") as handle:
                 return handle.read((MAX_VIDEO_BYTES if video else MAX_IMAGE_BYTES) + 1)

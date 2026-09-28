@@ -49,6 +49,25 @@ jobs:
           assert len(cases) == 2, len(cases)
           assert all(not any(c.find(tag) is not None for tag in ('skipped', 'failure', 'error')) for c in cases)
           PY
+      - name: Attempt isolation fault injection
+        run: python -m pytest tests/test_media_attempt_isolation.py -v --junitxml=attempt-results.xml
+      - name: Require all attempt cases without skips
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases = ET.parse('attempt-results.xml').findall('.//testcase')
+          assert len(cases) == 11, len(cases)
+          assert all(not any(c.find(tag) is not None for tag in ('skipped', 'failure', 'error')) for c in cases)
+          PY
+      - name: Existing media and Direct Chat regressions
+        run: >-
+          python -m pytest tests/test_media_migration.py tests/test_media_repository.py
+          tests/test_media_image_foundation.py tests/test_media_vertical_slice.py
+          tests/test_bfl_media.py tests/test_bfl_repository.py
+          tests/test_veo_media.py tests/test_veo_repository.py
+          tests/test_kling_media.py tests/test_kling_repository.py
+          tests/test_chat_provider_routing.py tests/test_chat_provider_transparency.py
+          -q --junitxml=regression-results.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -56,3 +75,5 @@ jobs:
           path: |
             baseline-results.xml
             baseline-environment.txt
+            attempt-results.xml
+            regression-results.xml
