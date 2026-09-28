@@ -61,3 +61,22 @@ Acceptance uses real synthetic MP4/WAV bytes, FFmpeg and PostgreSQL under a
 restricted non-BYPASSRLS role. Migration 034 and Workspace File migration 022
 are loaded from their actual Alembic files. The Project fixture supplies its
 existing id/org boundary; this is not a full File Library upload API test.
+
+## Dedicated runtime database role
+
+Media uses BEN_MEDIA_DATABASE_URL exclusively, with no fallback to the global
+DATABASE_URL. Keep the pilot disabled until this separate credential is installed.
+Every media transaction rejects superuser/BYPASSRLS roles before setting tenant
+context or accessing assets. The shared application database connection is unchanged.
+
+Provision a dedicated LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE
+NOREPLICATION NOINHERIT role with a generated secret delivered through the host's
+secret configuration (never source control or logs). Grant USAGE on schema ben;
+SELECT, INSERT, UPDATE on ben.media_executions; SELECT on ben.workspace_files,
+ben.projects, and ben.threads; UPDATE(id) on ben.threads for FOR KEY SHARE.
+Do not grant table ownership or membership in privileged roles.
+The production schema must retain its media FORCE ROW LEVEL SECURITY policy.
+
+Configuration changes require process restart. Disable BEN_MEDIA_LOCAL_NARRATION_ENABLED
+and BEN_MEDIA_INTERNAL_ENABLED and restart to close the pilot; do not delete stored
+outputs or credentials to stop admission. No production pilot is enabled by CI.
