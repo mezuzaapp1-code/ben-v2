@@ -36,6 +36,18 @@ jobs:
         run: python -m pip install -r requirements.txt -r requirements-dev.txt
       - name: Install local composer
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build and test narration interface
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run test:media
+          npm run test:narration
+          npm run build
+      - name: Narration capability gate
+        run: python -m pytest tests/test_narration_capabilities.py -q
       - name: Record environment
         run: |
           git rev-parse HEAD

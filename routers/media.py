@@ -1,5 +1,6 @@
 """Internal-only media routes. Polling reads BEN state and never submits work."""
 import uuid
+import os
 import time
 from datetime import datetime, timezone
 from typing import Literal
@@ -128,6 +129,7 @@ async def evaluate(execution_id: uuid.UUID, body: Evaluation, identity=Depends(r
 @router.get("/capabilities")
 async def capabilities(identity=Depends(require_pilot)):
     return {"image": True, "models": enabled_image_models(), "internal_only": True,
+            "narration_replacement": os.getenv("BEN_MEDIA_LOCAL_NARRATION_ENABLED") == "1",
             "creative_lab": lab_enabled(),
             "aspect_ratios": ["1:1", "16:9", "9:16"], "image_size": "1K",
             "video_models": enabled_video_models(), "video": bool(enabled_video_models()),

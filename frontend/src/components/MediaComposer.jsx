@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import CreativeEditLab from './CreativeEditLab.jsx'
+import NarrationPanel from './NarrationPanel.jsx'
 import { ComposerCapsule } from './ComposerCapsule.jsx'
 import { clearPendingMedia, mediaRequest, mediaTerminal, pendingMedia } from '../api/media.js'
 
@@ -28,12 +29,13 @@ function MediaImage({ resourceId, buildHeaders, mimeType }) {
     <a href={url} download="ben-video.mp4">Download video</a>
   </div>
   return url ? <a href={url} download="ben-image.png"><img src={url} alt="BEN generated image" style={{ maxWidth: '100%', maxHeight: 360 }} /></a>
-    : <p>{error ? 'Image unavailable. Reopen to retry.' : 'Loading image…'}</p>
+    : <p>{error ? 'Image unavailable. Reopen to retry.' : 'Loading imageâ€¦'}</p>
 }
 
 /** Text child is the unchanged BEN composer; media has its own explicit path. */
 export default function MediaComposer({ children, conversationId, scope, buildHeaders, ensureConversation, disabled, workspaceId }) {
   const [labEnabled, setLabEnabled] = useState(false)
+  const [narrationEnabled, setNarrationEnabled] = useState(false)
   const [labOpen, setLabOpen] = useState(false)
   const [enabled, setEnabled] = useState(false)
   const [models, setModels] = useState(['gemini-3.1-flash-image'])
@@ -61,6 +63,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
         const caps = await mediaRequest('/capabilities', await buildHeaders(), { signal: controller.signal })
         if (!controller.signal.aborted) {
           setLabEnabled(caps.creative_lab === true)
+          setNarrationEnabled(caps.narration_replacement === true)
           setEnabled(caps.image === true)
           setModels(caps.models)
           setVideoModels(caps.video_models || [])
@@ -122,28 +125,32 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
     </div>}
     <div aria-label="Composer mode">
       <button type="button" disabled={busy} aria-pressed={mode === 'text'} onClick={() => setMode('text')}>Text</button>
-      <button type="button" disabled={busy} aria-pressed={mode === 'image'} onClick={() => setMode('image')}>Image · internal</button>
-      {videoModels.length > 0 && <button type="button" disabled={busy} aria-pressed={mode === 'video'} onClick={() => setMode('video')}>Video � internal</button>}
+      {narrationEnabled && <button type="button" disabled={busy} aria-pressed={mode === 'narration'} onClick={() => setMode('narration')}>Replace narration</button>}
+      <button type="button" disabled={busy} aria-pressed={mode === 'image'} onClick={() => setMode('image')}>Image Â· internal</button>
+      {videoModels.length > 0 && <button type="button" disabled={busy} aria-pressed={mode === 'video'} onClick={() => setMode('video')}>Video · internal</button>}
     </div>
     {rows.length > 0 && <section aria-label="Conversation media" aria-live="polite">
       {rows.map(row => <article key={row.execution_id}>
-        <p>{row.provider} · {row.model} · {row.status.replaceAll('_', ' ')}</p>
+        <p>{row.provider} Â· {row.model} Â· {row.status.replaceAll('_', ' ')}</p>
         {row.status === 'submission_unknown' && <p>Provider outcome unknown. BEN will not resubmit.</p>}
         {row.error_code && <p>{row.error_code.replaceAll('_', ' ')}</p>}
         {row.resource_id && <MediaImage resourceId={row.resource_id} buildHeaders={buildHeaders} mimeType={row.mime_type} />}
       </article>)}
     </section>}
-    {mode === 'text' ? children : <>
+    {mode === 'text' ? children : mode === 'narration' ? <NarrationPanel
+      key={`${scope}:${workspaceId}:${conversationId}`} scope={`${scope}:${conversationId || 'new'}`}
+      workspaceId={workspaceId} rows={rows} buildHeaders={buildHeaders} ensureConversation={ensureConversation}
+      disabled={disabled} onAccepted={() => setRefresh(value => value + 1)} /> : <>
       {mode === 'video' ? <>
         <label>Video engine <select value={videoChoice} disabled={busy} onChange={e => setVideoModel(e.target.value)}>
           {videoModels.map(value => <option key={value} value={value}>{value === 'veo-3.1-fast-generate-preview' ? 'Google Veo 3.1 Fast' : 'Kling O3 Standard via fal'}</option>)}
         </select></label>
-        <p>{videoSettings.duration_seconds} seconds � {videoSettings.resolution} � audio {videoSettings.audio}</p>
+        <p>{videoSettings.duration_seconds} seconds · {videoSettings.resolution} · audio {videoSettings.audio}</p>
         {videoSettings.source_aspect_ratio_required && <p>Choose an image matching the selected aspect ratio, at least 300 pixels on each side.</p>}
         <label>First frame <select value={sourceId} disabled={busy} onChange={e => setSourceId(e.target.value)}>
           <option value="">Choose a BEN image</option>
           {rows.filter(row => row.resource_id && row.mime_type === 'image/png').map(row =>
-            <option key={row.resource_id} value={row.resource_id}>{row.model} � {row.created_at}</option>)}
+            <option key={row.resource_id} value={row.resource_id}>{row.model} · {row.created_at}</option>)}
         </select></label>
         <label>Aspect ratio <select value={videoRatio} disabled={busy} onChange={e => setVideoRatio(e.target.value)}>
           {['16:9', '9:16'].map(value => <option key={value}>{value}</option>)}
