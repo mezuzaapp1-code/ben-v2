@@ -53,6 +53,16 @@ jobs:
           git rev-parse HEAD
           python --version
           python -m pip freeze > baseline-environment.txt
+      - name: Mobile conversion and corruption acceptance
+        run: python -m pytest tests/test_mobile_video.py -v --junitxml=mobile-results.xml
+      - name: Require mobile acceptance without skips
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases = ET.parse('mobile-results.xml').findall('.//testcase')
+          assert len(cases) == 11, len(cases)
+          assert all(not any(c.find(tag) is not None for tag in ('skipped', 'failure', 'error')) for c in cases)
+          PY
       - name: Run real MP4 and PostgreSQL disconnect baseline
         run: python -m pytest tests/test_local_publication_baseline.py -v --junitxml=baseline-results.xml
       - name: Require both tests without skips
@@ -125,3 +135,4 @@ jobs:
             narration-results.xml
             narration-api-results.xml
             media-connection-results.xml
+            mobile-results.xml

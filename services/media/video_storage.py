@@ -20,7 +20,14 @@ def video_path(org_id, resource_id):
     return media_path(org_id, resource_id, extension="mp4")
 
 
-def inspect_mp4(data, *, aspect_ratio="16:9", duration_seconds=4):
+def inspect_mp4(data, *, aspect_ratio="16:9", duration_seconds=4, profile="legacy"):
+    # Extended decode budget is opt-in; provider validation stays unchanged.
+    if profile not in ("legacy", "mobile-v1"):
+        raise ValueError("unsupported validation profile")
+    if profile == "mobile-v1" and not 0 < duration_seconds <= 30:
+        raise ValueError("invalid mobile duration")
+    frame_limit = 902 if profile == "mobile-v1" else 240
+    audio_limit = 1500 if profile == "mobile-v1" else 1000
     if not data or len(data) > MAX_VIDEO_BYTES or data[4:8] != b"ftyp":
         raise ValueError("invalid media video")
     started = time.monotonic()
@@ -54,7 +61,7 @@ def inspect_mp4(data, *, aspect_ratio="16:9", duration_seconds=4):
                     last_time = frame.time
                 else:
                     audio_frames += 1
-                if frames > 240 or audio_frames > 1000 or time.monotonic() - started > 30:
+                if frames > frame_limit or audio_frames > audio_limit or time.monotonic() - started > 30:
                     raise ValueError("media decode limit")
             if frames < 1 or last_time is None or last_time < duration - 0.15:
                 raise ValueError("truncated media video")
@@ -68,8 +75,9 @@ def inspect_mp4(data, *, aspect_ratio="16:9", duration_seconds=4):
 
 
 def ingest_mp4(data, *, org_id, resource_id, aspect_ratio="16:9", duration_seconds=4,
-               execution_id=None, attempt_id=None):
-    width, height, duration, audio = inspect_mp4(data, aspect_ratio=aspect_ratio, duration_seconds=duration_seconds)
+               execution_id=None, attempt_id=None, profile="legacy"):
+    width, height, duration, audio = inspect_mp4(data, aspect_ratio=aspect_ratio,
+        duration_seconds=duration_seconds, profile=profile)
     if execution_id is None and attempt_id is None:
         key, dest = video_path(org_id, resource_id)
     else:
