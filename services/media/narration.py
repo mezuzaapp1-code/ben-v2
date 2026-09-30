@@ -82,7 +82,8 @@ async def create_narration(service, org, user, key, conversation, *, video_resou
     snapshot = {"normalization_version": "narration-v1", "provider": "local_composer",
         "model": "ffmpeg_stream_copy", "operation": "narration_replacement", "prompt": "",
         "parameters": {"mix": dict(PROFILE), "aspect_ratio": params["aspect_ratio"],
-                       "duration_seconds": float(duration), "validation_profile": params.get("validation_profile", "legacy")},
+                       "duration_seconds": float(duration),
+                       **({"validation_profile": params["validation_profile"]} if "validation_profile" in params else {})},
         "destination": {"conversation_id": str(conversation), "workspace_id": str(workspace_id)},
         "input_resource_refs": refs, "experiment_id": None}
     return await service.repo.create(org, user, key, snapshot, request_fingerprint(snapshot))
