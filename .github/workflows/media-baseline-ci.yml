@@ -45,6 +45,7 @@ jobs:
           npm ci --no-audit --no-fund
           npm run test:media
           npm run test:narration
+          node scripts/test-mobile-upload.mjs
           npm run build
       - name: Narration capability gate
         run: python -m pytest tests/test_narration_capabilities.py -q
@@ -55,6 +56,16 @@ jobs:
           python -m pip freeze > baseline-environment.txt
       - name: Mobile conversion and corruption acceptance
         run: python -m pytest tests/test_mobile_video.py -v --junitxml=mobile-results.xml
+      - name: Mobile upload worker and authorized delivery
+        run: python -m pytest tests/test_mobile_import.py -v --junitxml=mobile-import-results.xml
+      - name: Require import integration without skips
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases = ET.parse('mobile-import-results.xml').findall('.//testcase')
+          assert len(cases) == 8, len(cases)
+          assert all(not any(c.find(tag) is not None for tag in ('skipped', 'failure', 'error')) for c in cases)
+          PY
       - name: Require mobile acceptance without skips
         run: |
           python - <<'PY'
@@ -136,3 +147,4 @@ jobs:
             narration-api-results.xml
             media-connection-results.xml
             mobile-results.xml
+            mobile-import-results.xml

@@ -38,8 +38,9 @@ def public_execution(row):
 
 
 class MediaService:
-    def __init__(self, repository=None, adapter=None, bfl_adapter=None, veo_adapter=None, kling_adapter=None, *, local_narration=False):
+    def __init__(self, repository=None, adapter=None, bfl_adapter=None, veo_adapter=None, kling_adapter=None, *, local_narration=False, mobile_import=False):
         self.local_narration = local_narration
+        self.mobile_import = mobile_import
         self.repo = repository or MediaRepository()
         self.adapter = adapter or GeminiImageAdapter(os.getenv("GOOGLE_API_KEY", ""))
         self.bfl_adapter = bfl_adapter or BflImageAdapter(os.getenv("BFL_API_KEY", ""))
@@ -59,7 +60,10 @@ class MediaService:
         return await self.repo.create(org, user, key, snapshot, request_fingerprint(snapshot))
 
     async def tick(self, org):
-        row = await self.repo.claim(org, uuid.uuid4().hex, local=True) if self.local_narration else await self.repo.claim(org, uuid.uuid4().hex)
+        if self.mobile_import:
+            row = await self.repo.claim(org, uuid.uuid4().hex, local=self.local_narration, mobile=True)
+        else:
+            row = await self.repo.claim(org, uuid.uuid4().hex, local=True) if self.local_narration else await self.repo.claim(org, uuid.uuid4().hex)
         if not row:
             return False
         now = datetime.now(timezone.utc)
@@ -68,6 +72,10 @@ class MediaService:
             return True
         if (org, row["created_by"]) not in pilot_principals():
             await self.repo.change(row, state="failed", error_code="media_access_revoked")
+            return True
+        if self.mobile_import and row.get("operation") == "video_import":
+            from services.media.mobile_import import run_import
+            await run_import(self, row)
             return True
         if self.local_narration and row.get("operation") == "narration_replacement":
             from services.media.narration import run_local
@@ -257,13 +265,14 @@ On publication error the immutable file remains. The caller must resolve the
 execution through read_video_attempt_outcome before deciding further action.
         """
         current = await self.repo.read(row["org_id"], row["created_by"], execution=row["execution_id"])
-        if (current["state"] != "ingesting" or current["operation"] not in ("image_to_video", "narration_replacement")
+        if (current["state"] != "ingesting" or current["operation"] not in ("image_to_video", "narration_replacement", "video_import")
                 or any(current[k] != row[k] for k in ("version", "lease_owner", "request_fingerprint", "resource_id"))):
             return None
         params = current["request_payload"]["parameters"]
         stored = await asyncio.to_thread(ingest_mp4, data, org_id=current["org_id"],
             resource_id=current["resource_id"], execution_id=current["execution_id"], attempt_id=attempt_id,
-            aspect_ratio=params["aspect_ratio"], duration_seconds=params["duration_seconds"])
+            aspect_ratio=params["aspect_ratio"], duration_seconds=params["duration_seconds"],
+            profile=params.get("validation_profile", "legacy"))
         # ingest_mp4 already reloads/checks persisted bytes. DB selects that exact receipt.
         return await self.repo.complete_attempt(row, stored)
 
@@ -288,7 +297,7 @@ must retain the file and respect ownership; no orphan adoption occurs here.
         if key != row["storage_key"]:
             from services.media.attempt_storage import resolve_attempt_key
             try:
-                if not video or row["operation"] not in ("image_to_video", "narration_replacement"):
+                if not video or row["operation"] not in ("image_to_video", "narration_replacement", "video_import"):
                     raise ValueError("invalid attempt media type")
                 path = resolve_attempt_key(org, row["resource_id"], row["execution_id"], row["storage_key"])
             except ValueError:
@@ -310,7 +319,8 @@ must retain the file and respect ownership; no orphan adoption occurs here.
 @asynccontextmanager
 async def media_worker():
     async def run():
-        service = MediaService(local_narration=os.getenv("BEN_MEDIA_LOCAL_NARRATION_ENABLED") == "1")
+        service = MediaService(local_narration=os.getenv("BEN_MEDIA_LOCAL_NARRATION_ENABLED") == "1",
+            mobile_import=os.getenv("BEN_MEDIA_MOBILE_IMPORT_ENABLED") == "1")
         while True:
             for org in sorted({org for org, _ in pilot_principals()}, key=str):
                 try:

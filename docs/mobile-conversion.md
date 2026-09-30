@@ -1,7 +1,6 @@
 # Local mobile conversion component
 
-This slice adds a local converter, not an upload endpoint or a deployed import
-worker. Existing provider paths retain the legacy 240-frame validator budget.
+This slice adds a default-off upload endpoint and local import worker. Existing provider paths retain the legacy 240-frame validator budget.
 The opt-in mobile-v1 validation profile accepts up to 30 seconds and 902 decoded
 video frames, with the existing byte, stream, dimension and decode-time checks.
 
@@ -23,13 +22,30 @@ These controls are not OS CPU or memory quotas. All scratch files are private
 to a temporary directory; only that directory is cleaned up. No DB publication,
 source deletion, paid provider or network media retrieval occurs here.
 
-MobileVideoError exposes sanitized code/status/detail for future route mapping.
-No HTTP endpoint currently exposes these new errors. Tests exercise real codecs,
+MobileVideoError exposes sanitized code/status/detail through POST /api/media/video-imports.
+The authenticated endpoint accepts a raw bounded body, with conversation_id, workspace_id
+and idempotency_key query parameters; no arbitrary source path or URL is accepted. Tests exercise real codecs,
 HDR synthetic conversion, rotation and audio, corrupt input/output rejection,
 extended validator budget, early duration/size rejection, busy and timeout cases.
 Metadata and successful decoding do not prove perceptual color or speech quality.
 
-Integration still required: authenticated upload, durable original retention,
-claimable import execution, fenced attempt publication, authorized resource
-delivery and frontend selection. Do not enable phone upload based on these
-component tests alone.
+Activation requires migration 035_mobile_video_import after 034, the existing
+non-bypass media role with SELECT on projects/workspace_files and INSERT on
+workspace_files, a durable BEN_PROJECTS_DATA_DIR, and
+BEN_MEDIA_MOBILE_IMPORT_ENABLED=1 on API and worker. The existing exact-principal
+pilot allowlist still applies. Default is off; enabling/revoking the worker flag
+requires restart. Already published authorized media remain readable when off.
+No production activation is implied by CI passing.
+
+Originals live in workspace_files with independent stable file IDs, server SHA256
+and immutable byte publication; execution snapshots retain source ID and checksum.
+Client SHA256 is only a browser retry guard, never server authorization/evidence.
+A lost response retries the same key and bytes. A different payload conflicts.
+A crash may leave orphan bytes; this slice does not delete completed originals or
+attempts. A new worker may re-render after a failed commit; no orphan adoption.
+
+The UI exposes Upload video only through capabilities, requires a workspace,
+then uses existing conversation polling and authenticated resource delivery.
+The player displays the entire frame (contain), without cropping, and downloads
+the whole bounded derivative before playback (no adaptive streaming).
+Narration derived from an imported video inherits the mobile validation budget.

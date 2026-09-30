@@ -88,7 +88,7 @@ export default function NarrationPanel({ workspaceId, scope, rows, buildHeaders,
     <h2>Replace narration</h2>
     <p>Keep the original picture. Mix new narration with background music into a separate video.</p>
     {!workspaceId && <p role="status">Open a project workspace to select or upload audio.</p>}
-    {videos.length === 0 && <p role="status">No ready BEN video in this conversation. Open a conversation containing one. Importing a video from your device is not available yet.</p>}
+    {videos.length === 0 && <p role="status">No ready BEN video in this conversation. Open a conversation containing one, or use Upload video if it is enabled for your account.</p>}
     <label>Source video<select value={selected.video} disabled={blocked} onChange={e => choose('video', e.target.value)}>
       <option value="">Choose a BEN video</option>
       {videos.map(r => <option key={r.resource_id} value={r.resource_id}>{r.model} - {r.created_at}</option>)}
