@@ -107,7 +107,8 @@ async def admit(service, org, user, key, conversation, workspace, data):
     snapshot = dict(normalization_version='mobile-v1', provider='local_composer', model='ffmpeg_mobile_v1',
         operation='video_import', prompt='', parameters=dict(aspect_ratio=profile.aspect_ratio,
         duration_seconds=profile.duration, validation_profile='mobile-v1'),
-        destination=dict(conversation_id=str(conversation), workspace_id=str(workspace)), input_resource_refs=[ref])
+        destination=dict(conversation_id=str(conversation), workspace_id=str(workspace)), input_resource_refs=[ref],
+        experiment_id=None)
     return await service.repo.create(org, user, key, snapshot, request_fingerprint(snapshot))
 
 
