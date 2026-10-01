@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { BEN_API_BASE } from '../config.js'
 import { pendingMedia, clearPendingMedia } from '../api/media.js'
 
-export default function MobileVideoUpload({ workspaceId, scope, buildHeaders, ensureConversation, onAccepted, disabled }) {
+export default function MobileVideoUpload({ workspaceId, scope, buildHeaders, ensureConversation, onAccepted, disabled, onChooseProject, onCreateProject }) {
   const [file, setFile] = useState(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -65,7 +65,10 @@ export default function MobileVideoUpload({ workspaceId, scope, buildHeaders, en
   return <section aria-label="Upload video">
     <h2>Upload video</h2>
     <p>MP4 or MOV · H.264 or HEVC · up to 30 seconds, 64 MiB and 4K. Your original is preserved.</p>
-    {!workspaceId && <p>Open a project workspace to upload a video.</p>}
+    {!workspaceId && <div><p>Choose where to keep this video.</p>
+      {onChooseProject && <button type="button" onClick={onChooseProject}>Choose project</button>}
+      {onCreateProject && <button type="button" onClick={onCreateProject}>New project</button>}
+    </div>}
     <label>Video file<input type="file" accept=".mp4,.mov,video/mp4,video/quicktime"
       disabled={disabled || busy || !workspaceId} onChange={e => setFile(e.target.files?.[0] || null)} /></label>
     <button type="button" disabled={disabled || busy || !workspaceId || !file} onClick={() => void upload()}>

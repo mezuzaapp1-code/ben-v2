@@ -64,7 +64,6 @@ import {
 import { ActionCard } from './components/ActionCard.jsx'
 import { ProjectSuccessToast } from './components/ProjectSuccessToast.jsx'
 import { SystemTelemetryBadge } from './components/SystemTelemetryBadge.jsx'
-import { CameraCaptureInput } from './components/CameraCaptureInput.jsx'
 import { ComposerCapsule } from './components/ComposerCapsule.jsx'
 import MediaComposer from './components/MediaComposer.jsx'
 import { BasaltSelect } from './components/ui/BasaltSelect.jsx'
@@ -644,8 +643,6 @@ function App() {
   const navMenuButtonRef = useRef(null)
   const settingsButtonRef = useRef(null)
   const settingsPanelRef = useRef(null)
-  const invoiceCaptureRef = useRef(null)
-  const creditCaptureRef = useRef(null)
   const attachFileRef = useRef(null)
   const activeProjectRef = useRef(clearActiveProject(null))
 
@@ -833,20 +830,6 @@ function App() {
           // Defer so the attach menu can close without cancelling the native picker.
           window.setTimeout(() => attachFileRef.current?.click(), 0)
         },
-      },
-      {
-        id: 'invoice',
-        label: 'Capture invoice',
-        icon: '🧾',
-        disabled: loading || receiptCapturing || fileUploading || !persistentReady,
-        onClick: () => invoiceCaptureRef.current?.open(),
-      },
-      {
-        id: 'credit',
-        label: 'Credit memo',
-        icon: '↩',
-        disabled: loading || receiptCapturing || fileUploading || !persistentReady,
-        onClick: () => creditCaptureRef.current?.open(),
       },
     ],
     [loading, receiptCapturing, fileUploading, persistentReady]
@@ -2756,6 +2739,8 @@ function App() {
           <div className="composer-shell" style={{ '--shell-accent': shellAccent }}>
             <MediaComposer key={`${sessionTenantId}:${userId}`} scope={`${sessionTenantId}:${userId}`}
               workspaceId={activeProjectId}
+              onChooseProject={openProjectsLibrary}
+              onCreateProject={() => { setNewProjectError(null); setNewProjectModalOpen(true) }}
               conversationId={serverThreadIdForApi(activeId)}
               buildHeaders={persistentReady ? persistentHeaders : null}
               ensureConversation={ensureMediaConversation} disabled={loading || !persistentReady}>
@@ -2789,25 +2774,6 @@ function App() {
                       if (file) void handleWorkspaceFileAttach(file)
                     }}
                   />
-                  <CameraCaptureInput
-                    ref={invoiceCaptureRef}
-                    disabled={loading || receiptCapturing || fileUploading || !persistentReady}
-                    triggerClassName="receipt-capture-btn receipt-capture-btn--capsule"
-                    onFile={(file) => void handleReceiptFile(file, { creditMemo: false })}
-                    className="hw-capture-wrap--composer"
-                  >
-                    🧾
-                  </CameraCaptureInput>
-                  <CameraCaptureInput
-                    ref={creditCaptureRef}
-                    disabled={loading || receiptCapturing || fileUploading || !persistentReady}
-                    mode="credit"
-                    triggerClassName="receipt-capture-btn receipt-capture-btn--capsule"
-                    onFile={(file) => void handleReceiptFile(file, { creditMemo: true })}
-                    className="hw-capture-wrap--composer"
-                  >
-                    ↩
-                  </CameraCaptureInput>
                 </>
               }
               engineSettings={{

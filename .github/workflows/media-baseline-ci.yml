@@ -47,6 +47,7 @@ jobs:
           npm run test:narration
           node scripts/test-mobile-upload.mjs
           node scripts/test-new-project.mjs
+          node scripts/test-video-editor.mjs
           npm run test:project-library
           npm run test:clean-chat
           npm run build
