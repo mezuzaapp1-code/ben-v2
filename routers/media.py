@@ -5,11 +5,15 @@ import time
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, Request, Query
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from services.media.access import require_pilot, require_narration_pilot, enabled_image_models, enabled_video_models
 from services.media.narration import create_narration
+from services.media.access import require_mobile_pilot
+from services.media import mobile_import
+from services.media.mobile_video import MobileVideoError
+from services.media.contracts import MAX_VIDEO_BYTES
 from services.ops.structured_log import log_info
 from services.media.contracts import GEMINI_IMAGE_MODEL, KLING_VIDEO_MODEL, ImageRequest, VideoRequest, MediaProviderError
 from services.media.service import MediaService, public_execution
@@ -25,6 +29,10 @@ def media_service():
 
 def narration_service(identity=Depends(require_narration_pilot)):
     return MediaService(local_narration=True)
+
+
+def mobile_service(identity=Depends(require_mobile_pilot)):
+    return MediaService(mobile_import=True)
 
 
 class ExecutionResponse(BaseModel):
@@ -61,6 +69,25 @@ class ReplaceNarration(BaseModel):
     workspace_id: uuid.UUID
     music_file_id: uuid.UUID
     narration_file_id: uuid.UUID
+
+
+@router.post('/video-imports', status_code=202, response_model=ExecutionResponse)
+async def upload_video(request: Request, conversation_id: uuid.UUID, workspace_id: uuid.UUID,
+                       idempotency_key: str = Query(min_length=1, max_length=128, pattern=r'^[a-zA-Z0-9_-]+$'),
+                       identity=Depends(require_mobile_pilot), service=Depends(mobile_service)):
+    # Raw bounded stream: do not let multipart parsing spool an unlimited body
+    # before pilot/destination checks. File names and client checksums are not trusted.
+    await mobile_import.destination(service.repo, identity[0], conversation_id, workspace_id)
+    try:
+        data = bytearray()
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > MAX_VIDEO_BYTES:
+                raise MobileVideoError('VIDEO_SIZE_EXCEEDED')
+            data.extend(chunk)
+        return public_execution(await mobile_import.admit(service, *identity, idempotency_key,
+            conversation_id, workspace_id, bytes(data)))
+    except MobileVideoError as error:
+        raise HTTPException(error.status_code, detail=error.detail) from None
 
 
 @router.post("/narration-replacements", status_code=202, response_model=ExecutionResponse)
@@ -129,6 +156,7 @@ async def evaluate(execution_id: uuid.UUID, body: Evaluation, identity=Depends(r
 @router.get("/capabilities")
 async def capabilities(identity=Depends(require_pilot)):
     return {"image": True, "models": enabled_image_models(), "internal_only": True,
+            "mobile_video_import": os.getenv("BEN_MEDIA_MOBILE_IMPORT_ENABLED") == "1",
             "narration_replacement": os.getenv("BEN_MEDIA_LOCAL_NARRATION_ENABLED") == "1",
             "creative_lab": lab_enabled(),
             "aspect_ratios": ["1:1", "16:9", "9:16"], "image_size": "1K",

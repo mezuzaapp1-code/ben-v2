@@ -83,6 +83,8 @@ async def setup(repository, tmp_path, monkeypatch):
 async def test_full_worker_stream_copy_attempt_readback(setup, tmp_path):
     svc, admin, create, _, source, original, _ = setup
     execution = await create()
+    # Legacy intent remains byte-for-byte stable across mobile feature rollout.
+    assert "validation_profile" not in execution["request_payload"]["parameters"]
     assert (await create())["execution_id"] == execution["execution_id"]
     assert await svc.repo.claim(ORG, "unsupported-worker") is None
     assert await svc.tick(ORG)

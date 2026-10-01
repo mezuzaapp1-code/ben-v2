@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import CreativeEditLab from './CreativeEditLab.jsx'
 import NarrationPanel from './NarrationPanel.jsx'
+import MobileVideoUpload from './MobileVideoUpload.jsx'
 import { ComposerCapsule } from './ComposerCapsule.jsx'
 import { clearPendingMedia, mediaRequest, mediaTerminal, pendingMedia } from '../api/media.js'
 
@@ -25,7 +26,7 @@ function MediaImage({ resourceId, buildHeaders, mimeType }) {
     return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl) }
   }, [resourceId, buildHeaders])
   if (url && mimeType === 'video/mp4') return <div>
-    <video src={url} controls preload="metadata" aria-label="BEN generated video" style={{ maxWidth: '100%', maxHeight: 360 }} />
+    <video src={url} controls preload="metadata" aria-label="BEN video" style={{ objectFit: 'contain', maxWidth: '100%', maxHeight: 360 }} />
     <a href={url} download="ben-video.mp4">Download video</a>
   </div>
   return url ? <a href={url} download="ben-image.png"><img src={url} alt="BEN generated image" style={{ maxWidth: '100%', maxHeight: 360 }} /></a>
@@ -34,6 +35,7 @@ function MediaImage({ resourceId, buildHeaders, mimeType }) {
 
 /** Text child is the unchanged BEN composer; media has its own explicit path. */
 export default function MediaComposer({ children, conversationId, scope, buildHeaders, ensureConversation, disabled, workspaceId }) {
+  const [mobileEnabled, setMobileEnabled] = useState(false)
   const [labEnabled, setLabEnabled] = useState(false)
   const [narrationEnabled, setNarrationEnabled] = useState(false)
   const [labOpen, setLabOpen] = useState(false)
@@ -64,6 +66,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
         if (!controller.signal.aborted) {
           setLabEnabled(caps.creative_lab === true)
           setNarrationEnabled(caps.narration_replacement === true)
+          setMobileEnabled(caps.mobile_video_import === true)
           setEnabled(caps.image === true)
           setModels(caps.models)
           setVideoModels(caps.video_models || [])
@@ -125,6 +128,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
     </div>}
     <div aria-label="Composer mode">
       <button type="button" disabled={busy} aria-pressed={mode === 'text'} onClick={() => setMode('text')}>Text</button>
+      {mobileEnabled && <button type="button" disabled={busy} aria-pressed={mode === 'upload'} onClick={() => setMode('upload')}>Upload video</button>}
       {narrationEnabled && <button type="button" disabled={busy} aria-pressed={mode === 'narration'} onClick={() => setMode('narration')}>Replace narration</button>}
       <button type="button" disabled={busy} aria-pressed={mode === 'image'} onClick={() => setMode('image')}>Image Â· internal</button>
       {videoModels.length > 0 && <button type="button" disabled={busy} aria-pressed={mode === 'video'} onClick={() => setMode('video')}>Video · internal</button>}
@@ -137,7 +141,10 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
         {row.resource_id && <MediaImage resourceId={row.resource_id} buildHeaders={buildHeaders} mimeType={row.mime_type} />}
       </article>)}
     </section>}
-    {mode === 'text' ? children : mode === 'narration' ? <NarrationPanel
+    {mode === 'text' ? children : mode === 'upload' ? <MobileVideoUpload
+      key={`${scope}:${workspaceId}`} scope={scope} workspaceId={workspaceId}
+      buildHeaders={buildHeaders} ensureConversation={ensureConversation} disabled={disabled}
+      onAccepted={() => setRefresh(value => value + 1)} /> : mode === 'narration' ? <NarrationPanel
       key={`${scope}:${workspaceId}:${conversationId}`} scope={`${scope}:${conversationId || 'new'}`}
       workspaceId={workspaceId} rows={rows} buildHeaders={buildHeaders} ensureConversation={ensureConversation}
       disabled={disabled} onAccepted={() => setRefresh(value => value + 1)} /> : <>

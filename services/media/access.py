@@ -54,5 +54,16 @@ def enabled_video_models():
         [KLING_VIDEO_MODEL] if os.getenv("BEN_MEDIA_KLING_ENABLED") == "1" else [])
 
 
+async def require_mobile_pilot(request: Request):
+    if os.getenv("BEN_MEDIA_MOBILE_IMPORT_ENABLED") != "1":
+        raise media_unavailable()
+    try:
+        return await require_pilot(request)
+    except HTTPException as exc:
+        if exc.status_code in (401, 403, 404):
+            raise media_unavailable() from None
+        raise
+
+
 def enabled_media_models():
     return enabled_image_models() + enabled_video_models()
