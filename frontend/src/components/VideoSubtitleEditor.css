@@ -1,0 +1,36 @@
+.ben-editor-backdrop { position:fixed; inset:0; z-index:1200; background:#10182bb3; display:flex; justify-content:flex-end; }
+.ben-video-editor { width:min(1120px,100%); height:100dvh; display:flex; flex-direction:column; background:var(--ben-bg,#fff); color:var(--ben-text-primary,#172033); box-shadow:-16px 0 60px #0004; }
+.ben-video-editor__header { display:flex; justify-content:space-between; align-items:center; padding:16px 24px; border-bottom:1px solid #8b98b633; flex-shrink:0; }
+.ben-video-editor__header span { display:block; font-size:13px; opacity:.7; margin-top:4px; }
+.ben-video-editor button,.ben-video-editor select,.ben-video-editor textarea,.ben-video-editor input { font:inherit; }
+.ben-video-editor button { min-height:44px; border:1px solid #8b98b666; border-radius:10px; padding:8px 14px; cursor:pointer; background:var(--ben-bg-chip,#f3f5fa); color:inherit; }
+.ben-video-editor button:disabled { opacity:.45; cursor:default; }
+.ben-video-editor :focus-visible { outline:3px solid #5479f7; outline-offset:2px; }
+.ben-video-editor__body { display:grid; grid-template-columns:minmax(0,1fr) 330px; min-height:0; flex:1; }
+.ben-video-editor__body--collapsed { grid-template-columns:1fr; }
+.ben-video-editor__preview { padding:24px; overflow:auto; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.ben-video-editor__stage { position:relative; container-type:inline-size; background:#10131b; border-radius:12px; overflow:hidden; flex-shrink:0; }
+.ben-video-editor__stage video { display:block; width:100%; height:100%; object-fit:contain; }
+.ben-video-editor__caption { position:absolute; inset-inline:5%; text-align:center; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.35; pointer-events:none; }
+.ben-video-editor__caption span { padding:.12em .3em; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
+.ben-video-editor__caption--top { top:8%; }.ben-video-editor__caption--center { top:50%; transform:translateY(-50%); }.ben-video-editor__caption--bottom { bottom:17%; }
+.ben-video-editor__notice { font-size:12px; line-height:1.5; opacity:.75; max-width:550px; }
+.ben-video-editor__panel { border-inline-start:1px solid #8b98b633; padding:20px 20px calc(24px + env(safe-area-inset-bottom)); overflow-y:auto; overscroll-behavior:contain; }
+.ben-video-editor__panel label { display:flex; flex-direction:column; gap:6px; margin-block:12px; font-size:14px; }
+.ben-video-editor__panel input:not([type=range]),.ben-video-editor__panel select,.ben-video-editor__panel textarea { width:100%; min-width:0; box-sizing:border-box; min-height:44px; border:1px solid #8b98b666; border-radius:8px; padding:8px; background:var(--ben-bg-chip,#f3f5fa); color:inherit; }
+.ben-video-editor__panel input[type=color] { padding:4px; }.ben-video-editor__panel input[type=range] { min-height:36px; width:100%; }
+.ben-video-editor__panel p { font-size:12px; line-height:1.5; }.ben-video-editor__panel h3 { margin-top:24px; font-size:15px; }
+.ben-video-editor__times { display:grid; grid-template-columns:1fr 1fr; gap:12px; }.ben-video-editor__history { display:flex; gap:8px; }
+@media(max-width:700px) {
+ .ben-editor-backdrop { align-items:flex-end; }
+ .ben-video-editor { width:100%; height:100dvh; border-radius:18px 18px 0 0; }
+ .ben-video-editor__header { padding:10px 16px; }
+ .ben-video-editor__body { display:flex; flex-direction:column; }
+ .ben-video-editor__preview { padding:12px; flex-shrink:0; max-height:none; --editor-video-height:24dvh; }
+ .ben-video-editor__stage { max-width:52dvh; }
+ .ben-video-editor__notice { margin:6px 0; font-size:11px; }
+ .ben-video-editor__panel { border-inline-start:0; border-top:1px solid #8b98b644; border-radius:16px 16px 0 0; flex:1; min-height:0; padding-top:12px; }
+ .ben-video-editor__body--collapsed .ben-video-editor__preview { flex:1; max-height:none; --editor-video-height:60dvh; }
+ .ben-video-editor__panel input,.ben-video-editor__panel select,.ben-video-editor__panel textarea { font-size:16px; }
+}
+@media(max-height:480px) and (orientation:landscape) { .ben-video-editor__body { display:grid; grid-template-columns:minmax(0,1fr) 280px; }.ben-video-editor__preview { max-height:none; padding:8px; --editor-video-height:40dvh; }.ben-video-editor__header { padding:4px 12px; }.ben-video-editor__notice { display:none; }.ben-video-editor__body--collapsed { grid-template-columns:1fr; } }
