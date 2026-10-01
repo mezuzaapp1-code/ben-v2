@@ -46,7 +46,12 @@ jobs:
           npm run test:media
           npm run test:narration
           node scripts/test-mobile-upload.mjs
+          node scripts/test-new-project.mjs
+          npm run test:project-library
+          npm run test:clean-chat
           npm run build
+      - name: Project creation and retired onboarding
+        run: python -m pytest tests/test_project_auth.py tests/test_conversational_init.py -q
       - name: Narration capability gate
         run: python -m pytest tests/test_narration_capabilities.py -q
       - name: Record environment

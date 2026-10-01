@@ -16,7 +16,6 @@ import {
 import { ADHOC_SYNTHESIS_PIPELINE } from './api/adhoc.js'
 import {
   createConversationThread,
-  createProjectWorkspace,
   deleteThread,
   fetchThreadDetail,
   fetchThreadList,
@@ -58,7 +57,7 @@ import {
 import {
   captureCreditMemo,
   captureInvoice,
-  conversationalProjectInit,
+  createProject,
   executeNativeTool,
   fetchProjects,
 } from './api/projects.js'
@@ -102,11 +101,6 @@ import { parseNewsLocation, newsFeedPath, newsTopicPath } from './lib/newsRoutes
 import { ProjectRepositoriesDashboard } from './components/ProjectRepositoriesDashboard.jsx'
 import { usePlatformActiveFeatures } from './hooks/usePlatformActiveFeatures.js'
 import { useProjectCreatePrivilege } from './hooks/useProjectCreatePrivilege.jsx'
-import {
-  buildConversationalInitPayload,
-  parseConversationalInitResponse,
-} from './lib/conversationalInitPayload.js'
-import { normalizeProjectSlug } from './lib/threadWorkspace.js'
 import { ExpertOpinionMenu } from './components/ExpertOpinionMenu.jsx'
 import { useDismissOnOutside } from './hooks/useDismissOnOutside.js'
 import { readInitialNavDrawerOpen, useNavDrawerMode } from './hooks/useNavDrawerMode.js'
@@ -2366,177 +2360,6 @@ function App() {
     []
   )
 
-  const runProjectSetupBootstrap = useCallback(
-    async (threadId) => {
-      setLoading(true)
-      setToolTelemetry('⚙️ System: Initializing project workspace agent...')
-      let serverTid = threadId
-      const sendNonce = `setup-${createClientRequestId()}`
-      try {
-        const headers = await buildAppHeaders()
-        setThreads((prev) =>
-          prev.map((t) =>
-            t.id === threadId
-              ? {
-                  ...t,
-                  messages: [
-                    ...t.messages,
-                    createOwnedAssistant({
-                      sendNonce,
-                      providerId: activeSpeakingProviderId,
-                    }),
-                  ],
-                  loaded: true,
-                }
-              : t
-          )
-        )
-        let streamOk = false
-        for await (const event of postChatStream({
-          message: ' ',
-          threadId,
-          projectSetupBootstrap: true,
-          tier,
-          providerId: activeSpeakingProviderId,
-          modelOverride: activeModelOverride,
-          headers,
-        })) {
-          if (event.type === 'meta' && event.thread_id) serverTid = event.thread_id
-          else if (event.type === 'mutated_state') {
-            setThreads((prev) =>
-              prev.map((t) => {
-                if (t.id !== threadId && t.id !== serverTid) return t
-                return { ...t, messages: appendActionCard(t.messages, event, { sendNonce }) }
-              })
-            )
-          }
-          else if (event.type === 'tool_active') {
-            setToolTelemetry(event.message || `⚙️ System: Running ${event.tool || 'tool'}...`)
-          } else if (event.type === 'tool_done') setToolTelemetry(null)
-          else if (event.type === 'chunk') {
-            setToolTelemetry(null)
-            streamOk = true
-            const chunk = event.content ?? ''
-            setThreads((prev) =>
-              prev.map((t) => {
-                if (t.id !== threadId && t.id !== serverTid) return t
-                const msgs = applyOwnedAssistantChunk(t.messages, sendNonce, chunk)
-                return { ...t, id: serverTid, messages: msgs, loaded: true, sessionType: 'project_setup' }
-              })
-            )
-          } else if (event.type === 'done') {
-            streamOk = true
-            serverTid = event.thread_id || serverTid
-            setThreads((prev) =>
-              prev.map((t) => {
-                if (t.id !== threadId && t.id !== serverTid) return t
-                const msgs = applyOwnedAssistantDone(t.messages, sendNonce, event, {
-                  speakingProviderId: activeSpeakingProviderId,
-                })
-                return { ...t, id: serverTid, messages: msgs, loaded: true, sessionType: 'project_setup' }
-              })
-            )
-            setActiveId(serverTid)
-            setStoredActiveThreadId(serverTid)
-          } else if (event.type === 'error') {
-            throw new Error(event.message || 'Project setup failed.')
-          }
-        }
-        if (!streamOk) throw new Error('Project setup returned no content.')
-      } catch (e) {
-        const parsed = parseBenErrorResponse(e.status, e.data)
-        const msg = parsed?.message || humanizeChatFetchError(e)
-        setThreads((prev) =>
-          prev.map((t) =>
-            t.id === threadId || t.id === serverTid
-              ? {
-                  ...t,
-                  messages: [
-                    ...rollbackOwnedSend(t.messages, sendNonce),
-                    { role: 'assistant', kind: 'api_error', content: msg, model_used: '', cost_usd: 0 },
-                  ],
-                }
-              : t
-          )
-        )
-      } finally {
-        setLoading(false)
-        setToolTelemetry(null)
-      }
-    },
-    [activeModelOverride, activeSpeakingProviderId, buildAppHeaders, tier]
-  )
-
-  const startProjectWorkspace = useCallback(
-    async (workspaceContext = {}) => {
-      const boundSlug = normalizeProjectSlug(workspaceContext.projectSlug) || null
-      const projectTitle = String(workspaceContext.projectTitle || '').trim() || null
-      const schemaBlueprint = Array.isArray(workspaceContext.schemaBlueprint)
-        ? workspaceContext.schemaBlueprint
-        : []
-      const projectId = String(workspaceContext.projectId || '').trim() || null
-      const tablesCreated =
-        Number(workspaceContext.tablesCreated) || schemaBlueprint.length || 0
-
-      try {
-        const headers = await buildAppHeaders()
-        const data = await createProjectWorkspace(headers, {
-          projectSlug: boundSlug,
-          title: projectTitle,
-        })
-        const thread = data.thread || {}
-        const projectSlug = normalizeProjectSlug(thread.project_slug || boundSlug)
-        const entry = {
-          id: thread.id,
-          title: thread.title || projectTitle || 'New Project Workspace',
-          messages: [],
-          loaded: true,
-          sessionType: thread.session_type || 'project_setup',
-          projectSlug,
-          schemaBlueprint,
-          projectId,
-          isDraft: false,
-        }
-        setThreads((prev) => [entry, ...prev.filter((t) => t.id !== entry.id)])
-        setActiveId(entry.id)
-        setStoredActiveThreadId(entry.id)
-
-        if (projectId) {
-          const selected = bindActiveProject(sessionTenantId, {
-            id: projectId,
-            name: projectTitle || projectSlug || 'New project',
-          })
-          if (selected.id) {
-            setActiveProject(selected)
-            setProjectOptions((prev) => {
-              if (prev.some((project) => project.id === projectId)) return prev
-              return [
-                { id: projectId, name: selected.name },
-                ...prev,
-              ]
-            })
-          }
-        }
-
-        closeNavDrawerIfOverlay()
-        if (tablesCreated > 0) {
-          setProjectToast(
-            `Workspace ready — ${tablesCreated} JIT table${tablesCreated === 1 ? '' : 's'} provisioned.`
-          )
-        } else {
-          setProjectToast('Project workspace ready — BEN is preparing your onboarding interview.')
-        }
-        window.setTimeout(() => setProjectToast(null), 4500)
-        await runProjectSetupBootstrap(entry.id)
-      } catch (e) {
-        const parsed = parseBenErrorResponse(e.status, e.data)
-        setProjectToast(parsed?.message || e.message || 'Could not start project workspace.')
-        window.setTimeout(() => setProjectToast(null), 5000)
-      }
-    },
-    [buildAppHeaders, closeNavDrawerIfOverlay, runProjectSetupBootstrap, sessionTenantId]
-  )
-
   const handleNewProjectSubmit = useCallback(
     async (formValues) => {
       if (!canCreateProject) return
@@ -2544,17 +2367,13 @@ function App() {
       setNewProjectError(null)
       try {
         const headers = await buildAppHeaders()
-        const payload = buildConversationalInitPayload(formValues)
-        const initResponse = await conversationalProjectInit(payload, headers)
-        const init = parseConversationalInitResponse(initResponse)
+        const project = await createProject(formValues, headers)
+        if (!project?.id) throw new Error('Project creation was not confirmed.')
+        setProjectOptions((prev) => [project, ...prev.filter((item) => item.id !== project.id)])
+        newThread()
+        handleOpenProject(project)
         setNewProjectModalOpen(false)
-        await startProjectWorkspace({
-          projectSlug: init.projectSlug,
-          projectTitle: init.projectName,
-          schemaBlueprint: init.schemaBlueprint,
-          projectId: init.projectId,
-          tablesCreated: init.tablesCreated,
-        })
+        closeNavDrawerIfOverlay()
       } catch (e) {
         const parsed = parseBenErrorResponse(e.status, e.data)
         setNewProjectError(parsed?.message || e.message || 'Could not create project.')
@@ -2562,7 +2381,7 @@ function App() {
         setCreatingProject(false)
       }
     },
-    [buildAppHeaders, canCreateProject, startProjectWorkspace]
+    [buildAppHeaders, canCreateProject, closeNavDrawerIfOverlay, handleOpenProject, newThread]
   )
 
   const handleCertCapture = useCallback(
