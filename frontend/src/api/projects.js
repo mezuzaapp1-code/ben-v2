@@ -35,19 +35,6 @@ export async function fetchProjects(headers, options = {}, maybeSignal) {
 export async function createProject(payload, headers, signal) {
   return projectFetch('', {
     method: 'POST',
-    headers,
-    body: payload,
-    signal,
-  })
-}
-
-/**
- * JIT conversational onboarding — provisions Postgres project + project_context.db schema.
- * @param {import('../lib/conversationalInitPayload.js').ConversationalInitRequestBody} payload
- */
-export async function conversationalProjectInit(payload, headers, signal) {
-  return projectFetch('/conversational-init', {
-    method: 'POST',
     headers: { 'Content-Type': 'application/json', ...headers },
     body: payload,
     signal,

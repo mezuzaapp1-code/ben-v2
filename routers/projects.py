@@ -9,8 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from auth.project_privileges import assert_can_create_project
 from auth.beta_gate import build_project_tenant_context_from_request
 from auth.tenant_binding import validate_body_tenant_matches_context
-from services.project_memory_service import initialize_project_setup, load_project_memory, save_project_memory
-from services.project_schema_generator import provision_conversational_workspace_schema
 from services.model_gateway import NATIVE_TOOL_DEFINITIONS, execute_native_tool
 from services.invoice_tools import export_ledger_to_accountant
 from services.project_copilot_tools import process_captured_invoice, process_credit_memo
@@ -29,7 +27,6 @@ from services.native_tools_service import (
     update_project_task,
 )
 from services.ops.timing import measure
-from services.project_tools import create_project_directory, slugify_project_name
 from services.project_library import clamp_project_page_limit
 from services.project_service import create_project, get_project, list_projects
 
@@ -49,60 +46,6 @@ class ProjectCreateBody(TenantScopedBody):
     name: str = Field(..., min_length=1, max_length=512)
     description: str | None = Field(None, max_length=8000)
     status: str = Field("active", max_length=32)
-    location_base: str | None = Field(None, max_length=256)
-    key_contacts: str | None = Field(None, max_length=8000)
-    initial_tactical_tasks: str | None = Field(None, max_length=8000)
-
-
-class SchemaColumnBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(..., min_length=1, max_length=64)
-    data_type: str = Field("text", min_length=1, max_length=32)
-    primary_key: bool = False
-    nullable: bool = True
-    unique: bool = False
-
-
-class SchemaTableBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(..., min_length=1, max_length=64)
-    columns: list[SchemaColumnBody] = Field(..., min_length=1, max_length=32)
-
-
-class ConversationalInitBody(TenantScopedBody):
-    name: str = Field(..., min_length=1, max_length=512)
-    software_description: str = Field(..., min_length=1, max_length=16000)
-    description: str | None = Field(None, max_length=8000)
-    status: str = Field("active", max_length=32)
-    location_base: str | None = Field(None, max_length=256)
-    key_contacts: str | None = Field(None, max_length=8000)
-    initial_tactical_tasks: str | None = Field(None, max_length=8000)
-    schema_tables: list[SchemaTableBody] | None = Field(
-        None,
-        description="Optional explicit relational blueprint; otherwise inferred from software_description",
-    )
-
-
-async def _seed_initial_tactical_tasks(
-    org_id: uuid.UUID,
-    project_id: uuid.UUID,
-    raw: str | None,
-) -> None:
-    if not raw or not raw.strip():
-        return
-    for line in raw.splitlines():
-        title = line.strip()
-        if not title:
-            continue
-        await create_project_task(
-            org_id,
-            project_id,
-            title=title[:512],
-            status="todo",
-            priority="high",
-        )
 
 
 class MemberCreateBody(TenantScopedBody):
@@ -227,71 +170,7 @@ async def api_create_project(request: Request, body: ProjectCreateBody):
             description=body.description,
             status=body.status,
         )
-        project_id = uuid.UUID(created["id"])
-        await initialize_project_setup(
-            org_id,
-            project_id,
-            location_base=body.location_base,
-            key_contacts=body.key_contacts,
-            initial_tactical_tasks=body.initial_tactical_tasks,
-        )
-        await _seed_initial_tactical_tasks(org_id, project_id, body.initial_tactical_tasks)
         return created
-
-
-@router.post("/conversational-init")
-async def api_conversational_project_init(request: Request, body: ConversationalInitBody):
-    ctx = await build_project_tenant_context_from_request(
-        request,
-        route_operation="POST /api/projects/conversational-init",
-    )
-    validate_body_tenant_matches_context(body, ctx)
-    assert_can_create_project(ctx)
-    org_id = _org_from_ctx(ctx)
-    project_slug = slugify_project_name(body.name)
-
-    async with measure(subsystem="projects", operation="POST /api/projects/conversational-init"):
-        created = await create_project(
-            org_id,
-            name=body.name,
-            description=body.description or body.software_description[:8000],
-            status=body.status,
-        )
-        project_id = uuid.UUID(created["id"])
-        await initialize_project_setup(
-            org_id,
-            project_id,
-            location_base=body.location_base,
-            key_contacts=body.key_contacts,
-            initial_tactical_tasks=body.initial_tactical_tasks,
-        )
-        await _seed_initial_tactical_tasks(org_id, project_id, body.initial_tactical_tasks)
-
-        create_project_directory(project_slug)
-        explicit_tables = (
-            [table.model_dump() for table in body.schema_tables] if body.schema_tables else None
-        )
-        try:
-            schema_payload = provision_conversational_workspace_schema(
-                project_slug,
-                body.software_description,
-                explicit_tables,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-        matrix = await load_project_memory(org_id, project_id)
-        matrix["jit_schema_blueprint"] = schema_payload["schema_blueprint"]
-        matrix["software_description"] = body.software_description.strip()[:16000]
-        await save_project_memory(org_id, project_id, matrix)
-
-        return {
-            **created,
-            "project_slug": schema_payload["project_slug"],
-            "schema_blueprint": schema_payload["schema_blueprint"],
-            "tables_created": schema_payload["tables_created"],
-            "software_description": body.software_description.strip(),
-        }
 
 
 @router.get("/{project_id}")

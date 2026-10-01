@@ -72,9 +72,7 @@ async def test_projects_create_uses_server_tenant_id(monkeypatch):
     with patch(
         "auth.beta_gate.authenticate_request",
         return_value=("auth_valid", claims, True),
-    ), patch("routers.projects.create_project", side_effect=_fake_create), patch(
-        "routers.projects.initialize_project_setup", new_callable=AsyncMock
-    ):
+    ), patch("routers.projects.create_project", side_effect=_fake_create):
         client = TestClient(main.app)
         res = client.post(
             "/api/projects",
