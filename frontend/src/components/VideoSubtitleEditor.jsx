@@ -64,7 +64,7 @@ export default function VideoSubtitleEditor({ url, open, onClose }) {
         <div className="ben-video-editor__preview">
           <div className="ben-video-editor__stage" style={{ aspectRatio: ratio, width: `min(100%, calc(var(--editor-video-height, 54dvh) * ${ratio}))` }}>
             <video ref={video} src={url} controls playsInline onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} aria-label="Subtitle video preview" onLoadedMetadata={e => {
-              const v = e.currentTarget; setTime(v.currentTime); setDuration(v.duration); setRatio(v.videoWidth / v.videoHeight || 16 / 9)
+              const v = e.currentTarget; setPlaying(!v.paused); setTime(v.currentTime); setDuration(v.duration); setRatio(v.videoWidth / v.videoHeight || 16 / 9)
             }} onTimeUpdate={e => setTime(e.currentTarget.currentTime)} onSeeked={e => setTime(e.currentTarget.currentTime)} />
             {current && <div className={`ben-video-editor__caption ben-video-editor__caption--${s.position}`}
               style={{ fontFamily: `${s.font}, sans-serif`, fontSize: `${s.size}cqw`, color: s.color }}>
