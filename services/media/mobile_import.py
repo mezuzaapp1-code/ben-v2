@@ -19,7 +19,7 @@ from services.workspace_files.storage import files_root
 async def destination(repo, org, conversation, workspace):
     async with repo.transaction(org) as s:
         await repo.destination(s, org, conversation)
-        found = await s.scalar(text('SELECT id FROM ben.projects WHERE id=:id AND org_id=:org FOR KEY SHARE'),
+        found = await s.scalar(text('SELECT id FROM ben.projects WHERE id=:id AND org_id=:org'),
                                {'id': workspace, 'org': org})
         if found is None:
             raise media_unavailable()
@@ -94,7 +94,7 @@ async def admit(service, org, user, key, conversation, workspace, data):
     await asyncio.to_thread(publish_bytes, data, storage_key, path, profile.width, profile.height, 'video/mp4')
     async with service.repo.transaction(org) as s:
         await service.repo.destination(s, org, conversation)
-        if await s.scalar(text('SELECT id FROM ben.projects WHERE id=:id AND org_id=:org FOR KEY SHARE'),
+        if await s.scalar(text('SELECT id FROM ben.projects WHERE id=:id AND org_id=:org'),
                           dict(id=workspace, org=org)) is None:
             raise media_unavailable()
         await s.execute(text('''INSERT INTO ben.workspace_files

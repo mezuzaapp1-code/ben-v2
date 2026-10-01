@@ -3,6 +3,7 @@ import hashlib
 import uuid
 from unittest.mock import Mock
 
+from sqlalchemy import text
 from fastapi import HTTPException
 import httpx
 import pytest
@@ -23,6 +24,11 @@ async def mobile_setup(setup, monkeypatch):
     svc, admin, _, _, _, _, sound = setup
     await admin.execute(migration_sql(filename='035_mobile_video_import.py'))
     workspace = await admin.fetchval('SELECT workspace_id FROM ben.workspace_files WHERE id=$1', sound)
+    async with svc.repo.transaction(ORG) as session:
+        role = await session.scalar(text('SELECT current_user'))
+    await admin.execute(f'REVOKE ALL ON ben.projects,ben.workspace_files FROM {role}')
+    await admin.execute(f'GRANT SELECT ON ben.projects TO {role}')
+    await admin.execute(f'GRANT SELECT,INSERT ON ben.workspace_files TO {role}')
     svc.mobile_import = True
     identity(monkeypatch)
     monkeypatch.setenv('BEN_MEDIA_MOBILE_IMPORT_ENABLED', '1')
