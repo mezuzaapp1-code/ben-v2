@@ -41,8 +41,9 @@ function MediaImage({ resourceId, buildHeaders, mimeType, editing, onEdit, onClo
 }
 
 /** Text child is the unchanged BEN composer; media has its own explicit path. */
-export default function MediaComposer({ children, conversationId, scope, buildHeaders, ensureConversation, disabled, workspaceId, onChooseProject, onCreateProject }) {
+export default function MediaComposer({ children, conversationId, scope, buildHeaders, ensureConversation, disabled, workspaceId, onChooseProject, onCreateProject, selectedPhoto }) {
   const [photoSource, setPhotoSource] = useState(null)
+  useEffect(() => { if (selectedPhoto) { setMode('video'); setPhotoSource(null) } }, [selectedPhoto])
   useEffect(() => setPhotoSource(null), [scope, workspaceId, conversationId])
   const [editingId, setEditingId] = useState(null)
   const [mobileEnabled, setMobileEnabled] = useState(false)
@@ -130,7 +131,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
       }
     } finally { sending.current = false; setBusy(false) }
   }
-  if (!enabled || !buildHeaders) return children
+  if (!enabled || !buildHeaders || (selectedPhoto && !videoModels.length)) return <>{children}{selectedPhoto && <p role="status">Your photo is selected. Media tools are unavailable for this account right now.</p>}</>
   const actions = [
     ...(children?.props?.attachMenuItems || []),
     ...(mobileEnabled ? [{ id: 'video-upload', label: 'Upload video', icon: '▷', disabled: disabled || busy, onClick: () => setMode('upload') }] : []),
@@ -164,7 +165,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
       disabled={disabled} onAccepted={() => setRefresh(value => value + 1)} /> : <>
       {mode === 'video' ? <>
         <PhotoSourceUpload key={`${scope}:${workspaceId}`} workspaceId={workspaceId} scope={scope}
-          buildHeaders={buildHeaders} ensureConversation={ensureConversation} disabled={disabled || busy}
+          initialFile={selectedPhoto} buildHeaders={buildHeaders} ensureConversation={ensureConversation} disabled={disabled || busy || !videoModels.length}
           onChooseProject={onChooseProject} onCreateProject={onCreateProject} onReady={setPhotoSource} />
         <p>Generate video sends this image and your instructions to the selected AI provider and may incur charges.</p>
         <label>Video engine <select value={videoChoice} disabled={busy} onChange={e => setVideoModel(e.target.value)}>

@@ -625,6 +625,8 @@ function App() {
   const [sourcesPanel, setSourcesPanel] = useState({ open: false, messageKey: null })
   const [projectsOpen, setProjectsOpen] = useState(false)
   const [fileUploading, setFileUploading] = useState(false)
+  const [selectedMediaPhoto, setSelectedMediaPhoto] = useState(null)
+  useEffect(() => setSelectedMediaPhoto(null), [sessionTenantId, userId])
   const fileAttachInFlightRef = useRef(false)
   const [attentionFocusRequest, setAttentionFocusRequest] = useState(null)
   const [newProjectModalOpen, setNewProjectModalOpen] = useState(false)
@@ -1943,6 +1945,16 @@ function App() {
   const handleWorkspaceFileAttach = useCallback(
     async (file) => {
       if (!persistentReady || !file || fileUploading || loading || fileAttachInFlightRef.current) return
+      // Route user photos before the document workspace guard. Keep the File in
+      // memory so project selection never asks the user to pick it a second time.
+      if (file.type?.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic|heif|avif|bmp)$/i.test(file.name)) {
+        setThreads(previous => previous.map(thread => thread.id === activeId
+          ? { ...thread, messages: (thread.messages || []).filter(message =>
+            !(message.kind === 'api_error' && message.content === 'Select an active workspace before attaching a file.')) }
+          : thread))
+        setSelectedMediaPhoto(file)
+        return
+      }
       let tid = activeId
       if (!tid || !threads.some((x) => x.id === tid)) tid = newThread()
 
@@ -2739,6 +2751,7 @@ function App() {
           <div className="composer-shell" style={{ '--shell-accent': shellAccent }}>
             <MediaComposer key={`${sessionTenantId}:${userId}`} scope={`${sessionTenantId}:${userId}`}
               workspaceId={activeProjectId}
+              selectedPhoto={selectedMediaPhoto}
               onChooseProject={openProjectsLibrary}
               onCreateProject={() => { setNewProjectError(null); setNewProjectModalOpen(true) }}
               conversationId={serverThreadIdForApi(activeId)}
