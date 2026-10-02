@@ -86,3 +86,48 @@ async def upload(repo, org, user, conversation, workspace, key, data):
             ON CONFLICT(id) DO NOTHING'''), dict(id=file_id,org=org,workspace=workspace,mime=mime,size=len(data),checksum=checksum,key=storage_key,user=user))
     if await read(repo,org,user,workspace,file_id) != data: raise HTTPException(409,'Upload key conflict')
     return dict(file_id=str(file_id),workspace_id=str(workspace),width=width,height=height)
+
+
+def chat_path(org, conversation, file_id):
+    if not all(isinstance(v,uuid.UUID) for v in (org,conversation,file_id)): raise ValueError('UUID required')
+    root=_resolved(files_root());key=f'_chat_media/{org}/{conversation}/{file_id}/photo.original';path=_resolved(root/key)
+    if not path.is_relative_to(root) or path != root/key: raise ValueError('Invalid path')
+    return key,path
+
+
+async def chat_read(repo,org,user,conversation,file_id):
+    async def record():
+        async with repo.transaction(org) as session:
+            await repo.destination(session,org,conversation)
+            row=(await session.execute(text('''SELECT storage_key,checksum,byte_size FROM ben.chat_photo_sources
+                WHERE id=:id AND org_id=:org AND conversation_id=:conversation AND created_by=:user'''),
+                dict(id=file_id,org=org,conversation=conversation,user=user))).mappings().first()
+            if not row: raise media_unavailable()
+            return dict(row)
+    row=await record();key,path=chat_path(org,conversation,file_id)
+    if row['storage_key']!=key: raise media_unavailable()
+    def load():
+        with path.open('rb') as f:return f.read(MAX_IMAGE_BYTES+1)
+    try:data=await asyncio.to_thread(load)
+    except OSError:raise media_unavailable() from None
+    if len(data)!=row['byte_size'] or hashlib.sha256(data).hexdigest()!=row['checksum']:
+        raise HTTPException(422,'Image integrity mismatch')
+    if await record()!=row:raise media_unavailable()
+    return data
+
+
+async def chat_upload(repo,org,user,conversation,key,data):
+    async with repo.transaction(org) as session:await repo.destination(session,org,conversation)
+    _,width,height=await asyncio.to_thread(normalize,data)
+    file_id=uuid.uuid5(org,f'chat-photo-v1:{user}:{conversation}:{key}')
+    storage_key,path=chat_path(org,conversation,file_id)
+    try:await asyncio.to_thread(publish_bytes,data,storage_key,path,width,height)
+    except (ValueError,DurableStorageUnavailable):raise HTTPException(409,'Upload key conflict') from None
+    async with repo.transaction(org) as session:
+        await repo.destination(session,org,conversation)
+        await session.execute(text('''INSERT INTO ben.chat_photo_sources
+            (id,org_id,conversation_id,created_by,storage_key,checksum,byte_size)
+            VALUES(:id,:org,:conversation,:user,:key,:checksum,:size) ON CONFLICT(id) DO NOTHING'''),
+            dict(id=file_id,org=org,conversation=conversation,user=user,key=storage_key,checksum=hashlib.sha256(data).hexdigest(),size=len(data)))
+    if await chat_read(repo,org,user,conversation,file_id)!=data:raise HTTPException(409,'Upload key conflict')
+    return dict(file_id=str(file_id),conversation_id=str(conversation),width=width,height=height)

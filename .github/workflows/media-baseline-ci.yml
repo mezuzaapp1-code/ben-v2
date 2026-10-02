@@ -61,6 +61,15 @@ jobs:
           git rev-parse HEAD
           python --version
           python -m pip freeze > baseline-environment.txt
+      - name: Projectless photo ownership and worker
+        run: |
+          python -m pytest tests/test_chat_photo_source.py -v --junitxml=chat-photo-results.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases=ET.parse('chat-photo-results.xml').findall('.//testcase')
+          assert len(cases)==3
+          assert all(not any(c.find(t) is not None for t in ('skipped','failure','error')) for c in cases)
+          PY
       - name: Owned photo upload and animation admission
         run: |
           python -m pytest tests/test_photo_source.py -v --junitxml=photo-results.xml

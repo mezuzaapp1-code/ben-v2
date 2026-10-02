@@ -168,6 +168,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
           initialFile={selectedPhoto} buildHeaders={buildHeaders} ensureConversation={ensureConversation} disabled={disabled || busy || !videoModels.length}
           onChooseProject={onChooseProject} onCreateProject={onCreateProject} onReady={setPhotoSource} />
         <p>Generate video sends this image and your instructions to the selected AI provider and may incur charges.</p>
+        <details><summary>Video settings</summary>
         <label>Video engine <select value={videoChoice} disabled={busy} onChange={e => setVideoModel(e.target.value)}>
           {videoModels.map(value => <option key={value} value={value}>{value === 'veo-3.1-fast-generate-preview' ? 'Google Veo 3.1 Fast' : 'Kling O3 Standard via fal'}</option>)}
         </select></label>
@@ -181,6 +182,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
         <label>Aspect ratio <select value={videoRatio} disabled={busy} onChange={e => setVideoRatio(e.target.value)}>
           {['16:9', '9:16'].map(value => <option key={value}>{value}</option>)}
         </select></label>
+        </details>
       </> : <>
       <label>Engine <select value={model} disabled={busy} onChange={e => setModel(e.target.value)}>
         {models.map(value => <option key={value} value={value}>{value === 'flux-2-pro' ? 'BFL FLUX.2 Pro' : 'Google Gemini 3.1 Flash Image'}</option>)}

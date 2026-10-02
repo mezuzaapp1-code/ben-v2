@@ -47,21 +47,24 @@ class MediaService:
         self.kling_adapter = kling_adapter or FalKlingVideoAdapter(os.getenv("FAL_KEY", ""))
         self.veo_adapter = veo_adapter or VeoVideoAdapter(os.getenv("GOOGLE_API_KEY", ""))
 
-    async def create(self, org, user, key, conversation, request, *, photo_workspace=None):
+    async def create(self, org, user, key, conversation, request, *, photo_workspace=None, photo_file=False):
         if request.model not in enabled_media_models():
             raise HTTPException(404, "Media unavailable")
         snapshot = request_snapshot(request, conversation_id=str(conversation), workspace_id=None)
-        if isinstance(request, VideoRequest) and photo_workspace is not None:
+        if isinstance(request, VideoRequest) and (photo_file or photo_workspace is not None):
             from services.media import photo_source
             from services.media.mobile_import import destination
-            await destination(self.repo, org, conversation, photo_workspace)
-            data = await photo_source.read(self.repo, org, user, photo_workspace, uuid.UUID(request.source_resource_id))
+            if photo_workspace is None:
+                data = await photo_source.chat_read(self.repo, org, user, conversation, uuid.UUID(request.source_resource_id))
+            else:
+                await destination(self.repo, org, conversation, photo_workspace)
+                data = await photo_source.read(self.repo, org, user, photo_workspace, uuid.UUID(request.source_resource_id))
             image, width, height = await asyncio.to_thread(photo_source.normalize, data)
             if request.model == KLING_VIDEO_MODEL:
                 from services.media.fal_kling_video import validate_source
                 validate_source(image, request.aspect_ratio)
             snapshot["input_resource_refs"] = [{"file_id": request.source_resource_id,
-                "workspace_id": str(photo_workspace), "checksum": hashlib.sha256(image).hexdigest(),
+                **({"workspace_id": str(photo_workspace)} if photo_workspace else {"conversation_id": str(conversation)}), "checksum": hashlib.sha256(image).hexdigest(),
                 "original_checksum": hashlib.sha256(data).hexdigest(), "normalization": "photo-v1", "role": "first_frame"}]
         elif isinstance(request, VideoRequest):
             source = await self.repo.read(org, user, resource=uuid.UUID(request.source_resource_id))
@@ -201,8 +204,14 @@ class MediaService:
                 try:
                     if source.get("file_id"):
                         from services.media import photo_source
-                        original = await photo_source.read(self.repo, row["org_id"], row["created_by"],
-                            uuid.UUID(source["workspace_id"]), uuid.UUID(source["file_id"]))
+                        if source.get("conversation_id"):
+                            if source["conversation_id"] != str(row["conversation_id"]):
+                                raise HTTPException(404, 'Image unavailable')
+                            original = await photo_source.chat_read(self.repo, row["org_id"], row["created_by"],
+                                row["conversation_id"], uuid.UUID(source["file_id"]))
+                        else:
+                            original = await photo_source.read(self.repo, row["org_id"], row["created_by"],
+                                uuid.UUID(source["workspace_id"]), uuid.UUID(source["file_id"]))
                         if hashlib.sha256(original).hexdigest() != source["original_checksum"]:
                             raise HTTPException(422, 'Image changed')
                         image, _, _ = await asyncio.to_thread(photo_source.normalize, original)
