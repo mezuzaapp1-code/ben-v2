@@ -42,7 +42,9 @@ async def test_projectless_upload_animation_and_isolation(chat_setup):
         async with svc.repo.transaction(OTHER) as s:assert await s.scalar(text('SELECT count(*) FROM ben.chat_photo_sources'))==0
         payload=dict(conversation_id=str(THREAD),idempotency_key='chat-video',model=VEO_VIDEO_MODEL,source_file_id=str(file_id),prompt='Gentle movement')
         admitted=await c.post('/api/media/executions',json=payload);assert admitted.status_code==202,admitted.text
-        assert await svc.tick(ORG)
+        claimed=await svc.repo.claim(ORG,"photo-test")
+        assert claimed is not None
+        await svc._async_result(claimed)
         svc.veo_adapter.submit.assert_awaited_once()
         assert svc.veo_adapter.submit.call_args.args[1]==photo_source.normalize(original)[0]
         assert await photo_source.chat_read(svc.repo,ORG,'tester',THREAD,file_id)==original
