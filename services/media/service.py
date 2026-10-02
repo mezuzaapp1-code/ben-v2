@@ -208,7 +208,7 @@ class MediaService:
                             if source["conversation_id"] != str(row["conversation_id"]):
                                 raise HTTPException(404, 'Image unavailable')
                             original = await photo_source.chat_read(self.repo, row["org_id"], row["created_by"],
-                                row["conversation_id"], uuid.UUID(source["file_id"]))
+                                uuid.UUID(str(row["conversation_id"])), uuid.UUID(source["file_id"]))
                         else:
                             original = await photo_source.read(self.repo, row["org_id"], row["created_by"],
                                 uuid.UUID(source["workspace_id"]), uuid.UUID(source["file_id"]))
