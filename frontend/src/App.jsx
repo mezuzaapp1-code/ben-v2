@@ -1947,7 +1947,11 @@ function App() {
       if (!persistentReady || !file || fileUploading || loading || fileAttachInFlightRef.current) return
       // Route user photos before the document workspace guard. Keep the File in
       // memory so project selection never asks the user to pick it a second time.
-      if (/\.(jpe?g|png)$/i.test(file.name)) {
+      if (file.type?.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic|heif|avif|bmp)$/i.test(file.name)) {
+        setThreads(previous => previous.map(thread => thread.id === activeId
+          ? { ...thread, messages: (thread.messages || []).filter(message =>
+            !(message.kind === 'api_error' && message.content === 'Select an active workspace before attaching a file.')) }
+          : thread))
         setSelectedMediaPhoto(file)
         return
       }
