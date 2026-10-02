@@ -36,7 +36,7 @@ class MediaRepository:
         if found is None:
             raise HTTPException(404, "Conversation not found")
 
-    async def create(self, org, user, key, snapshot, fingerprint):
+    async def create(self, org, user, key, snapshot, fingerprint, *, short_quote=None):
         async with self.transaction(org) as s:
             await self.destination(s, org, snapshot["destination"]["conversation_id"])
             # Serialize org admission for both duplicate keys and bounded spend.
@@ -47,18 +47,45 @@ class MediaRepository:
                 if old["created_by"] != user or old["request_fingerprint"] != fingerprint:
                     raise HTTPException(409, "Idempotency key conflict")
                 return dict(old)
+            if short_quote is not None:
+                from decimal import Decimal
+                from services.media.short_contract import money
+                # Reservations never roll off while a paid outcome is unknown.
+                existing = await s.scalar(text("SELECT execution_id FROM ben.media_executions WHERE org_id=:org AND short_quote_id=:quote"),
+                    {"org": org, "quote": uuid.UUID(short_quote['id'])})
+                if existing:
+                    raise HTTPException(409, "Quote already consumed")
+                total = await s.scalar(text("""SELECT COALESCE(sum(reserved_cost),0) FROM ben.media_executions
+                    WHERE org_id=:org AND operation='short_render' AND
+                    (created_at > now()-interval '24 hours' OR (submit_attempts>0 AND state<>'succeeded'))"""), {"org":org})
+                if total + Decimal(short_quote['reserved']) > money('BEN_SHORT_DAILY_BUDGET_USD'):
+                    raise HTTPException(429, "Short render budget exceeded")
             count = await s.scalar(text("SELECT count(*) FROM ben.media_executions WHERE org_id=:org AND created_at > now()-interval '24 hours'"), {"org": org})
             if count >= 20:
                 raise HTTPException(429, "Internal media daily limit reached")
-            row = (await s.execute(text("""INSERT INTO ben.media_executions
-                (execution_id,org_id,created_by,conversation_id,idempotency_key,request_fingerprint,
-                 request_payload,provider,model,operation,deadline_at,resource_id)
-                VALUES (:id,:org,:user,:conversation,:key,:fingerprint,CAST(:payload AS jsonb),
-                        :provider,:model,:operation,now()+interval '30 minutes',:resource)
-                RETURNING *"""), {"id": uuid.uuid4(), "org": org, "user": user,
-                "conversation": snapshot["destination"]["conversation_id"], "key": key,
-                "fingerprint": fingerprint, "payload": json.dumps(snapshot), "model": snapshot["model"], "provider": snapshot["provider"],
-                "operation": snapshot["operation"], "resource": uuid.uuid4()})).mappings().one()
+            if short_quote is None:
+                row = (await s.execute(text("""INSERT INTO ben.media_executions
+                    (execution_id,org_id,created_by,conversation_id,idempotency_key,request_fingerprint,
+                     request_payload,provider,model,operation,deadline_at,resource_id)
+                    VALUES (:id,:org,:user,:conversation,:key,:fingerprint,CAST(:payload AS jsonb),
+                            :provider,:model,:operation,now()+interval '30 minutes',:resource)
+                    RETURNING *"""), {"id": uuid.uuid4(), "org": org, "user": user,
+                    "conversation": snapshot["destination"]["conversation_id"], "key": key,
+                    "fingerprint": fingerprint, "payload": json.dumps(snapshot), "model": snapshot["model"], "provider": snapshot["provider"],
+                    "operation": snapshot["operation"], "resource": uuid.uuid4()})).mappings().one()
+            else:
+                row = (await s.execute(text("""INSERT INTO ben.media_executions
+                    (short_quote_id,reserved_cost,estimated_cost,pricing_version,short_telemetry,execution_id,org_id,created_by,conversation_id,idempotency_key,request_fingerprint,
+                     request_payload,provider,model,operation,deadline_at,resource_id)
+                    VALUES (:quote,:reserved,:estimate,:pricing,CAST(:telemetry AS jsonb),:id,:org,:user,:conversation,:key,:fingerprint,CAST(:payload AS jsonb),
+                            :provider,:model,:operation,now()+interval '20 minutes',:resource)
+                    RETURNING *"""), {"quote":uuid.UUID(short_quote['id']),"reserved":Decimal(short_quote['reserved']),
+                    "estimate":Decimal(short_quote['estimate']),"pricing":short_quote['pricing_version'],
+                    "telemetry":json.dumps({"schema_version":"short-telemetry-v1","cost_status":"estimated_only",
+                    "actual_reported_cost_usd":None,"human_review_status":"pending"}),"id": uuid.uuid4(), "org": org, "user": user,
+                    "conversation": snapshot["destination"]["conversation_id"], "key": key,
+                    "fingerprint": fingerprint, "payload": json.dumps(snapshot), "model": snapshot["model"], "provider": snapshot["provider"],
+                    "operation": snapshot["operation"], "resource": uuid.uuid4()})).mappings().one()
             return dict(row)
 
     async def read(self, org, user, *, execution=None, resource=None, conversation=None):
@@ -78,7 +105,7 @@ class MediaRepository:
             await self.destination(s, org, rows[0]["conversation_id"])
             return dict(rows[0])
 
-    async def claim(self, org, owner, *, local=False, mobile=False):
+    async def claim(self, org, owner, *, local=False, mobile=False, short=False):
         async with self.transaction(org) as s:
             row = (await s.execute(text("""SELECT * FROM ben.media_executions
                 WHERE org_id=:org AND state IN ('pending','submitting','submitted','running','ingesting','submission_unknown')
@@ -86,10 +113,11 @@ class MediaRepository:
                      OR (provider='google' AND model=:veo_model AND operation='image_to_video')
                      OR (provider='fal' AND model=:kling_model AND operation='image_to_video')
                      OR (:local AND provider='local_composer' AND model='ffmpeg_stream_copy' AND operation='narration_replacement')
+                     OR (:short AND provider='creatomate' AND model='fixed_5_scene_v1' AND operation='short_render')
                      OR (:mobile AND provider='local_composer' AND model='ffmpeg_mobile_v1' AND operation='video_import'))
                 AND next_reconcile_at <= now() AND (lease_expires_at IS NULL OR lease_expires_at < now())
                 ORDER BY next_reconcile_at FOR UPDATE SKIP LOCKED LIMIT 1"""),
-                {"mobile": mobile, "local": local, "org": org, "model": GEMINI_IMAGE_MODEL, "bfl_model": BFL_IMAGE_MODEL, "veo_model": VEO_VIDEO_MODEL, "kling_model": KLING_VIDEO_MODEL})).mappings().first()
+                {"short": short, "mobile": mobile, "local": local, "org": org, "model": GEMINI_IMAGE_MODEL, "bfl_model": BFL_IMAGE_MODEL, "veo_model": VEO_VIDEO_MODEL, "kling_model": KLING_VIDEO_MODEL})).mappings().first()
             if not row:
                 return None
             row = (await s.execute(text("""UPDATE ben.media_executions SET lease_owner=:owner,
@@ -103,13 +131,13 @@ class MediaRepository:
         allowed = {"state", "submit_attempts", "ingest_attempts", "error_code", "provider_operation_ref",
                    "provider_output", "usage_dimensions", "estimated_cost", "pricing_version", "actual_charge",
                    "storage_key", "mime_type", "byte_size", "checksum", "published_at", "next_reconcile_at",
-                   "provider_state", "poll_attempts", "last_polled_at"}
+                   "provider_state", "poll_attempts", "last_polled_at", "short_telemetry"}
         if set(values) - allowed:
             raise ValueError("invalid media mutation")
         assignments, params = [], {"id": row["execution_id"], "org": row["org_id"],
                                    "owner": row["lease_owner"], "version": row["version"]}
         for key, value in values.items():
-            if key in ("provider_output", "usage_dimensions"):
+            if key in ("provider_output", "usage_dimensions", "short_telemetry"):
                 value = json.dumps(value)
                 assignments.append(f"{key}=CAST(:{key} AS jsonb)")
             else:
@@ -140,7 +168,7 @@ provider lifecycle methods remain unchanged. A lost commit reply is not retried.
                     or current["lease_owner"] != row["lease_owner"] or not current["lease_owner"]
                     or any(current[k] != row[k] for k in ("resource_id", "created_by", "request_fingerprint"))):
                 return None
-            if current["operation"] not in ("image_to_video", "narration_replacement", "video_import") or stored.mime_type != "video/mp4":
+            if current["operation"] not in ("image_to_video", "narration_replacement", "video_import", "short_render") or stored.mime_type != "video/mp4":
                 raise ValueError("MP4 attempt requires video execution")
             resolve_attempt_key(current["org_id"], current["resource_id"],
                                 current["execution_id"], stored.storage_key)
@@ -182,7 +210,8 @@ provider lifecycle methods remain unchanged. A lost commit reply is not retried.
             result = (await s.execute(text("""UPDATE ben.media_executions SET state='submitting',
                 submit_attempts=submit_attempts+1,version=version+1,updated_at=now()
                 WHERE execution_id=:id AND org_id=:org AND lease_owner=:owner AND version=:version
-                  AND state='pending' AND submit_attempts=0 RETURNING *"""),
+                  AND state='pending' AND submit_attempts=0 AND deleted_at IS NULL
+                  AND lease_expires_at > clock_timestamp() AND deadline_at > clock_timestamp() RETURNING *"""),
                 {"id": row["execution_id"], "org": row["org_id"], "owner": row["lease_owner"],
                  "version": row["version"]})).mappings().first()
             return dict(result) if result else None
@@ -223,3 +252,36 @@ provider lifecycle methods remain unchanged. A lost commit reply is not retried.
                 COALESCE(provider_output,'{}'::jsonb),'{evaluation}',CAST(:evaluation AS jsonb)),
                 version=version+1,updated_at=now() WHERE execution_id=:id AND org_id=:org"""),
                 {"evaluation": json.dumps(observation), "id": execution, "org": org})
+            if row['operation'] == 'short_render':
+                telemetry = dict(row['short_telemetry'])
+                telemetry['human_review_status'] = observation['acceptance']
+                await s.execute(text("""UPDATE ben.media_executions
+                    SET short_telemetry=CAST(:telemetry AS jsonb)
+                    WHERE execution_id=:id AND org_id=:org"""),
+                    {'telemetry':json.dumps(telemetry), 'id':execution, 'org':org})
+
+    async def short_ingesting(self, row, telemetry):
+        async with self.transaction(row['org_id']) as session:
+            await self.destination(session, row['org_id'], row['conversation_id'])
+            result = (await session.execute(text("""UPDATE ben.media_executions
+                SET state='ingesting', short_telemetry=CAST(:telemetry AS jsonb), version=version+1
+                WHERE execution_id=:id AND org_id=:org AND version=:version AND lease_owner=:owner
+                AND operation='short_render' AND state IN ('submitted','running','ingesting')
+                AND deleted_at IS NULL AND lease_expires_at > clock_timestamp()
+                AND deadline_at > clock_timestamp() RETURNING *"""),
+                {'telemetry':json.dumps(telemetry),'id':row['execution_id'],'org':row['org_id'],
+                 'version':row['version'],'owner':row['lease_owner']})).mappings().first()
+            return dict(result) if result else None
+
+    async def short_replay(self, org, user, key, plan):
+        async with self.transaction(org) as session:
+            row = (await session.execute(text("SELECT * FROM ben.media_executions WHERE org_id=:org AND idempotency_key=:key"),
+                {'org':org,'key':key})).mappings().first()
+            if row is None:
+                return None
+            if row['created_by'] != user or row['operation'] != 'short_render' or row['request_payload']['plan'] != plan:
+                raise HTTPException(409, 'Idempotency key conflict')
+            if row['deleted_at'] is not None:
+                raise HTTPException(404, 'Media not found')
+            await self.destination(session, org, row['conversation_id'])
+            return dict(row)

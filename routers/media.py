@@ -234,3 +234,42 @@ async def resource(resource_id: uuid.UUID, identity=Depends(require_pilot), serv
     video = row["mime_type"] == "video/mp4"
     return Response(data, media_type="video/mp4" if video else "image/png", headers={"Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff", "Content-Disposition": 'inline; filename="ben-video.mp4"' if video else 'inline; filename="ben-image.png"'})
+
+
+# Default-off managed rendering. Identity gate runs before service/asset access.
+from services.media.short_contract import ScenePlan, RenderCommand, quote, verify_quote, digest
+from services.media.short_render import snapshot as short_snapshot
+from services.media.access import media_unavailable
+from fastapi import Header
+
+async def short_identity(request: Request):
+    if os.getenv('BEN_MEDIA_SHORT_RENDER_ENABLED') != '1':
+        raise media_unavailable()
+    try:
+        return await require_pilot(request)
+    except HTTPException as exc:
+        if exc.status_code in (401,403,404):
+            raise media_unavailable() from None
+        raise
+
+@router.post('/short-render-quotes')
+async def short_quote(plan: ScenePlan, identity=Depends(short_identity)):
+    service = media_service()
+    snap = await short_snapshot(service, *identity, plan)
+    token = quote(*identity, snap)
+    body = verify_quote(token, *identity, snap)
+    return {'quote_id':token,'estimated_cost_usd':body['estimate'],
+            'reserved_cost_usd':body['reserved'],'expires_at':body['expires'],
+            'pricing_version':body['pricing_version'],'cost_status':'estimated_only'}
+
+@router.post('/short-renders', status_code=202, response_model=ExecutionResponse)
+async def short_render(command: RenderCommand, identity=Depends(short_identity),
+                       idempotency_key: str = Header(min_length=1, max_length=128)):
+    service = media_service()
+    replay = await service.repo.short_replay(*identity, idempotency_key, command.plan.model_dump(mode='json'))
+    if replay is not None:
+        return public_execution(replay)
+    snap = await short_snapshot(service, *identity, command.plan)
+    q = verify_quote(command.quote_id, *identity, snap)
+    row = await service.repo.create(*identity, idempotency_key, snap, digest(snap), short_quote=q)
+    return public_execution(row)
