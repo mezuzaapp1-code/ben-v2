@@ -8,7 +8,7 @@ Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator,configu
 URL.createObjectURL=()=> 'blob:preview';URL.revokeObjectURL=()=>{}
 const {default:React,act}=await import('react');const {createRoot}=await import('react-dom/client')
 const out=new URL('../.photo-test.mjs',import.meta.url)
-const built=await build({entryPoints:[new URL('../src/components/PhotoSourceUpload.jsx',import.meta.url).pathname],bundle:true,write:false,format:'esm',platform:'node',jsx:'automatic',external:['react','react-dom','react/jsx-runtime']})
+const built=await build({entryPoints:[new URL('../src/components/PhotoSourceUpload.jsx',import.meta.url).pathname],define:{'import.meta.env':'{}'},bundle:true,write:false,format:'esm',platform:'node',jsx:'automatic',external:['react','react-dom','react/jsx-runtime']})
 await writeFile(out,built.outputFiles[0].text)
 try{
  const {default:Upload}=await import(out.href);const root=createRoot(document.getElementById('app'));let ready=null,calls=[]
