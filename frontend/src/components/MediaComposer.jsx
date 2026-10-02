@@ -1,3 +1,4 @@
+import PhotoSourceUpload from './PhotoSourceUpload.jsx'
 import VideoSubtitleEditor from './VideoSubtitleEditor.jsx'
 import { cloneElement, isValidElement, useEffect, useRef, useState } from 'react'
 import CreativeEditLab from './CreativeEditLab.jsx'
@@ -41,6 +42,8 @@ function MediaImage({ resourceId, buildHeaders, mimeType, editing, onEdit, onClo
 
 /** Text child is the unchanged BEN composer; media has its own explicit path. */
 export default function MediaComposer({ children, conversationId, scope, buildHeaders, ensureConversation, disabled, workspaceId, onChooseProject, onCreateProject }) {
+  const [photoSource, setPhotoSource] = useState(null)
+  useEffect(() => setPhotoSource(null), [scope, workspaceId, conversationId])
   const [editingId, setEditingId] = useState(null)
   const [mobileEnabled, setMobileEnabled] = useState(false)
   const [labEnabled, setLabEnabled] = useState(false)
@@ -110,7 +113,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
       pendingScope = `${scope}:${id}`
       const body = pendingMedia(sessionStorage, pendingScope, {
         conversation_id: id, prompt,
-        ...(mode === 'video' ? { model: videoChoice, source_resource_id: sourceId,
+        ...(mode === 'video' ? { model: videoChoice, ...(photoSource ? { source_file_id: photoSource.file_id, workspace_id: photoSource.workspace_id } : { source_resource_id: sourceId }),
           aspect_ratio: videoRatio, duration_seconds: videoSettings.duration_seconds, resolution: videoSettings.resolution }
           : { model, aspect_ratio: ratio }),
       })
@@ -134,7 +137,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
     ...(rows.some(row => row.resource_id && row.mime_type === 'video/mp4') ? [{ id: 'video-edit', label: 'Edit video subtitles', icon: '✎', disabled: disabled || busy, onClick: () => setEditingId(rows.find(row => row.resource_id && row.mime_type === 'video/mp4').resource_id) }] : []),
     ...(narrationEnabled ? [{ id: 'narration', label: 'Replace narration', icon: '♫', disabled: disabled || busy, onClick: () => setMode('narration') }] : []),
     { id: 'image', label: 'Generate image', icon: '◇', disabled: disabled || busy, onClick: () => setMode('image') },
-    ...(videoModels.length ? [{ id: 'video', label: 'Generate video', icon: '▷', disabled: disabled || busy, onClick: () => setMode('video') }] : []),
+    ...(videoModels.length ? [{ id: 'video', label: 'Animate my photo', icon: '▷', disabled: disabled || busy, onClick: () => setMode('video') }] : []),
   ]
   const composer = isValidElement(children) ? cloneElement(children, { attachMenuItems: actions }) : children
   return <>
@@ -160,13 +163,17 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
       workspaceId={workspaceId} rows={rows} buildHeaders={buildHeaders} ensureConversation={ensureConversation}
       disabled={disabled} onAccepted={() => setRefresh(value => value + 1)} /> : <>
       {mode === 'video' ? <>
+        <PhotoSourceUpload key={`${scope}:${workspaceId}`} workspaceId={workspaceId} scope={scope}
+          buildHeaders={buildHeaders} ensureConversation={ensureConversation} disabled={disabled || busy}
+          onChooseProject={onChooseProject} onCreateProject={onCreateProject} onReady={setPhotoSource} />
+        <p>Generate video sends this image and your instructions to the selected AI provider and may incur charges.</p>
         <label>Video engine <select value={videoChoice} disabled={busy} onChange={e => setVideoModel(e.target.value)}>
           {videoModels.map(value => <option key={value} value={value}>{value === 'veo-3.1-fast-generate-preview' ? 'Google Veo 3.1 Fast' : 'Kling O3 Standard via fal'}</option>)}
         </select></label>
         <p>{videoSettings.duration_seconds} seconds · {videoSettings.resolution} · audio {videoSettings.audio}</p>
         {videoSettings.source_aspect_ratio_required && <p>Choose an image matching the selected aspect ratio, at least 300 pixels on each side.</p>}
-        <label>First frame <select value={sourceId} disabled={busy} onChange={e => setSourceId(e.target.value)}>
-          <option value="">Choose a BEN image</option>
+        <label>First frame <select value={sourceId} disabled={busy} onChange={e => { setSourceId(e.target.value); setPhotoSource(null) }}>
+          <option value="">{photoSource ? "Your uploaded photo is selected" : "Or choose a BEN image"}</option>
           {rows.filter(row => row.resource_id && row.mime_type === 'image/png').map(row =>
             <option key={row.resource_id} value={row.resource_id}>{row.model} · {row.created_at}</option>)}
         </select></label>
@@ -182,7 +189,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
       </select></label>
       </>}
       <ComposerCapsule value={prompt} onChange={setPrompt} onSubmit={submit}
-        disabled={disabled || busy} loading={busy} canSend={!!prompt.trim() && !busy && (mode !== 'video' || rows.some(row => row.resource_id === sourceId && row.mime_type === 'image/png'))}
+        disabled={disabled || busy} loading={busy} canSend={!!prompt.trim() && !busy && (mode !== 'video' || photoSource || rows.some(row => row.resource_id === sourceId && row.mime_type === 'image/png'))}
         placeholder={mode === 'video' ? 'Describe motion for the selected image' : 'Describe an image'}
         ariaLabel={mode === 'video' ? 'Video prompt' : 'Image prompt'} sendLabel={mode === 'video' ? 'Generate video' : 'Generate image'} />
       {error && <p role="alert">{error}</p>}
