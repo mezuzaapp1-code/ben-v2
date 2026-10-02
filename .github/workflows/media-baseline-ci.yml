@@ -48,6 +48,7 @@ jobs:
           node scripts/test-mobile-upload.mjs
           node scripts/test-new-project.mjs
           node scripts/test-video-editor.mjs
+          node scripts/test-photo-source.mjs
           npm run test:project-library
           npm run test:clean-chat
           npm run build
@@ -60,6 +61,15 @@ jobs:
           git rev-parse HEAD
           python --version
           python -m pip freeze > baseline-environment.txt
+      - name: Owned photo upload and animation admission
+        run: |
+          python -m pytest tests/test_photo_source.py -v --junitxml=photo-results.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases = ET.parse('photo-results.xml').findall('.//testcase')
+          assert len(cases) == 5
+          assert all(not any(c.find(tag) is not None for tag in ('skipped','failure','error')) for c in cases)
+          PY
       - name: Mobile conversion and corruption acceptance
         run: python -m pytest tests/test_mobile_video.py -v --junitxml=mobile-results.xml
       - name: Mobile upload worker and authorized delivery

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from services.media.access import require_pilot, require_narration_pilot, enabled_image_models, enabled_video_models
 from services.media.narration import create_narration
 from services.media.access import require_mobile_pilot
-from services.media import mobile_import
+from services.media import mobile_import, photo_source
 from services.media.mobile_video import MobileVideoError
 from services.media.contracts import MAX_VIDEO_BYTES
 from services.ops.structured_log import log_info
@@ -71,6 +71,27 @@ class ReplaceNarration(BaseModel):
     narration_file_id: uuid.UUID
 
 
+async def photo_identity(request: Request):
+    if not enabled_video_models():
+        from services.media.access import media_unavailable
+        raise media_unavailable()
+    return await require_pilot(request)
+
+
+@router.post('/photo-sources', status_code=201)
+async def upload_photo(request: Request, conversation_id: uuid.UUID, workspace_id: uuid.UUID,
+                       idempotency_key: str = Query(min_length=1, max_length=128, pattern=r'^[a-zA-Z0-9_-]+$'),
+                       identity=Depends(photo_identity), service=Depends(media_service)):
+    from services.media.contracts import MAX_IMAGE_BYTES
+    await mobile_import.destination(service.repo, identity[0], conversation_id, workspace_id)
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > MAX_IMAGE_BYTES:
+            raise HTTPException(413, 'Image must be 20 MiB or smaller')
+        data.extend(chunk)
+    return await photo_source.upload(service.repo, *identity, conversation_id, workspace_id, idempotency_key, bytes(data))
+
+
 @router.post('/video-imports', status_code=202, response_model=ExecutionResponse)
 async def upload_video(request: Request, conversation_id: uuid.UUID, workspace_id: uuid.UUID,
                        idempotency_key: str = Query(min_length=1, max_length=128, pattern=r'^[a-zA-Z0-9_-]+$'),
@@ -128,7 +149,15 @@ class GenerateVideo(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
     model: Literal["veo-3.1-fast-generate-preview", "fal-ai/kling-video/o3/standard/image-to-video"]
     prompt: str = Field(min_length=1, max_length=2000)
-    source_resource_id: uuid.UUID
+    source_resource_id: uuid.UUID | None = None
+    source_file_id: uuid.UUID | None = None
+    workspace_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def one_source(self):
+        if bool(self.source_resource_id) == bool(self.source_file_id) or bool(self.source_file_id) != bool(self.workspace_id):
+            raise ValueError("Choose one image source")
+        return self
     aspect_ratio: Literal["16:9", "9:16"] = "16:9"
     duration_seconds: Literal[3, 4] = 4
     resolution: Literal["720p"] = "720p"
@@ -171,10 +200,11 @@ async def capabilities(identity=Depends(require_pilot)):
 @router.post("/executions", status_code=202)
 async def generate(body: GenerateImage | GenerateVideo, identity=Depends(require_pilot), service=Depends(media_service)):
     try:
-        request = (VideoRequest(body.model, body.prompt, str(body.source_resource_id), body.aspect_ratio,
+        request = (VideoRequest(body.model, body.prompt, str(body.source_resource_id or body.source_file_id), body.aspect_ratio,
                                body.duration_seconds, body.resolution) if isinstance(body, GenerateVideo)
                    else ImageRequest(body.model, body.prompt, body.aspect_ratio))
-        row = await service.create(*identity, body.idempotency_key, body.conversation_id, request)
+        row = await service.create(*identity, body.idempotency_key, body.conversation_id, request,
+            **({"photo_workspace": body.workspace_id} if isinstance(body, GenerateVideo) and body.source_file_id else {}))
     except MediaProviderError:
         raise HTTPException(422, "Invalid media request") from None
     return public_execution(row)
