@@ -12,7 +12,7 @@ from services.media.metadata import request_fingerprint
 from services.workspace_files.storage import files_root, sanitize_filename
 
 
-async def audio_bytes(repo, org, user, workspace, file_id):
+async def audio_bytes(repo, org, user, workspace, file_id, *, max_seconds=30, max_bytes=MAX_AUDIO_BYTES):
     async def record():
         async with repo.transaction(org) as session:
             row = (await session.execute(text("""SELECT f.id,f.storage_key,f.checksum,f.byte_size
@@ -35,7 +35,7 @@ async def audio_bytes(repo, org, user, workspace, file_id):
         raise HTTPException(503, "Audio unavailable")
     def read():
         with path.open("rb") as handle:
-            return handle.read(MAX_AUDIO_BYTES + 1)
+            return handle.read(max_bytes + 1)
     try:
         data = await asyncio.to_thread(read)
     except OSError:
@@ -44,7 +44,7 @@ async def audio_bytes(repo, org, user, workspace, file_id):
         raise HTTPException(503, "Audio integrity mismatch")
     if await record() != row:
         raise HTTPException(409, "Audio changed during read")
-    wav_duration(data)
+    wav_duration(data, max_seconds=max_seconds, max_bytes=max_bytes)
     return data
 
 

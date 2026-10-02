@@ -22,12 +22,14 @@ def video_path(org_id, resource_id):
 
 def inspect_mp4(data, *, aspect_ratio="16:9", duration_seconds=4, profile="legacy"):
     # Extended decode budget is opt-in; provider validation stays unchanged.
-    if profile not in ("legacy", "mobile-v1"):
+    if profile not in ("legacy", "mobile-v1", "short-v1"):
         raise ValueError("unsupported validation profile")
     if profile == "mobile-v1" and not 0 < duration_seconds <= 30:
         raise ValueError("invalid mobile duration")
-    frame_limit = 902 if profile == "mobile-v1" else 240
-    audio_limit = 1500 if profile == "mobile-v1" else 1000
+    if profile == "short-v1" and duration_seconds != 35:
+        raise ValueError("invalid short duration")
+    frame_limit = 1052 if profile == "short-v1" else 902 if profile == "mobile-v1" else 240
+    audio_limit = 1800 if profile == "short-v1" else 1500 if profile == "mobile-v1" else 1000
     if not data or len(data) > MAX_VIDEO_BYTES or data[4:8] != b"ftyp":
         raise ValueError("invalid media video")
     started = time.monotonic()
@@ -46,11 +48,18 @@ def inspect_mp4(data, *, aspect_ratio="16:9", duration_seconds=4, profile="legac
             duration = float(stream.duration * stream.time_base)
             if abs(duration - duration_seconds) > 0.1:
                 raise ValueError("unexpected media duration")
+            if profile == "short-v1":
+                if not container.streams.audio or stream.average_rate != 30:
+                    raise ValueError("short audio and CFR required")
+                a = container.streams.audio[0]
+                if a.duration is None or abs(float(a.duration*a.time_base)-35) > 0.1:
+                    raise ValueError("short audio duration mismatch")
             if container.streams.audio:
                 sound = container.streams.audio[0].codec_context
                 if sound.name != "aac" or sound.sample_rate > 48000 or len(sound.layout.channels) > 2:
                     raise ValueError("unsupported media audio")
             frames, audio_frames, last_time = 0, 0, None
+            audio_start, audio_end = None, None
             for frame in container.decode():
                 if isinstance(frame, av.VideoFrame):
                     frames += 1
@@ -61,6 +70,14 @@ def inspect_mp4(data, *, aspect_ratio="16:9", duration_seconds=4, profile="legac
                     last_time = frame.time
                 else:
                     audio_frames += 1
+                    if profile == "short-v1":
+                        if frame.time is None or not frame.sample_rate:
+                            raise ValueError("missing audio timestamps")
+                        if audio_end is not None and abs(frame.time-audio_end) > 0.1:
+                            raise ValueError("discontinuous short audio")
+                        if audio_start is None:
+                            audio_start = frame.time
+                        audio_end = frame.time + frame.samples/frame.sample_rate
                 if frames > frame_limit or audio_frames > audio_limit or time.monotonic() - started > 30:
                     raise ValueError("media decode limit")
             if frames < 1 or last_time is None or last_time < duration - 0.15:
@@ -68,6 +85,9 @@ def inspect_mp4(data, *, aspect_ratio="16:9", duration_seconds=4, profile="legac
             audio = bool(container.streams.audio)
             if audio and not audio_frames:
                 raise ValueError("invalid media audio")
+            if profile == "short-v1" and (audio_start is None or abs(audio_start) > 0.1
+                    or audio_end is None or abs(audio_end-duration) > 0.1):
+                raise ValueError("truncated short audio")
             return width, height, duration, audio
     except (av.FFmpegError, OSError, OverflowError):
         pass

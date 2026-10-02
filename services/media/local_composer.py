@@ -15,8 +15,8 @@ PROFILE = {"narration_gain": 1.0, "music_gain": 0.35, "threshold": 0.03,
            "sample_rate": 48000, "video_codec": "copy"}
 
 
-def wav_duration(data):
-    if not 44 <= len(data) <= MAX_AUDIO_BYTES:
+def wav_duration(data, *, max_seconds=30, max_bytes=MAX_AUDIO_BYTES):
+    if not 44 <= len(data) <= max_bytes:
         raise ValueError("audio_size_invalid")
     try:
         with wave.open(io.BytesIO(data), "rb") as audio:
@@ -24,7 +24,7 @@ def wav_duration(data):
                     or audio.getnchannels() not in (1, 2) or audio.getcomptype() != "NONE"):
                 raise ValueError("pcm16_48khz_required")
             frames = audio.getnframes()
-            if not 0 < frames <= 30 * 48000:
+            if not 0 < frames <= max_seconds * 48000:
                 raise ValueError("audio_duration_invalid")
             if len(audio.readframes(frames)) != frames * 2 * audio.getnchannels():
                 raise ValueError("audio_truncated")
