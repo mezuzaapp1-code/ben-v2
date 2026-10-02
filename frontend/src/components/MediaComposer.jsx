@@ -131,7 +131,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
       }
     } finally { sending.current = false; setBusy(false) }
   }
-  if (!enabled || !buildHeaders) return <>{children}{selectedPhoto && <p role="status">Your photo is selected. Media tools are unavailable for this account right now.</p>}</>
+  if (!enabled || !buildHeaders || (selectedPhoto && !videoModels.length)) return <>{children}{selectedPhoto && <p role="status">Your photo is selected. Media tools are unavailable for this account right now.</p>}</>
   const actions = [
     ...(children?.props?.attachMenuItems || []),
     ...(mobileEnabled ? [{ id: 'video-upload', label: 'Upload video', icon: '▷', disabled: disabled || busy, onClick: () => setMode('upload') }] : []),

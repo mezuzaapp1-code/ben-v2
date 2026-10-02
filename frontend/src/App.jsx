@@ -626,6 +626,7 @@ function App() {
   const [projectsOpen, setProjectsOpen] = useState(false)
   const [fileUploading, setFileUploading] = useState(false)
   const [selectedMediaPhoto, setSelectedMediaPhoto] = useState(null)
+  useEffect(() => setSelectedMediaPhoto(null), [sessionTenantId, userId])
   const fileAttachInFlightRef = useRef(false)
   const [attentionFocusRequest, setAttentionFocusRequest] = useState(null)
   const [newProjectModalOpen, setNewProjectModalOpen] = useState(false)
