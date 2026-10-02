@@ -2,6 +2,7 @@ import hashlib
 import io
 import uuid
 from unittest.mock import AsyncMock
+from types import SimpleNamespace
 import httpx
 import pytest
 from PIL import Image
@@ -49,7 +50,7 @@ async def test_upload_idempotency_owned_source_and_worker(mobile_setup,monkeypat
         assert response.status_code==202,response.text
         retry=await client.post('/api/media/executions',json=payload)
         assert retry.json()['execution_id']==response.json()['execution_id']
-        svc.veo_adapter.submit=AsyncMock(side_effect=MediaProviderError('test_provider_declined'))
+        svc.veo_adapter=SimpleNamespace(submit=AsyncMock(side_effect=MediaProviderError('test_provider_declined')))
         assert await svc.tick(ORG)
         svc.veo_adapter.submit.assert_awaited_once()
         assert svc.veo_adapter.submit.call_args.args[1]==photo_source.normalize(original)[0]
@@ -64,7 +65,7 @@ async def test_corruption_blocks_provider(mobile_setup,monkeypatch):
     request=VideoRequest(VEO_VIDEO_MODEL,'gentle motion',str(file_id))
     row=await svc.create(ORG,'tester','corrupt-animation',THREAD,request,photo_workspace=workspace)
     _,path=photo_source.path_for(ORG,workspace,file_id);path.write_bytes(b'bad')
-    svc.veo_adapter.submit=AsyncMock(side_effect=AssertionError('no provider call'))
+    svc.veo_adapter=SimpleNamespace(submit=AsyncMock(side_effect=AssertionError('no provider call')))
     assert await svc.tick(ORG)
     svc.veo_adapter.submit.assert_not_called()
     failed=await svc.repo.read(ORG,'tester',execution=row['execution_id'])
