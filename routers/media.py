@@ -79,16 +79,22 @@ async def photo_identity(request: Request):
 
 
 @router.post('/photo-sources', status_code=201)
-async def upload_photo(request: Request, conversation_id: uuid.UUID, workspace_id: uuid.UUID,
+async def upload_photo(request: Request, conversation_id: uuid.UUID, workspace_id: uuid.UUID | None = None,
                        idempotency_key: str = Query(min_length=1, max_length=128, pattern=r'^[a-zA-Z0-9_-]+$'),
                        identity=Depends(photo_identity), service=Depends(media_service)):
     from services.media.contracts import MAX_IMAGE_BYTES
-    await mobile_import.destination(service.repo, identity[0], conversation_id, workspace_id)
+    if workspace_id:
+        await mobile_import.destination(service.repo, identity[0], conversation_id, workspace_id)
+    else:
+        async with service.repo.transaction(identity[0]) as session:
+            await service.repo.destination(session, identity[0], conversation_id)
     data = bytearray()
     async for chunk in request.stream():
         if len(data) + len(chunk) > MAX_IMAGE_BYTES:
             raise HTTPException(413, 'Image must be 20 MiB or smaller')
         data.extend(chunk)
+    if workspace_id is None:
+        return await photo_source.chat_upload(service.repo, *identity, conversation_id, idempotency_key, bytes(data))
     return await photo_source.upload(service.repo, *identity, conversation_id, workspace_id, idempotency_key, bytes(data))
 
 
@@ -155,7 +161,7 @@ class GenerateVideo(BaseModel):
 
     @model_validator(mode="after")
     def one_source(self):
-        if bool(self.source_resource_id) == bool(self.source_file_id) or bool(self.source_file_id) != bool(self.workspace_id):
+        if bool(self.source_resource_id) == bool(self.source_file_id) or (self.workspace_id is not None and self.source_file_id is None):
             raise ValueError("Choose one image source")
         return self
     aspect_ratio: Literal["16:9", "9:16"] = "16:9"
@@ -204,7 +210,7 @@ async def generate(body: GenerateImage | GenerateVideo, identity=Depends(require
                                body.duration_seconds, body.resolution) if isinstance(body, GenerateVideo)
                    else ImageRequest(body.model, body.prompt, body.aspect_ratio))
         row = await service.create(*identity, body.idempotency_key, body.conversation_id, request,
-            **({"photo_workspace": body.workspace_id} if isinstance(body, GenerateVideo) and body.source_file_id else {}))
+            **({"photo_workspace": body.workspace_id, "photo_file": True} if isinstance(body, GenerateVideo) and body.source_file_id else {}))
     except MediaProviderError:
         raise HTTPException(422, "Invalid media request") from None
     return public_execution(row)

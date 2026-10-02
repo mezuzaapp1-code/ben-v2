@@ -17,11 +17,12 @@ try{
  const props={scope:'test',initialFile:file,buildHeaders:async()=>({}),ensureConversation:async()=> 'thread',onReady:value=>{ready=value;if(value)finish()}}
  await act(async()=>root.render(React.createElement(Upload,{...props,workspaceId:null})))
  assert(document.querySelector('img'));assert.equal(calls.length,0)
- assert([...document.querySelectorAll('button')].find(b=>b.textContent==='Use this photo').disabled)
- await act(async()=>root.render(React.createElement(Upload,{...props,workspaceId:'project'})))
+ assert(![...document.querySelectorAll('button')].find(b=>b.textContent==='Use this photo').disabled)
+ assert(!document.body.textContent.includes('Choose project'))
+
  assert(document.querySelector('img'));assert.equal(calls.length,0)
  await act(async()=>{[...document.querySelectorAll('button')].find(b=>b.textContent==='Use this photo').click();await Promise.race([completed,new Promise((_,reject)=>setTimeout(()=>reject(new Error('Upload did not finish')),5000))])})
- assert.equal(calls.length,1);assert(calls[0].url.includes('/photo-sources?'));assert.equal(ready.file_id,'owned-photo')
+ assert.equal(calls.length,1);assert(calls[0].url.includes('/photo-sources?'));assert(!calls[0].url.includes('workspace_id'));assert.equal(ready.file_id,'owned-photo')
  assert(!calls.some(c=>c.url.includes('/executions')))
  const app=await readFile(new URL('../src/App.jsx',import.meta.url),'utf8');const handler=app.slice(app.indexOf('const handleWorkspaceFileAttach'),app.indexOf('const handleWorkspaceFileAttach')+1800);assert(handler.indexOf('setSelectedMediaPhoto(file)')<handler.indexOf('if (!activeProjectId)'));
  await act(async()=>root.unmount());console.log('PASS: photo preview, explicit upload, owned source receipt, no paid generation on upload')
