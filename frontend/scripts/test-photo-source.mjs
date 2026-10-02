@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import {build} from 'esbuild'
-import {writeFile,unlink} from 'node:fs/promises'
+import {writeFile,unlink,readFile} from 'node:fs/promises'
 import {JSDOM} from 'jsdom'
 const dom=new JSDOM('<div id="app"></div>',{url:'https://ben.test'})
 Object.assign(globalThis,{window:dom.window,document:dom.window.document,sessionStorage:dom.window.sessionStorage,IS_REACT_ACT_ENVIRONMENT:true})
@@ -13,12 +13,16 @@ await writeFile(out,built.outputFiles[0].text)
 try{
  const {default:Upload}=await import(out.href);const root=createRoot(document.getElementById('app'));let ready=null,calls=[],finish;const completed=new Promise(resolve=>finish=resolve)
  globalThis.fetch=async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({file_id:'owned-photo',workspace_id:'project',width:320,height:180})}}
- await act(async()=>root.render(React.createElement(Upload,{workspaceId:'project',scope:'test',buildHeaders:async()=>({}),ensureConversation:async()=> 'thread',onReady:value=>{ready=value;if(value)finish()}})))
- const input=document.querySelector('input');Object.defineProperty(input,'files',{value:[{name:'photo.jpg',size:3,arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer}]})
- await act(async()=>input.dispatchEvent(new dom.window.Event('change',{bubbles:true})))
+ const file={name:'photo.jpg',size:3,arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer}
+ const props={scope:'test',initialFile:file,buildHeaders:async()=>({}),ensureConversation:async()=> 'thread',onReady:value=>{ready=value;if(value)finish()}}
+ await act(async()=>root.render(React.createElement(Upload,{...props,workspaceId:null})))
+ assert(document.querySelector('img'));assert.equal(calls.length,0)
+ assert([...document.querySelectorAll('button')].find(b=>b.textContent==='Use this photo').disabled)
+ await act(async()=>root.render(React.createElement(Upload,{...props,workspaceId:'project'})))
  assert(document.querySelector('img'));assert.equal(calls.length,0)
  await act(async()=>{[...document.querySelectorAll('button')].find(b=>b.textContent==='Use this photo').click();await Promise.race([completed,new Promise((_,reject)=>setTimeout(()=>reject(new Error('Upload did not finish')),5000))])})
  assert.equal(calls.length,1);assert(calls[0].url.includes('/photo-sources?'));assert.equal(ready.file_id,'owned-photo')
  assert(!calls.some(c=>c.url.includes('/executions')))
+ const app=await readFile(new URL('../src/App.jsx',import.meta.url),'utf8');const handler=app.slice(app.indexOf('const handleWorkspaceFileAttach'),app.indexOf('const handleWorkspaceFileAttach')+1800);assert(handler.indexOf('setSelectedMediaPhoto(file)')<handler.indexOf('if (!activeProjectId)'));
  await act(async()=>root.unmount());console.log('PASS: photo preview, explicit upload, owned source receipt, no paid generation on upload')
 }finally{await unlink(out)}

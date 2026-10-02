@@ -2,8 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import { BEN_API_BASE } from '../config.js'
 import { pendingMedia, clearPendingMedia } from '../api/media.js'
 
-export default function PhotoSourceUpload({ workspaceId, scope, buildHeaders, ensureConversation, onReady, disabled, onChooseProject, onCreateProject }) {
+export default function PhotoSourceUpload({ workspaceId, scope, buildHeaders, ensureConversation, onReady, disabled, onChooseProject, onCreateProject, initialFile }) {
   const [file,setFile]=useState(null), [preview,setPreview]=useState(''), [busy,setBusy]=useState(false), [message,setMessage]=useState('')
+  useEffect(()=>{
+    if (!initialFile) return
+    if (!/\.(jpe?g|png)$/i.test(initialFile.name) || initialFile.size > 20*1024*1024) {
+      setFile(null);setMessage('Choose a JPEG or PNG up to 20 MiB.');return
+    }
+    setFile(initialFile);setMessage('Your photo is selected. Choose a project if needed, then use this photo.')
+  },[initialFile])
   const lock=useRef(false), abort=useRef(null)
   const key=`photo:${scope}:${workspaceId}`
   useEffect(()=>{abort.current=new AbortController();return()=>abort.current.abort()},[key])

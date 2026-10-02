@@ -625,6 +625,7 @@ function App() {
   const [sourcesPanel, setSourcesPanel] = useState({ open: false, messageKey: null })
   const [projectsOpen, setProjectsOpen] = useState(false)
   const [fileUploading, setFileUploading] = useState(false)
+  const [selectedMediaPhoto, setSelectedMediaPhoto] = useState(null)
   const fileAttachInFlightRef = useRef(false)
   const [attentionFocusRequest, setAttentionFocusRequest] = useState(null)
   const [newProjectModalOpen, setNewProjectModalOpen] = useState(false)
@@ -1943,6 +1944,12 @@ function App() {
   const handleWorkspaceFileAttach = useCallback(
     async (file) => {
       if (!persistentReady || !file || fileUploading || loading || fileAttachInFlightRef.current) return
+      // Route user photos before the document workspace guard. Keep the File in
+      // memory so project selection never asks the user to pick it a second time.
+      if (/\.(jpe?g|png)$/i.test(file.name)) {
+        setSelectedMediaPhoto(file)
+        return
+      }
       let tid = activeId
       if (!tid || !threads.some((x) => x.id === tid)) tid = newThread()
 
@@ -2739,6 +2746,7 @@ function App() {
           <div className="composer-shell" style={{ '--shell-accent': shellAccent }}>
             <MediaComposer key={`${sessionTenantId}:${userId}`} scope={`${sessionTenantId}:${userId}`}
               workspaceId={activeProjectId}
+              selectedPhoto={selectedMediaPhoto}
               onChooseProject={openProjectsLibrary}
               onCreateProject={() => { setNewProjectError(null); setNewProjectModalOpen(true) }}
               conversationId={serverThreadIdForApi(activeId)}
