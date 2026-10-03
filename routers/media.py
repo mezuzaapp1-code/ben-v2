@@ -21,6 +21,8 @@ from routers.creative_lab import router as creative_lab_router, lab_enabled
 
 router = APIRouter(prefix="/api/media", tags=["internal-media"])
 router.include_router(creative_lab_router)
+from routers.production_plans import router as production_plans_router
+router.include_router(production_plans_router)
 
 
 def media_service():
