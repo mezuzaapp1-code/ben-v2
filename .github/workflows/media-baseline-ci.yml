@@ -1,7 +1,7 @@
 name: Isolated media baseline
 on:
   push:
-    branches: [astra/media-baseline-ci-20260928, astra/managed-short-render-v1, astra/production-plan-v1]
+    branches: [astra/media-baseline-ci-20260928, astra/managed-short-render-v1, astra/production-plan-v1, astra/production-planner-ui]
 permissions:
   contents: read
 jobs:
@@ -48,6 +48,7 @@ jobs:
           node scripts/test-mobile-upload.mjs
           node scripts/test-new-project.mjs
           node scripts/test-video-editor.mjs
+          node scripts/test-production-planner.mjs
           node scripts/test-photo-source.mjs
           npm run test:project-library
           npm run test:clean-chat

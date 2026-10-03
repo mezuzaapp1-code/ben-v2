@@ -193,6 +193,7 @@ async def evaluate(execution_id: uuid.UUID, body: Evaluation, identity=Depends(r
 @router.get("/capabilities")
 async def capabilities(identity=Depends(require_pilot)):
     return {"image": True, "models": enabled_image_models(), "internal_only": True,
+            "production_planning": os.getenv("BEN_MEDIA_PLAN_ENABLED") == "1",
             "mobile_video_import": os.getenv("BEN_MEDIA_MOBILE_IMPORT_ENABLED") == "1",
             "narration_replacement": os.getenv("BEN_MEDIA_LOCAL_NARRATION_ENABLED") == "1",
             "creative_lab": lab_enabled(),

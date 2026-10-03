@@ -75,3 +75,31 @@ async def test_gate_before_service_creation(monkeypatch,enabled):
         r=await c.post('/api/media/production-plans',json=dict(conversation_id=str(uuid.uuid4()),plan=draft()),headers={'Idempotency-Key':'one'})
     assert r.status_code==404 and r.json()['detail']['code']=='MEDIA_UNAVAILABLE'
     factory.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_planner_reads_use_authenticated_owner_and_private_photo_response(monkeypatch):
+    import routers.production_plans as module
+    from services.media import photo_source
+    owner=(uuid.uuid4(), uuid.uuid4())
+    conversation, photo=uuid.uuid4(), uuid.uuid4()
+    repo=object()
+    monkeypatch.setattr(module, 'MediaService', lambda: Mock(repo=repo))
+    latest=AsyncMock(return_value=None)
+    read=AsyncMock(return_value=b'\x89PNG\r\n\x1a\nimage')
+    monkeypatch.setattr(module.plan_store, 'latest', latest)
+    monkeypatch.setattr(photo_source, 'chat_read', read)
+    app=FastAPI();app.include_router(module.router,prefix='/api/media')
+    app.dependency_overrides[module.identity]=lambda: owner
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app),base_url='http://test') as c:
+        r=await c.get(f'/api/media/production-plans?conversation_id={conversation}')
+        assert r.json()=={'plan':None}
+        latest.assert_awaited_once_with(repo,*owner,conversation)
+        path=f'/api/media/production-plans/photos/{photo}?conversation_id={conversation}'
+        r=await c.get(path)
+        assert r.status_code==200 and r.headers['content-type']=='image/png'
+        assert r.headers['cache-control']=='private, no-store'
+        assert r.headers['x-content-type-options']=='nosniff'
+        read.assert_awaited_once_with(repo,*owner,conversation,photo)
+        read.side_effect=HTTPException(404,'unavailable')
+        assert (await c.get(path)).status_code==404

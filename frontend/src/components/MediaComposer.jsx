@@ -1,4 +1,5 @@
 import PhotoSourceUpload from './PhotoSourceUpload.jsx'
+import ProductionPlanner from './ProductionPlanner.jsx'
 import VideoSubtitleEditor from './VideoSubtitleEditor.jsx'
 import { cloneElement, isValidElement, useEffect, useRef, useState } from 'react'
 import CreativeEditLab from './CreativeEditLab.jsx'
@@ -43,6 +44,7 @@ function MediaImage({ resourceId, buildHeaders, mimeType, editing, onEdit, onClo
 /** Text child is the unchanged BEN composer; media has its own explicit path. */
 export default function MediaComposer({ children, conversationId, scope, buildHeaders, ensureConversation, disabled, workspaceId, onChooseProject, onCreateProject, selectedPhoto }) {
   const [photoSource, setPhotoSource] = useState(null)
+  const [planningEnabled, setPlanningEnabled] = useState(false)
   useEffect(() => { if (selectedPhoto) { setMode('video'); setPhotoSource(null) } }, [selectedPhoto])
   useEffect(() => setPhotoSource(null), [scope, workspaceId, conversationId])
   const [editingId, setEditingId] = useState(null)
@@ -76,6 +78,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
         const caps = await mediaRequest('/capabilities', await buildHeaders(), { signal: controller.signal })
         if (!controller.signal.aborted) {
           setLabEnabled(caps.creative_lab === true)
+          setPlanningEnabled(caps.production_planning === true)
           setNarrationEnabled(caps.narration_replacement === true)
           setMobileEnabled(caps.mobile_video_import === true)
           setEnabled(caps.image === true)
@@ -134,6 +137,9 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
   if (!enabled || !buildHeaders || (selectedPhoto && !videoModels.length)) return <>{children}{selectedPhoto && <p role="status">Your photo is selected. Media tools are unavailable for this account right now.</p>}</>
   const actions = [
     ...(children?.props?.attachMenuItems || []),
+    ...(planningEnabled ? [{id:'production-plan',label:'Plan a video',icon:'▤',disabled:disabled||busy,onClick:async()=>{
+      try { await ensureConversation(); setMode('plan') } catch { setError('Could not open a conversation for this plan.') }
+    }}] : []),
     ...(mobileEnabled ? [{ id: 'video-upload', label: 'Upload video', icon: '▷', disabled: disabled || busy, onClick: () => setMode('upload') }] : []),
     ...(rows.some(row => row.resource_id && row.mime_type === 'video/mp4') ? [{ id: 'video-edit', label: 'Edit video subtitles', icon: '✎', disabled: disabled || busy, onClick: () => setEditingId(rows.find(row => row.resource_id && row.mime_type === 'video/mp4').resource_id) }] : []),
     ...(narrationEnabled ? [{ id: 'narration', label: 'Replace narration', icon: '♫', disabled: disabled || busy, onClick: () => setMode('narration') }] : []),
@@ -155,7 +161,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
         {row.resource_id && <MediaImage resourceId={row.resource_id} buildHeaders={buildHeaders} mimeType={row.mime_type} editing={editingId === row.resource_id} onEdit={() => setEditingId(row.resource_id)} onClose={() => setEditingId(null)} />}
       </article>)}
     </section>}
-    {mode === 'text' ? composer : mode === 'upload' ? <MobileVideoUpload
+    {mode === 'plan' ? <>{composer}{conversationId&&<ProductionPlanner key={`${scope}:${conversationId}`} scope={scope} conversationId={conversationId} buildHeaders={buildHeaders} onClose={()=>setMode('text')}/>}</> : mode === 'text' ? composer : mode === 'upload' ? <MobileVideoUpload
       onChooseProject={onChooseProject} onCreateProject={onCreateProject}
       key={`${scope}:${workspaceId}`} scope={scope} workspaceId={workspaceId}
       buildHeaders={buildHeaders} ensureConversation={ensureConversation} disabled={disabled}
