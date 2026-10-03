@@ -1,7 +1,7 @@
 name: Isolated media baseline
 on:
   push:
-    branches: [astra/media-baseline-ci-20260928, astra/managed-short-render-v1]
+    branches: [astra/media-baseline-ci-20260928, astra/managed-short-render-v1, astra/production-plan-v1]
 permissions:
   contents: read
 jobs:
@@ -61,6 +61,15 @@ jobs:
           git rev-parse HEAD
           python --version
           python -m pip freeze > baseline-environment.txt
+      - name: Immutable production plans and real PostgreSQL
+        run: |
+          python -m pytest tests/test_production_plan.py tests/test_production_plan_repository.py -v --junitxml=plan-results.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases=ET.parse('plan-results.xml').findall('.//testcase')
+          assert len(cases)>=18
+          assert all(not any(c.find(t) is not None for t in ('skipped','failure','error')) for c in cases)
+          PY
       - name: Managed short rendering, bounded transport and real PostgreSQL
         run: |
           python -m pytest tests/test_short_render.py tests/test_short_render_repository.py -v --junitxml=short-results.xml
@@ -183,3 +192,4 @@ jobs:
             mobile-results.xml
             mobile-import-results.xml
             short-results.xml
+            plan-results.xml
