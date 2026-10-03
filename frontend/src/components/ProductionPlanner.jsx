@@ -88,6 +88,7 @@ export default function ProductionPlanner({conversationId,scope,buildHeaders,onC
     }}finally{lock.current=false;if(!abort.current.signal.aborted)setBusy(false)}
   }
   const unsupported=plan?.scenes.some(s=>s.duration_ms!==5000||s.transition_to_next.kind!=='cut'||!['generated_scene','animated_attachment'].includes(s.visual.kind)||(s.visual.reference_ids?.length||0)>1)
+  let cursor=0;const timing=plan?.scenes.map(s=>{const start=cursor;cursor+=s.duration_ms-(s.transition_to_next.overlap_ms||0);return [start/1000,(start+s.duration_ms)/1000]})
   const scene=plan?.scenes[selected],locked=busy||!!pending||!loaded||unsupported
   return createPortal(<div className="ben-plan-backdrop"><section ref={root} className="ben-plan" role="dialog" aria-modal="true" aria-label="Video planning workspace">
     <header><div><small>BEN / CREATIVE STUDIO</small><h2>Your story, scene by scene</h2></div><button ref={close} onClick={()=>closeAction.current()} aria-label="Close planning workspace">✕</button></header>
@@ -112,7 +113,7 @@ export default function ProductionPlanner({conversationId,scope,buildHeaders,onC
         {!plan&&<button className="ben-plan-primary" disabled={locked||!brief.trim()} onClick={()=>change(outline(brief))}>Create editable outline</button>}
         {plan&&<><div className="ben-plan-section"><h3>Storyboard</h3><button aria-expanded={expanded} onClick={()=>setExpanded(v=>!v)}>{expanded?'Hide scene controls':'Show scene controls'}</button></div>
           <div className="ben-plan-scenes">{plan.scenes.map((s,i)=>{const imageId=s.visual.attachment_id||s.visual.reference_ids?.[0];return <button className={`ben-plan-scene ${selected===i?'is-selected':''}`} key={s.scene_id} aria-pressed={selected===i} onClick={()=>{setSelected(i);setExpanded(true)}}>
-            <div className="ben-plan-scene-visual">{photos[imageId]?<img src={photos[imageId]} alt="Scene reference, not a generated frame"/>:<span>{String(i+1).padStart(2,'0')}</span>}<small>{i*5}–{(i+1)*5}s</small></div>
+            <div className="ben-plan-scene-visual">{photos[imageId]?<img src={photos[imageId]} alt="Scene reference, not a generated frame"/>:<span>{String(i+1).padStart(2,'0')}</span>}<small>{timing[i][0]}–{timing[i][1]}s</small></div>
             <strong>{['Opening','Development','Ending'][i]}</strong><p>{s.visual.prompt||s.visual.motion_prompt||'Describe what happens in this scene'}</p>
           </button>})}</div><p className="ben-plan-note">Images shown are references, not generated frames. Scene timing is fixed to 5 seconds in this editor.</p></>}
       </div>
@@ -129,3 +130,4 @@ export default function ProductionPlanner({conversationId,scope,buildHeaders,onC
     {confirmClose&&<div className="ben-plan-confirm" role="alert"><p>{pending?'An unconfirmed save will be recovered when you reopen.':'Discard unsaved local changes?'}</p><button onClick={()=>setConfirmClose(false)}>Keep editing</button><button onClick={onClose}>Close workspace</button></div>}
   </section></div>,document.body)
 }
+
