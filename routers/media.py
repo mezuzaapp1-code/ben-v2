@@ -18,9 +18,11 @@ from services.ops.structured_log import log_info
 from services.media.contracts import GEMINI_IMAGE_MODEL, KLING_VIDEO_MODEL, ImageRequest, VideoRequest, MediaProviderError
 from services.media.service import MediaService, public_execution
 from routers.creative_lab import router as creative_lab_router, lab_enabled
+from routers.edit_documents import router as edit_documents_router
 
 router = APIRouter(prefix="/api/media", tags=["internal-media"])
 router.include_router(creative_lab_router)
+router.include_router(edit_documents_router)
 
 
 def media_service():
