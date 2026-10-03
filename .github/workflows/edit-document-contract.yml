@@ -1,0 +1,44 @@
+name: Editor document contract
+on:
+  push:
+    branches: [astra/editor-document-v1]
+  pull_request:
+    paths:
+      - 'services/media/edit_document.py'
+      - 'frontend/src/lib/editDocument.js'
+      - 'frontend/scripts/test-edit-document.mjs'
+      - 'tests/test_edit_document.py'
+      - 'tests/fixtures/editor_document_v1.json'
+      - 'scripts/check_edit_document_parity.py'
+      - '.github/workflows/edit-document-contract.yml'
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install pure contract test dependencies
+        run: python -m pip install pydantic==2.13.5 pytest==9.0.3
+      - name: Backend contract
+        run: python -m pytest tests/test_edit_document.py -q --junitxml=edit-document-results.xml
+      - name: Frontend adapter and validation
+        env:
+          EDIT_DOCUMENT_RESULT: edit-document-js.json
+        run: node frontend/scripts/test-edit-document.mjs
+      - name: Cross-language roundtrip
+        run: python scripts/check_edit_document_parity.py edit-document-js.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: edit-document-contract-evidence
+          path: |
+            edit-document-results.xml
+            edit-document-js.json
