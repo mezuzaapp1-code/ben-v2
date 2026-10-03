@@ -63,6 +63,8 @@ async def test_owned_sources_checksums_revocation_and_rls(setup):
     value['scenes'][0]['visual']=dict(kind='animated_attachment',attachment_id=aid,motion_prompt='move gently')
     cmd=SavePlan(conversation_id=THREAD,plan=value)
     result=await plan_store.save(service,ORG,'tester','valid',cmd)
+    assert (await plan_store.latest(service.repo,ORG,'tester',THREAD))['id']==result['id']
+    assert await plan_store.latest(service.repo,ORG,'outsider',THREAD) is None
     assert 'asset_snapshot' not in result and 'storage_key' not in str(result)
     for org,user in ((OTHER,'tester'),(ORG,'outsider')):
         with pytest.raises(HTTPException):await plan_store.read(service.repo,org,user,result['id'])

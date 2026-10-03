@@ -27,6 +27,16 @@ async def read(repo, org, user, version_id):
         return public(row)
 
 
+async def latest(repo, org, user, conversation):
+    async with repo.transaction(org) as session:
+        await repo.destination(session, org, conversation)
+        row = (await session.execute(text('''SELECT * FROM ben.media_plan_versions
+            WHERE org_id=:org AND created_by=:user AND conversation_id=:conversation
+            ORDER BY created_at DESC,id DESC LIMIT 1'''),
+            dict(org=org, user=user, conversation=conversation))).mappings().first()
+        return public(row) if row else None
+
+
 async def resolve_assets(service, org, user, command):
     snapshots = []
     for asset in command.plan.attachments:
