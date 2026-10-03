@@ -194,6 +194,7 @@ async def evaluate(execution_id: uuid.UUID, body: Evaluation, identity=Depends(r
 async def capabilities(identity=Depends(require_pilot)):
     return {"image": True, "models": enabled_image_models(), "internal_only": True,
             "mobile_video_import": os.getenv("BEN_MEDIA_MOBILE_IMPORT_ENABLED") == "1",
+            "edit_documents": os.getenv("BEN_MEDIA_EDIT_DOCUMENTS_ENABLED") == "1",
             "narration_replacement": os.getenv("BEN_MEDIA_LOCAL_NARRATION_ENABLED") == "1",
             "creative_lab": lab_enabled(),
             "aspect_ratios": ["1:1", "16:9", "9:16"], "image_size": "1K",

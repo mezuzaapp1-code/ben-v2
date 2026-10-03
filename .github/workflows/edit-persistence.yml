@@ -10,9 +10,41 @@ on:
       - 'database/migrations/versions/video_edit_documents_v1.py'
       - 'tests/test_edit*.py'
       - '.github/workflows/edit-persistence.yml'
+      - 'frontend/src/components/*Editor*'
+      - 'frontend/src/components/FreeTextLayer.jsx'
+      - 'frontend/src/components/TextAppearanceControls.jsx'
+      - 'frontend/src/components/MediaComposer.jsx'
+      - 'frontend/src/lib/edit*.js'
+      - 'frontend/src/lib/subtitle*.js'
+      - 'frontend/src/lib/textAppearance.js'
+      - 'frontend/scripts/test-*editor*.mjs'
+      - 'frontend/scripts/test-edit-session.mjs'
 permissions:
   contents: read
 jobs:
+  editor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --no-audit --no-fund
+        working-directory: frontend
+      - name: Saved editing and existing controls
+        working-directory: frontend
+        run: |
+          node scripts/test-edit-session.mjs
+          node scripts/test-video-editor.mjs
+          node scripts/test-saved-editor-ui.mjs
+          node scripts/test-media.mjs
+          node scripts/test-narration-ui.mjs
+      - name: Lint new editor modules
+        working-directory: frontend
+        run: npx eslint src/lib/editSession.js src/components/SavedVideoEditor.jsx src/components/VideoSubtitleEditor.jsx src/components/FreeTextLayer.jsx src/components/TextAppearanceControls.jsx src/lib/editorStorage.js src/lib/subtitleCommands.js src/lib/textAppearance.js
+      - run: npm run build
+        working-directory: frontend
   persistence:
     runs-on: ubuntu-24.04
     timeout-minutes: 10

@@ -112,6 +112,28 @@ async def test_api_roundtrip_restore_and_paginated_history(edits):
 
 
 @pytest.mark.asyncio
+async def test_saved_work_discovery_is_private_filtered_and_hides_changed_source(edits):
+    service, admin, doc, *_ = edits
+    await first(edits)
+    url = '/api/media/edit-documents'
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app_for(service)), base_url='http://test') as client:
+        result = await client.get(url)
+        assert result.status_code == 200
+        assert result.headers['cache-control'] == 'private, no-store'
+        rows = result.json()['documents']
+        assert len(rows) == 1 and rows[0]['document_id'] == doc['document_id']
+        assert set(rows[0]) == {'document_id', 'resource_id', 'head_number', 'updated_at'}
+        assert (await client.get(url+'?resource_id='+doc['source']['resource_id'])).json()['documents'] == rows
+        assert (await client.get(url+'?resource_id='+str(uuid.uuid4()))).json()['documents'] == []
+        assert (await client.get(url+'?resource_id=bad')).status_code == 422
+    for org, user in [(OTHER, 'tester'), (ORG, 'another-user')]:
+        assert await service.repo.list_documents(org, user) == {'documents': []}
+    await admin.execute('UPDATE ben.media_executions SET checksum=$1 WHERE resource_id=$2',
+                        '0'*64, uuid.UUID(doc['source']['resource_id']))
+    assert await service.repo.list_documents(ORG, 'tester') == {'documents': []}
+
+
+@pytest.mark.asyncio
 async def test_concurrent_first_save_and_lost_response_replay(edits):
     service, admin, doc, *_ = edits
     copies = await asyncio.gather(*(service.create(ORG, 'tester', 'first', doc) for _ in range(4)))

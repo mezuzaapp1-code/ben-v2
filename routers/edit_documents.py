@@ -94,6 +94,13 @@ async def save(document_id: uuid.UUID, request: Request, response: Response,
     return await persisted(service.repo.save(*identity, document_id, base, key, document))
 
 
+@router.get('')
+async def documents(response: Response, resource_id: uuid.UUID | None = None,
+                    identity=Depends(edit_identity), service=Depends(edit_service)):
+    private(response)
+    return await persisted(service.repo.list_documents(*identity, resource=resource_id))
+
+
 @router.get('/{document_id}')
 async def load(document_id: uuid.UUID, response: Response, identity=Depends(edit_identity), service=Depends(edit_service)):
     private(response)

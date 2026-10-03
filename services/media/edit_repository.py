@@ -53,6 +53,22 @@ class EditRepository:
     def __init__(self, media_repository=None):
         self.media = media_repository or MediaRepository()
 
+    async def list_documents(self, org, user, *, resource=None):
+        # Owner quota bounds the complete collection at 100. Never return bodies,
+        # storage keys or another user's work; RLS also checks live source access.
+        async with self.transaction(org, user) as session:
+            rows = (await session.execute(text('''SELECT d.document_id,d.resource_id,
+                d.head_number,d.updated_at FROM ben.video_edit_documents d
+                JOIN ben.media_executions m ON m.resource_id=d.resource_id
+                AND m.org_id=d.org_id AND m.created_by=d.created_by
+                WHERE d.org_id=:org AND d.created_by=:user
+                AND m.checksum=d.source_checksum AND m.state='succeeded'
+                AND m.deleted_at IS NULL
+                AND (CAST(:resource AS uuid) IS NULL OR d.resource_id=CAST(:resource AS uuid))
+                ORDER BY d.updated_at DESC,d.document_id LIMIT 100'''),
+                {'org': org, 'user': user, 'resource': resource})).mappings().all()
+            return {'documents': [dict(row) for row in rows]}
+
     @asynccontextmanager
     async def transaction(self, org, user):
         async with self.media.transaction(org) as session:
