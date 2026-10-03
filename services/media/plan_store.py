@@ -43,15 +43,15 @@ async def resolve_assets(service, org, user, command):
     return snapshots
 
 
-async def lock_assets(session, org, user, conversation, snapshots):
+async def check_assets(session, org, user, conversation, snapshots):
     for asset in snapshots:
         if asset['source_kind'] == 'chat_photo':
             query = '''SELECT checksum FROM ben.chat_photo_sources
-                WHERE id=:id AND org_id=:org AND created_by=:user AND conversation_id=:conversation FOR SHARE'''
+                WHERE id=:id AND org_id=:org AND created_by=:user AND conversation_id=:conversation'''
         else:
             query = '''SELECT checksum FROM ben.media_executions
                 WHERE resource_id=:id AND org_id=:org AND created_by=:user AND conversation_id=:conversation
-                AND state='succeeded' AND mime_type='image/png' AND deleted_at IS NULL FOR SHARE'''
+                AND state='succeeded' AND mime_type='image/png' AND deleted_at IS NULL'''
         checksum = await session.scalar(text(query), dict(id=uuid.UUID(asset['source_id']), org=org,
                                                         user=user, conversation=conversation))
         if checksum != asset['checksum']:
@@ -84,11 +84,11 @@ async def save(service, org, user, key, command: SavePlan):
             if previous['request_hash'] != request_hash:
                 raise HTTPException(409, 'Plan idempotency conflict')
             return public(previous)
-        await lock_assets(session, org, user, command.conversation_id, assets)
+        await check_assets(session, org, user, command.conversation_id, assets)
         plan_id, version = uuid.uuid4(), 1
         if command.parent_version_id:
             parent = (await session.execute(text('''SELECT * FROM ben.media_plan_versions
-                WHERE id=:id AND org_id=:org AND created_by=:user AND conversation_id=:conversation FOR SHARE'''),
+                WHERE id=:id AND org_id=:org AND created_by=:user AND conversation_id=:conversation'''),
                 dict(id=command.parent_version_id, org=org, user=user,
                      conversation=command.conversation_id))).mappings().first()
             if not parent:

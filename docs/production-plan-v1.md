@@ -49,7 +49,9 @@ authorize execution. Execution must freshly recheck source access and identity.
 Existing media_executions represents billable attempts, not editable intent. A
 separate media_plan_versions table avoids fabricating paid executions for drafts.
 Plan/version IDs and version numbers are server-generated. Source checksums are
-computed from authorized bytes and rechecked under database locks before insertion.
+computed from authorized bytes and their records rechecked before insertion.
+These are point-in-time draft snapshots, not locks on future source availability:
+a source can be revoked later, so execution must reauthorize and recheck bytes.
 RLS is forced for org isolation; application queries also enforce creator and
 conversation. A database trigger rejects all UPDATEs and mismatched parent lineage.
 
