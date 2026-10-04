@@ -52,3 +52,14 @@ by disabling the flag, retaining saved records.
 Before opening user trials, separately close the remaining video-upload project
 dependency, verify real production save/reopen under the pilot account, and finish
 the preview-compatible MP4 export slice. Research launch experiments are paused.
+
+
+## Main-menu media entry
+
+The main navigation now exposes **Media editor** and **My saved work** (with Hebrew labels when the UI locale is Hebrew). Both open an account-scoped responsive Media studio drawer, independent of project selection. The composer shortcut opens the same drawer.
+
+The saved tab reads the authenticated edit-document collection. The editor tab lists only completed MP4 resources in the current conversation. Selecting a card opens the existing saved video editor; closing it refreshes saved versions. Loading failures are retryable and unavailable media can be dismissed. The drawer cannot close behind an active editor, so the editor retains control of unsaved-change and in-flight-save protection.
+
+This is navigation into existing editing capabilities, not an all-media catalog: generated images remain in their conversations, and MP4 export with edits is not added. No migration, provider submission, or feature-flag broadening is needed.
+
+Validation: `node scripts/test-media-library.mjs` exercises the real React components, authenticated reads, empty/error/retry states, video selection, editor Escape confirmation, failed media recovery, and account remount isolation.

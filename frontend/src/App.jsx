@@ -66,6 +66,7 @@ import { ProjectSuccessToast } from './components/ProjectSuccessToast.jsx'
 import { SystemTelemetryBadge } from './components/SystemTelemetryBadge.jsx'
 import { ComposerCapsule } from './components/ComposerCapsule.jsx'
 import MediaComposer from './components/MediaComposer.jsx'
+import MediaLibrary, { MediaLibraryNav } from './components/MediaLibrary.jsx'
 import { BasaltSelect } from './components/ui/BasaltSelect.jsx'
 import { AppTopBar } from './components/AppTopBar.jsx'
 import { ChatHeader } from './components/ChatHeader.jsx'
@@ -626,6 +627,7 @@ function App() {
   const [projectsOpen, setProjectsOpen] = useState(false)
   const [fileUploading, setFileUploading] = useState(false)
   const [selectedMediaPhoto, setSelectedMediaPhoto] = useState(null)
+  const [mediaLibraryView, setMediaLibraryView] = useState(null)
   useEffect(() => setSelectedMediaPhoto(null), [sessionTenantId, userId])
   const fileAttachInFlightRef = useRef(false)
   const [attentionFocusRequest, setAttentionFocusRequest] = useState(null)
@@ -2434,6 +2436,11 @@ function App() {
         buildHeaders={buildAppHeaders}
         disabled={loading}
       />
+      {mediaLibraryView && persistentReady && <MediaLibrary
+        key={`${sessionTenantId}:${userId}:${mediaLibraryView}`}
+        initialView={mediaLibraryView} scope={`${sessionTenantId}:${userId}`}
+        conversationId={serverThreadIdForApi(activeId)} buildHeaders={persistentHeaders}
+        onClose={() => setMediaLibraryView(null)} />}
       <FileLibraryOverlay
         open={filesOpen}
         onClose={closeFilesLibrary}
@@ -2508,6 +2515,10 @@ function App() {
                 </button>
               ) : null}
             </div>
+            <MediaLibraryNav disabled={!persistentReady} onOpen={view => {
+              closeNavDrawerIfOverlay()
+              setMediaLibraryView(view)
+            }} />
             <ProjectLibraryNavTrigger
               onOpen={openProjectsLibrary}
               active={projectsOpen}
@@ -2752,6 +2763,7 @@ function App() {
             <MediaComposer key={`${sessionTenantId}:${userId}`} scope={`${sessionTenantId}:${userId}`}
               workspaceId={activeProjectId}
               selectedPhoto={selectedMediaPhoto}
+              onOpenSavedWork={() => setMediaLibraryView('saved')}
               onChooseProject={openProjectsLibrary}
               onCreateProject={() => { setNewProjectError(null); setNewProjectModalOpen(true) }}
               conversationId={serverThreadIdForApi(activeId)}
