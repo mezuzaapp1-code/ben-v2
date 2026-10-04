@@ -1,5 +1,18 @@
-export const DEFAULT_STYLE = Object.freeze({ font: 'Arial', size: 5, color: '#ffffff', background: '#000000', opacity: 70, position: 'bottom' })
-export const FONTS = ['Arial', 'Tahoma', 'Verdana']
+export const DEFAULT_STYLE = Object.freeze({ font: 'Arial', size: 5, color: '#ffffff', background: '#000000', opacity: 70, position: 'bottom', alignment: 'auto' })
+// Ignore punctuation, timestamps and numerals; use the first strong letter.
+export function subtitleDirection(text, fallback = 'ltr') {
+  const letter = text.match(/\p{L}/u)?.[0]
+  return letter ? (/\p{Script=Hebrew}|\p{Script=Arabic}/u.test(letter) ? 'rtl' : 'ltr') : fallback
+}
+export function subtitleAlignment(alignment, direction) {
+  return ['left', 'center', 'right'].includes(alignment) ? alignment : direction === 'rtl' ? 'right' : 'left'
+}
+export function clampSubtitlePoint(x, y, widthRatio = 0, heightRatio = 0) {
+  const halfWidth = Math.min(50, Math.max(0, widthRatio * 50))
+  const halfHeight = Math.min(50, Math.max(0, heightRatio * 50))
+  return { x: Math.max(halfWidth, Math.min(100 - halfWidth, x)), y: Math.max(halfHeight, Math.min(100 - halfHeight, y)) }
+}
+export const FONTS = ['Arial', 'Segoe UI', 'Tahoma', 'Verdana', 'Georgia', 'Times New Roman', 'Courier New']
 export function validateCues(cues, duration) {
   if (!Array.isArray(cues) || cues.length > 300) throw new Error('Use up to 300 subtitles.')
   for (const cue of cues) {

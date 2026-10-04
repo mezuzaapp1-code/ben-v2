@@ -18,9 +18,11 @@ from services.ops.structured_log import log_info
 from services.media.contracts import GEMINI_IMAGE_MODEL, KLING_VIDEO_MODEL, ImageRequest, VideoRequest, MediaProviderError
 from services.media.service import MediaService, public_execution
 from routers.creative_lab import router as creative_lab_router, lab_enabled
+from routers.edit_documents import router as edit_documents_router
 
 router = APIRouter(prefix="/api/media", tags=["internal-media"])
 router.include_router(creative_lab_router)
+router.include_router(edit_documents_router)
 
 
 def media_service():
@@ -192,6 +194,7 @@ async def evaluate(execution_id: uuid.UUID, body: Evaluation, identity=Depends(r
 async def capabilities(identity=Depends(require_pilot)):
     return {"image": True, "models": enabled_image_models(), "internal_only": True,
             "mobile_video_import": os.getenv("BEN_MEDIA_MOBILE_IMPORT_ENABLED") == "1",
+            "edit_documents": os.getenv("BEN_MEDIA_EDIT_DOCUMENTS_ENABLED") == "1",
             "narration_replacement": os.getenv("BEN_MEDIA_LOCAL_NARRATION_ENABLED") == "1",
             "creative_lab": lab_enabled(),
             "aspect_ratios": ["1:1", "16:9", "9:16"], "image_size": "1K",
