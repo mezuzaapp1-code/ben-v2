@@ -58,6 +58,7 @@ export function ComposerCapsule({
   disabled = false,
   canSend = false,
   sendLabel = 'Send',
+  showSendLabel = false,
   loading = false,
   adhocMode = false,
   shellAccent,
@@ -375,11 +376,12 @@ export function ComposerCapsule({
         <div className="composer-capsule__actions">
           <button
             type="submit"
-            className="composer-capsule__send"
+            className={`composer-capsule__send${showSendLabel ? ' composer-capsule__send--label' : ''}`}
             disabled={!canSend || disabled}
             aria-label={sendLabel}
             title={sendLabel}
           >
+            {showSendLabel && <span>{sendLabel}</span>}
             {loading ? (
               <span className="composer-capsule__send-spinner" aria-hidden="true" />
             ) : (

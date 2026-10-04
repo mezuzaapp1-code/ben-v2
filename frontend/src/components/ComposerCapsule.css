@@ -531,3 +531,6 @@
     padding: 0.3rem 0.35rem 0.3rem 0.4rem;
   }
 }
+
+.composer-capsule__send.composer-capsule__send--label { width:auto; min-height:40px; padding:8px 14px; gap:8px; border-radius:14px; font:inherit; font-weight:600; font-size:13px; line-height:1.2; }
+@media(max-width:480px) { .composer-capsule__send--label span:not(.composer-capsule__send-spinner) { max-width:65px; } }

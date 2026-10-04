@@ -14,6 +14,11 @@ on:
       - 'frontend/src/components/FreeTextLayer.jsx'
       - 'frontend/src/components/TextAppearanceControls.jsx'
       - 'frontend/src/components/MediaComposer.jsx'
+      - 'frontend/src/components/PhotoSourceUpload.*'
+      - 'frontend/src/components/ComposerCapsule.*'
+      - 'frontend/src/api/media*.js'
+      - 'frontend/src/api/photoUpload.js'
+      - 'frontend/scripts/test-photo-source.mjs'
       - 'frontend/src/components/MediaLibrary.*'
       - 'frontend/src/components/MediaAsset.jsx'
       - 'frontend/scripts/test-media-library.mjs'
@@ -49,9 +54,10 @@ jobs:
           node scripts/test-auth-header-stability.mjs
           node scripts/test-personal-entry.mjs
           node scripts/test-media-library.mjs
+          node scripts/test-photo-source.mjs
       - name: Lint new editor modules
         working-directory: frontend
-        run: npx eslint src/components/MediaLibrary.jsx src/components/MediaAsset.jsx src/lib/editSession.js src/components/SavedVideoEditor.jsx src/components/VideoSubtitleEditor.jsx src/components/FreeTextLayer.jsx src/components/TextAppearanceControls.jsx src/lib/editorStorage.js src/lib/subtitleCommands.js src/lib/textAppearance.js
+        run: npx eslint src/components/PhotoSourceUpload.jsx src/api/photoUpload.js src/api/mediaSubmission.js src/components/MediaLibrary.jsx src/components/MediaAsset.jsx src/lib/editSession.js src/components/SavedVideoEditor.jsx src/components/VideoSubtitleEditor.jsx src/components/FreeTextLayer.jsx src/components/TextAppearanceControls.jsx src/lib/editorStorage.js src/lib/subtitleCommands.js src/lib/textAppearance.js
       - run: npm run build
         working-directory: frontend
   persistence:

@@ -16,6 +16,11 @@ export async function mediaRequest(path, headers, { body, signal, binary = false
 
 export const mediaTerminal = status => ['succeeded', 'failed', 'expired'].includes(status)
 
+export const getPendingMedia = (storage, scope) => {
+  const value = storage.getItem(`ben-media-pending-v1:${scope}`)
+  return value ? JSON.parse(value) : null
+}
+
 // Persist intent/key before POST; a lost reply or reload must reuse that key.
 // If browser storage is unavailable, fail before any generation is submitted.
 export function pendingMedia(storage, scope, intent) {

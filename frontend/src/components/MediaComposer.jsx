@@ -5,7 +5,9 @@ import CreativeEditLab from './CreativeEditLab.jsx'
 import NarrationPanel from './NarrationPanel.jsx'
 import MobileVideoUpload from './MobileVideoUpload.jsx'
 import { ComposerCapsule } from './ComposerCapsule.jsx'
-import { clearPendingMedia, mediaRequest, mediaTerminal, pendingMedia } from '../api/media.js'
+import { mediaRequest, mediaTerminal } from '../api/media.js'
+import { validPhoto } from '../api/photoUpload.js'
+import { submitMedia, withMediaDeadline } from '../api/mediaSubmission.js'
 
 
 function SavedWork({ scope, buildHeaders }) {
@@ -37,9 +39,11 @@ function SavedWork({ scope, buildHeaders }) {
 
 /** Text child is the unchanged BEN composer; media has its own explicit path. */
 export default function MediaComposer({ children, conversationId, scope, buildHeaders, ensureConversation, disabled, workspaceId, onChooseProject, onCreateProject, selectedPhoto, onOpenSavedWork }) {
-  const [photoSource, setPhotoSource] = useState(null)
-  useEffect(() => { if (selectedPhoto) { setMode('video'); setPhotoSource(null) } }, [selectedPhoto])
-  useEffect(() => setPhotoSource(null), [scope, workspaceId, conversationId])
+  const [photoFile, setPhotoFile] = useState(null)
+  const [progress, setProgress] = useState('')
+  const lifetime = useRef(null)
+  useEffect(() => { const controller = new AbortController(); lifetime.current = controller; return () => controller.abort() }, [])
+  useEffect(() => { if (selectedPhoto) { setMode('video'); setPhotoFile(validPhoto(selectedPhoto) ? selectedPhoto : null); setError(validPhoto(selectedPhoto) ? '' : 'Choose a JPEG or PNG up to 20 MiB.') } }, [selectedPhoto])
   const [editingId, setEditingId] = useState(null)
   const [mobileEnabled, setMobileEnabled] = useState(false)
   const [savedEditing, setSavedEditing] = useState(false), [workOpen, setWorkOpen] = useState(false)
@@ -105,29 +109,22 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
     sending.current = true
     setBusy(true)
     setError('')
-    let pendingScope
     try {
-      const id = await ensureConversation()
-      pendingScope = `${scope}:${id}`
-      const body = pendingMedia(sessionStorage, pendingScope, {
-        conversation_id: id, prompt,
-        ...(mode === 'video' ? { model: videoChoice, ...(photoSource ? { source_file_id: photoSource.file_id, workspace_id: photoSource.workspace_id } : { source_resource_id: sourceId }),
+      await withMediaDeadline(signal => submitMedia({ scope, ensureConversation, buildHeaders,
+        signal, onStage: setProgress, file: mode === 'video' ? photoFile : null,
+        intent: { prompt, ...(mode === 'video' ? { model: videoChoice, source_resource_id: sourceId || undefined,
           aspect_ratio: videoRatio, duration_seconds: videoSettings.duration_seconds, resolution: videoSettings.resolution }
-          : { model, aspect_ratio: ratio }),
-      })
-      await mediaRequest('/executions', await buildHeaders(), { body })
-      clearPendingMedia(sessionStorage, pendingScope)
+          : { model, aspect_ratio: ratio }) },
+      }), lifetime.current.signal)
+      if (lifetime.current.signal.aborted) return
+      setProgress('Request received. BEN is creating your media; progress will appear here.')
       setPrompt('')
       setRefresh(value => value + 1)
     } catch (failure) {
-      if ([400, 401, 403, 404, 422, 429].includes(failure.status) && pendingScope) {
-        clearPendingMedia(sessionStorage, pendingScope)
-        setError(failure.message)
-      } else {
-        setError('Submission was not confirmed. Send again to recover the same saved request; it will not generate a duplicate.')
-      }
-    } finally { sending.current = false; setBusy(false) }
+      if (!lifetime.current.signal.aborted) { setProgress(''); setError(failure.message || 'Could not send. Please try again.') }
+    } finally { sending.current = false; if (!lifetime.current.signal.aborted) setBusy(false) }
   }
+
   if (!enabled || !buildHeaders || (selectedPhoto && !videoModels.length)) return <>{children}{selectedPhoto && <p role="status">Your photo is selected. Media tools are unavailable for this account right now.</p>}</>
   const actions = [
     ...(children?.props?.attachMenuItems || []),
@@ -149,9 +146,9 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
     {mode !== 'text' && <button type="button" disabled={busy} onClick={() => setMode('text')}>Back to message</button>}
     {rows.length > 0 && <section aria-label="Conversation media" aria-live="polite">
       {rows.map(row => <article key={row.execution_id}>
-        <p>{row.provider} Â· {row.model} Â· {row.status.replaceAll('_', ' ')}</p>
+        <p className="ben-media-progress" role="status">{({ pending: 'Waiting to start…', submitting: 'Starting creation…', submitted: 'Request accepted. Creating your media…', running: 'Creating your media. This can take a few minutes.', ingesting: 'Preparing your result…', succeeded: 'Your media is ready.', failed: 'Creation could not be completed.', expired: 'This earlier creation timed out.', submission_unknown: 'Waiting for confirmation. BEN will not submit a second paid request.' })[row.status] || 'Checking progress…'}</p>
         {row.status === 'submission_unknown' && <p>Provider outcome unknown. BEN will not resubmit.</p>}
-        {row.error_code && <p>{row.error_code.replaceAll('_', ' ')}</p>}
+        {row.error_code && <details><summary>Technical details</summary><p>{row.error_code.replaceAll('_', ' ')}</p></details>}
         {row.resource_id && <MediaImage key={`${scope}:${row.resource_id}`} scope={scope} savedEditing={savedEditing} resourceId={row.resource_id} buildHeaders={buildHeaders} mimeType={row.mime_type} editing={editingId === row.resource_id} onEdit={() => setEditingId(row.resource_id)} onClose={() => setEditingId(null)} />}
       </article>)}
     </section>}
@@ -164,18 +161,16 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
       workspaceId={workspaceId} rows={rows} buildHeaders={buildHeaders} ensureConversation={ensureConversation}
       disabled={disabled} onAccepted={() => setRefresh(value => value + 1)} /> : <>
       {mode === 'video' ? <>
-        <PhotoSourceUpload key={`${scope}:${workspaceId}`} workspaceId={workspaceId} scope={scope}
-          initialFile={selectedPhoto} buildHeaders={buildHeaders} ensureConversation={ensureConversation} disabled={disabled || busy || !videoModels.length}
-          onChooseProject={onChooseProject} onCreateProject={onCreateProject} onReady={setPhotoSource} />
-        <p>Generate video sends this image and your instructions to the selected AI provider and may incur charges.</p>
+        <PhotoSourceUpload file={photoFile} onSelect={setPhotoFile} disabled={disabled || busy || !videoModels.length} />
+        <p className="ben-media-hint">Describe the motion and press Generate video. This sends your image to the selected AI provider and may incur charges.</p>
         <details><summary>Video settings</summary>
         <label>Video engine <select value={videoChoice} disabled={busy} onChange={e => setVideoModel(e.target.value)}>
           {videoModels.map(value => <option key={value} value={value}>{value === 'veo-3.1-fast-generate-preview' ? 'Google Veo 3.1 Fast' : 'Kling O3 Standard via fal'}</option>)}
         </select></label>
         <p>{videoSettings.duration_seconds} seconds · {videoSettings.resolution} · audio {videoSettings.audio}</p>
         {videoSettings.source_aspect_ratio_required && <p>Choose an image matching the selected aspect ratio, at least 300 pixels on each side.</p>}
-        <label>First frame <select value={sourceId} disabled={busy} onChange={e => { setSourceId(e.target.value); setPhotoSource(null) }}>
-          <option value="">{photoSource ? "Your uploaded photo is selected" : "Or choose a BEN image"}</option>
+        <label>First frame <select value={sourceId} disabled={busy} onChange={e => { setSourceId(e.target.value); setPhotoFile(null) }}>
+          <option value="">{photoFile ? "Your attached photo is selected" : "Or choose a BEN image"}</option>
           {rows.filter(row => row.resource_id && row.mime_type === 'image/png').map(row =>
             <option key={row.resource_id} value={row.resource_id}>{row.model} · {row.created_at}</option>)}
         </select></label>
@@ -191,8 +186,9 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
         {['1:1', '16:9', '9:16'].map(value => <option key={value}>{value}</option>)}
       </select></label>
       </>}
-      <ComposerCapsule value={prompt} onChange={setPrompt} onSubmit={submit}
-        disabled={disabled || busy} loading={busy} canSend={!!prompt.trim() && !busy && (mode !== 'video' || photoSource || rows.some(row => row.resource_id === sourceId && row.mime_type === 'image/png'))}
+      {progress && <p className="ben-media-progress" role="status" aria-live="polite">{progress}</p>}
+      <ComposerCapsule showSendLabel value={prompt} onChange={setPrompt} onSubmit={submit}
+        disabled={disabled || busy} loading={busy} canSend={!!prompt.trim() && !busy && (mode !== 'video' || photoFile || rows.some(row => row.resource_id === sourceId && row.mime_type === 'image/png'))}
         placeholder={mode === 'video' ? 'Describe motion for the selected image' : 'Describe an image'}
         ariaLabel={mode === 'video' ? 'Video prompt' : 'Image prompt'} sendLabel={mode === 'video' ? 'Generate video' : 'Generate image'} />
       {error && <p role="alert">{error}</p>}
