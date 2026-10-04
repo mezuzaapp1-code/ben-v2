@@ -1,4 +1,4 @@
-"""Default-off private editing persistence. No render or generation endpoint."""
+"""Default-off private editing persistence and deterministic saved-revision export."""
 import json
 import os
 import re
@@ -120,3 +120,25 @@ async def revision(document_id: uuid.UUID, revision_id: uuid.UUID, response: Res
                    identity=Depends(edit_identity), service=Depends(edit_service)):
     private(response)
     return await persisted(service.repo.read(*identity, document_id, revision_id))
+
+
+@router.post('/{document_id}/revisions/{revision_id}/export')
+async def export_video(document_id: uuid.UUID, revision_id: uuid.UUID, request: Request,
+                       identity=Depends(edit_identity), service=Depends(edit_service)):
+    from services.media.edit_export import MAX_EXPORT_REQUEST, export_revision
+    # Authorize the saved revision before accepting any overlay bytes.
+    await persisted(service.repo.read(*identity, document_id, revision_id))
+    if request.headers.get('content-type','').split(';')[0].strip().lower()!='application/json':
+        raise error(415,'EDIT_JSON_REQUIRED','Send an export JSON request')
+    data=bytearray()
+    async for chunk in request.stream():
+        if len(data)+len(chunk)>MAX_EXPORT_REQUEST:
+            raise error(413,'EDIT_EXPORT_TOO_LARGE','Text rendering exceeds the export limit')
+        data.extend(chunk)
+    try: payload=json.loads(data)
+    except (ValueError,RecursionError): raise error(422,'INVALID_EDIT_EXPORT','Invalid export request') from None
+    output=await persisted(export_revision(service,*identity,document_id,revision_id,payload))
+    return Response(output,media_type='video/mp4',headers={
+        'Cache-Control':'private, no-store',
+        'Content-Disposition':f'attachment; filename="ben-edit-{revision_id}.mp4"',
+        'X-Content-Type-Options':'nosniff'})

@@ -19,6 +19,8 @@ from services.workspace_files.storage import files_root
 async def destination(repo, org, conversation, workspace):
     async with repo.transaction(org) as s:
         await repo.destination(s, org, conversation)
+        if workspace is None:
+            return
         found = await s.scalar(text('SELECT id FROM ben.projects WHERE id=:id AND org_id=:org'),
                                {'id': workspace, 'org': org})
         if found is None:
@@ -49,6 +51,9 @@ def preflight(data):
 
 
 async def source_bytes(repo, org, user, ref):
+    if 'workspace_id' not in ref:
+        from services.media.chat_video_source import read
+        return await read(repo, org, user, ref)
     workspace, file_id = uuid.UUID(ref['workspace_id']), uuid.UUID(ref['file_id'])
     async def record():
         async with repo.transaction(org) as s:
@@ -81,33 +86,37 @@ async def admit(service, org, user, key, conversation, workspace, data):
         raise media_unavailable()
     await destination(service.repo, org, conversation, workspace)
     profile = await asyncio.to_thread(preflight, data)
-    # Stable upload identity survives a lost admission response; independent of execution.
-    file_id = uuid.uuid5(org, f'mobile-v1:{user}:{key}')
-    checksum = hashlib.sha256(data).hexdigest()
-    storage_key, path = source_path(org, workspace, file_id)
-    if path.exists():
-        def same():
-            with path.open('rb') as f:
-                return hashlib.sha256(f.read(MAX_VIDEO_BYTES + 1)).hexdigest() == checksum
-        if not await asyncio.to_thread(same):
-            raise HTTPException(409, 'Upload key conflict')
-    await asyncio.to_thread(publish_bytes, data, storage_key, path, profile.width, profile.height, 'video/mp4')
-    async with service.repo.transaction(org) as s:
-        await service.repo.destination(s, org, conversation)
-        if await s.scalar(text('SELECT id FROM ben.projects WHERE id=:id AND org_id=:org'),
-                          dict(id=workspace, org=org)) is None:
-            raise media_unavailable()
-        await s.execute(text('''INSERT INTO ben.workspace_files
-            (id,org_id,workspace_id,original_filename,display_name,media_type,byte_size,checksum,storage_key,uploaded_by,status)
-            VALUES(:id,:org,:workspace,'source.mp4','Mobile video original','video/mp4',:size,:checksum,:key,:user,'uploaded')
-            ON CONFLICT(id) DO NOTHING'''), dict(id=file_id, org=org, workspace=workspace,
-                size=len(data), checksum=checksum, key=storage_key, user=user))
-    ref = dict(file_id=str(file_id), workspace_id=str(workspace), checksum=checksum, byte_size=len(data))
+    if workspace is None:
+        from services.media.chat_video_source import store
+        ref = await store(service.repo, org, user, conversation, key, data, profile)
+    else:
+        # Stable upload identity survives a lost admission response; independent of execution.
+        file_id = uuid.uuid5(org, f'mobile-v1:{user}:{key}')
+        checksum = hashlib.sha256(data).hexdigest()
+        storage_key, path = source_path(org, workspace, file_id)
+        if path.exists():
+            def same():
+                with path.open('rb') as f:
+                    return hashlib.sha256(f.read(MAX_VIDEO_BYTES + 1)).hexdigest() == checksum
+            if not await asyncio.to_thread(same):
+                raise HTTPException(409, 'Upload key conflict')
+        await asyncio.to_thread(publish_bytes, data, storage_key, path, profile.width, profile.height, 'video/mp4')
+        async with service.repo.transaction(org) as s:
+            await service.repo.destination(s, org, conversation)
+            if await s.scalar(text('SELECT id FROM ben.projects WHERE id=:id AND org_id=:org'),
+                              dict(id=workspace, org=org)) is None:
+                raise media_unavailable()
+            await s.execute(text('''INSERT INTO ben.workspace_files
+                (id,org_id,workspace_id,original_filename,display_name,media_type,byte_size,checksum,storage_key,uploaded_by,status)
+                VALUES(:id,:org,:workspace,'source.mp4','Mobile video original','video/mp4',:size,:checksum,:key,:user,'uploaded')
+                ON CONFLICT(id) DO NOTHING'''), dict(id=file_id, org=org, workspace=workspace,
+                    size=len(data), checksum=checksum, key=storage_key, user=user))
+        ref = dict(file_id=str(file_id), workspace_id=str(workspace), checksum=checksum, byte_size=len(data))
     await source_bytes(service.repo, org, user, ref)
     snapshot = dict(normalization_version='mobile-v1', provider='local_composer', model='ffmpeg_mobile_v1',
         operation='video_import', prompt='', parameters=dict(aspect_ratio=profile.aspect_ratio,
         duration_seconds=profile.duration, validation_profile='mobile-v1'),
-        destination=dict(conversation_id=str(conversation), workspace_id=str(workspace)), input_resource_refs=[ref],
+        destination=dict(conversation_id=str(conversation), workspace_id=str(workspace) if workspace else None), input_resource_refs=[ref],
         experiment_id=None)
     return await service.repo.create(org, user, key, snapshot, request_fingerprint(snapshot))
 

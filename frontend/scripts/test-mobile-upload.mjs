@@ -37,7 +37,7 @@ try {
   }
   const file = new File(['test-only'], 'phone.mp4', { type: 'video/mp4' })
   await mount({ ...props, workspaceId: null })
-  assert.equal(document.querySelector('input').disabled, true)
+  assert.equal(document.querySelector('input').disabled, false)
   await act(async () => root.unmount())
   await mount(props)
   await choose(file)
@@ -59,5 +59,5 @@ try {
   assert.equal(accepted, 1)
   assert.equal(sessionStorage.length, 0)
   await act(async () => root.unmount())
-  console.log('Mobile upload UI: workspace gate, authenticated bytes, retry across remount, source mismatch rejection, accepted refresh.')
+  console.log('Mobile upload UI: optional workspace, authenticated bytes, retry across remount, source mismatch rejection, accepted refresh.')
 } finally { await unlink(output) }
