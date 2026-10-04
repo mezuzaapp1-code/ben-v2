@@ -11,6 +11,7 @@ const ADMIN_ROLES = new Set(['org:admin', 'admin', 'owner', 'org:owner'])
 
 const DEFAULT_PRIVILEGE = Object.freeze({ canCreate: false, reason: null })
 const SIGNED_OUT_PRIVILEGE = clerkSignedOutCreatePrivilege()
+const PERSONAL_PRIVILEGE = Object.freeze({ canCreate: true, reason: null })
 const ProjectCreatePrivilegeContext = createContext(DEFAULT_PRIVILEGE)
 
 function applyBetaOverride(privilege) {
@@ -58,13 +59,18 @@ function SignedInOrganizationPrivilegeProvider({ children }) {
 }
 
 function ClerkProjectCreatePrivilegeProvider({ children }) {
-  const { isSignedIn } = useAuth()
-  if (!isSignedIn) {
+  const { isLoaded, isSignedIn, orgId } = useAuth()
+  if (!isLoaded || !isSignedIn) {
     return (
       <ProjectCreatePrivilegeContext.Provider value={SIGNED_OUT_PRIVILEGE}>
         {children}
       </ProjectCreatePrivilegeContext.Provider>
     )
+  }
+  if (!orgId) {
+    return <ProjectCreatePrivilegeContext.Provider value={PERSONAL_PRIVILEGE}>
+      {children}
+    </ProjectCreatePrivilegeContext.Provider>
   }
   return <SignedInOrganizationPrivilegeProvider>{children}</SignedInOrganizationPrivilegeProvider>
 }

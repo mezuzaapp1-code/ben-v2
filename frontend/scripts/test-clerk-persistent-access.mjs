@@ -74,7 +74,7 @@ const privilegeSrc = readFileSync(
 const signedInBlock = privilegeSrc.split('function SignedInOrganizationPrivilegeProvider')[1] || ''
 assert(
   privilegeSrc.includes('SIGNED_OUT_PRIVILEGE') &&
-    privilegeSrc.includes('if (!isSignedIn)') &&
+    privilegeSrc.includes('if (!isLoaded || !isSignedIn)') &&
     signedInBlock.includes('useOrganization()') &&
     !privilegeSrc.split('function SignedInOrganizationPrivilegeProvider')[0].includes('useOrganization()'),
   'useOrganization must only live in the signed-in provider'

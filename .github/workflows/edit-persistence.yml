@@ -15,6 +15,7 @@ on:
       - 'frontend/src/components/TextAppearanceControls.jsx'
       - 'frontend/src/components/MediaComposer.jsx'
       - 'frontend/src/App.jsx'
+      - 'frontend/src/hooks/useProjectCreatePrivilege.jsx'
       - 'frontend/src/lib/edit*.js'
       - 'frontend/src/lib/subtitle*.js'
       - 'frontend/src/lib/textAppearance.js'
@@ -43,6 +44,7 @@ jobs:
           node scripts/test-narration-ui.mjs
           node scripts/test-clerk-persistent-access.mjs
           node scripts/test-auth-header-stability.mjs
+          node scripts/test-personal-entry.mjs
       - name: Lint new editor modules
         working-directory: frontend
         run: npx eslint src/lib/editSession.js src/components/SavedVideoEditor.jsx src/components/VideoSubtitleEditor.jsx src/components/FreeTextLayer.jsx src/components/TextAppearanceControls.jsx src/lib/editorStorage.js src/lib/subtitleCommands.js src/lib/textAppearance.js
