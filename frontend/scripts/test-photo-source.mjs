@@ -86,5 +86,21 @@ try {
   uploadLost = false; await request()
   assert.equal(calls[0].url, calls[1].url)
   assert.equal(calls.length, 3)
+  // Even a transport that delivers a response after abort must retain the paid intent.
+  let lateReply
+  calls = []
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return new Promise(resolve => { lateReply = () => resolve({ ok: true, json: async () => ({ execution_id: 'late-result' }) }) })
+  }
+  await assert.rejects(withMediaDeadline(signal => submitMedia({ scope: 'late-paid', ensureConversation: async () => 'chat', buildHeaders: headers, intent: { prompt: 'original', model: 'video' }, signal, onStage: () => {} }), null, 15))
+  const pendingKey = 'ben-media-pending-v1:late-paid:chat'
+  const preserved = sessionStorage.getItem(pendingKey)
+  assert(preserved)
+  lateReply(); await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(sessionStorage.getItem(pendingKey), preserved)
+  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return { ok: true, json: async () => ({ execution_id: 'late-result' }) } }
+  await withMediaDeadline(signal => submitMedia({ scope: 'late-paid', ensureConversation: async () => 'chat', buildHeaders: headers, intent: { prompt: 'different' }, signal, onStage: () => {} }))
+  assert.equal(calls[0].options.body, calls[1].options.body)
   console.log('PASS: single-click photo → upload → generation; immediate progress; duplicate-click guard; exact paid-intent recovery; photo retry identity; bounded waits and no late submission; selection makes no POST.')
 } finally { await unlink(out).catch(() => {}); await unlink(entry).catch(() => {}) }

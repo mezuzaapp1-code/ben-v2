@@ -22,6 +22,7 @@ export async function submitMedia({ scope, ensureConversation, buildHeaders, int
   signal.throwIfAborted()
   try {
     const result = await mediaRequest('/executions', headers, { body, signal })
+    signal.throwIfAborted()
     clearPendingMedia(sessionStorage, key)
     return result
   } catch (error) {
