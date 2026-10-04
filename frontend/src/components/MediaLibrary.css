@@ -1,8 +1,8 @@
 .ben-media-nav { display:grid; gap:8px; margin-block:16px; }
-.ben-media-nav button { display:flex; gap:12px; align-items:center; min-height:46px; border:1px solid #8799bf45; border-radius:12px; padding:12px 16px; font:inherit; font-weight:600; text-align:start; color:var(--ben-text-primary,#172033); background:var(--ben-bg-chip,#f3f5fa); cursor:pointer; }
+.ben-media-nav button { display:flex; gap:12px; align-items:center; min-height:46px; border:1px solid #8799bf45; border-radius:12px; padding:12px 16px; font:inherit; font-weight:600; text-align:start; color:var(--ben-text,#172033); background:var(--ben-bg-chip,#f3f5fa); cursor:pointer; }
 .ben-media-nav button:disabled { opacity:.5; cursor:default; }
 .ben-media-library-backdrop { position:fixed; inset:0; z-index:1100; background:#10182b99; display:flex; justify-content:flex-end; }
-.ben-media-library { width:min(960px,100%); height:100dvh; display:flex; flex-direction:column; background:var(--ben-bg,#fff); color:var(--ben-text-primary,#172033); box-shadow:-16px 0 60px #0004; }
+.ben-media-library { width:min(960px,100%); height:100dvh; display:flex; flex-direction:column; background:var(--ben-bg,#fff); color:var(--ben-text,#172033); box-shadow:-16px 0 60px #0004; }
 .ben-media-library header { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:28px; border-bottom:1px solid #8799bf45; }
 .ben-media-library small { letter-spacing:.14em; color:#637dcc; font-weight:700; }
 .ben-media-library h2 { margin:8px 0 0; font-size:clamp(20px,3vw,28px); }
@@ -20,5 +20,7 @@
 .ben-media-library__empty { margin-block:24px; padding:32px; border:1px dashed #8799bf77; border-radius:20px; text-align:center; line-height:1.7; }
 @media(max-width:600px) { .ben-media-library header { padding:18px; } .ben-media-library__tabs { padding:16px 16px 0; } .ben-media-library__body { padding:12px 16px 24px; } .ben-media-library__grid { grid-template-columns:1fr; } }
 
-.ben-media-opening { position:fixed; inset:0; z-index:1200; display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--ben-bg,#fff); color:var(--ben-text-primary,#172033); }
+.ben-media-opening { position:fixed; inset:0; z-index:1200; display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--ben-bg,#fff); color:var(--ben-text,#172033); }
 .ben-media-opening button { font:inherit; min-height:44px; padding:12px 20px; border:1px solid #8799bf77; border-radius:12px; cursor:pointer; }
+
+.ben-media-library,.ben-media-opening { font-family:'IBM Plex Sans','Segoe UI',system-ui,sans-serif; }
