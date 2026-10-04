@@ -10,33 +10,6 @@ import { validPhoto } from '../api/photoUpload.js'
 import { submitMedia, withMediaDeadline } from '../api/mediaSubmission.js'
 
 
-function SavedWork({ scope, buildHeaders }) {
-  const [items, setItems] = useState(null), [error, setError] = useState('')
-  const [selected, setSelected] = useState(null), [editing, setEditing] = useState(false)
-  useEffect(() => {
-    const controller = new AbortController()
-    async function load() {
-      try {
-        const result = await mediaRequest('/edit-documents', await buildHeaders(), { signal: controller.signal })
-        if (!controller.signal.aborted) setItems(result.documents)
-      } catch { if (!controller.signal.aborted) setError('Saved work could not be loaded. Close and reopen to retry.') }
-    }
-    void load()
-    return () => controller.abort()
-  }, [buildHeaders, scope])
-  return <section className="ben-saved-work" aria-label="My saved work">
-    <h3>My saved work</h3><p>Private edits saved to your BEN account.</p>
-    {error && <p role="alert">{error}</p>}
-    {!items && !error && <p role="status">Loading saved work…</p>}
-    {items?.length === 0 && <p>Save your first video edit to find it here.</p>}
-    {items?.map((item, index) => <button type="button" key={item.document_id} onClick={() => { setSelected(item); setEditing(true) }}>
-      Video edit {items.length - index} · version {item.head_number} · {new Date(item.updated_at).toLocaleString()}
-    </button>)}
-    {selected && <MediaImage key={`${scope}:${selected.document_id}`} resourceId={selected.resource_id} documentId={selected.document_id}
-      mimeType="video/mp4" scope={scope} savedEditing buildHeaders={buildHeaders} editing={editing} onEdit={() => setEditing(true)} onClose={() => setEditing(false)} />}
-  </section>
-}
-
 /** Text child is the unchanged BEN composer; media has its own explicit path. */
 export default function MediaComposer({ children, conversationId, scope, buildHeaders, ensureConversation, disabled, workspaceId, onChooseProject, onCreateProject, selectedPhoto, onOpenSavedWork }) {
   const [photoFile, setPhotoFile] = useState(null)
@@ -46,7 +19,7 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
   useEffect(() => { if (selectedPhoto) { setMode('video'); setPhotoFile(validPhoto(selectedPhoto) ? selectedPhoto : null); setError(validPhoto(selectedPhoto) ? '' : 'Choose a JPEG or PNG up to 20 MiB.') } }, [selectedPhoto])
   const [editingId, setEditingId] = useState(null)
   const [mobileEnabled, setMobileEnabled] = useState(false)
-  const [savedEditing, setSavedEditing] = useState(false), [workOpen, setWorkOpen] = useState(false)
+  const [savedEditing, setSavedEditing] = useState(false)
   const [labEnabled, setLabEnabled] = useState(false)
   const [narrationEnabled, setNarrationEnabled] = useState(false)
   const [labOpen, setLabOpen] = useState(false)
@@ -130,15 +103,13 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
     ...(children?.props?.attachMenuItems || []),
     ...(mobileEnabled ? [{ id: 'video-upload', label: 'Upload video', icon: '▷', disabled: disabled || busy, onClick: () => setMode('upload') }] : []),
     ...(rows.some(row => row.resource_id && row.mime_type === 'video/mp4') ? [{ id: 'video-edit', label: 'Edit video', icon: '✎', disabled: disabled || busy, onClick: () => setEditingId(rows.find(row => row.resource_id && row.mime_type === 'video/mp4').resource_id) }] : []),
-    ...(savedEditing ? [{ id: 'saved-work', label: 'My saved work', icon: '▣', disabled: disabled || busy, onClick: () => onOpenSavedWork ? onOpenSavedWork() : setWorkOpen(true) }] : []),
+    ...(savedEditing && onOpenSavedWork ? [{ id: 'saved-work', label: 'My saved work', icon: '▣', disabled: disabled || busy, onClick: onOpenSavedWork }] : []),
     ...(narrationEnabled ? [{ id: 'narration', label: 'Replace narration', icon: '♫', disabled: disabled || busy, onClick: () => setMode('narration') }] : []),
     { id: 'image', label: 'Generate image', icon: '◇', disabled: disabled || busy, onClick: () => setMode('image') },
     ...(videoModels.length ? [{ id: 'video', label: 'Animate my photo', icon: '▷', disabled: disabled || busy, onClick: () => setMode('video') }] : []),
   ]
   const composer = isValidElement(children) ? cloneElement(children, { attachMenuItems: actions }) : children
   return <>
-    {savedEditing && <button type="button" aria-expanded={workOpen} onClick={() => onOpenSavedWork ? onOpenSavedWork() : setWorkOpen(v => !v)}>{workOpen ? 'Close saved work' : 'My saved work'}</button>}
-    {savedEditing && workOpen && <SavedWork key={scope} scope={scope} buildHeaders={buildHeaders} />}
     {labEnabled && <div>
       <button type="button" aria-expanded={labOpen} onClick={() => setLabOpen(open => !open)}>Creative Edit Lab - internal</button>
       {labOpen && <CreativeEditLab key={`${scope}:${workspaceId}`} workspaceId={workspaceId} buildHeaders={buildHeaders} />}
