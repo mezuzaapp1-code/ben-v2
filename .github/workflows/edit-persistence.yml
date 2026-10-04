@@ -9,6 +9,7 @@ on:
       - 'routers/edit_documents.py'
       - 'database/migrations/versions/video_edit_documents_v1.py'
       - 'tests/test_edit*.py'
+      - 'tests/test_veo_media.py'
       - '.github/workflows/edit-persistence.yml'
       - 'frontend/src/components/*Editor*'
       - 'frontend/src/components/FreeTextLayer.jsx'
@@ -93,7 +94,7 @@ jobs:
           python -m pytest tests/test_edit_document.py tests/test_edit_persistence.py
           tests/test_media_repository.py tests/test_media_migration.py
           tests/test_media_connection.py tests/test_media_vertical_slice.py
-          tests/test_narration_capabilities.py
+          tests/test_narration_capabilities.py tests/test_veo_media.py
           -q --junitxml=edit-persistence-results.xml
       - name: Require every case to execute and pass
         run: |

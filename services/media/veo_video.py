@@ -66,12 +66,14 @@ class VeoSubmission:
 
 class VeoVideoAdapter:
     def __init__(self, api_key, *, transport=None):
-        self._key = api_key
+        self._key = api_key.strip()
         self._transport = transport
 
     async def _request(self, method, url, *, body=None, limit=65536, authenticated=True):
         if not self._key:
             raise MediaProviderError("media_credentials_missing")
+        if any(ord(char) < 33 or ord(char) > 126 for char in self._key):
+            raise MediaProviderError("media_credentials_invalid")
         code, unknown = "media_provider_transport", method == "POST"
         try:
             async with asyncio.timeout(70):

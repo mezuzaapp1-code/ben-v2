@@ -192,3 +192,27 @@ def test_video_path_rejects_escape_symlink(tmp_path, monkeypatch):
 def test_narrow_admission(changes):
     with pytest.raises(MediaProviderError):
         VideoRequest(**{**REQUEST.__dict__, **changes}).validate()
+
+
+@pytest.mark.asyncio
+async def test_credential_copy_whitespace_is_removed_before_submit():
+    calls = []
+    def handler(request):
+        calls.append(request)
+        assert request.headers['x-goog-api-key'] == KEY
+        return response({'name': OP})
+    adapter = VeoVideoAdapter(' \t' + KEY + '\r\n ', transport=httpx.MockTransport(handler))
+    result = await adapter.submit(REQUEST, png())
+    assert result.operation_ref == OP and len(calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('bad_key', [' \r\n', 'test\nembedded-secret', 'test\x00secret', 'test secret'])
+async def test_invalid_credential_fails_locally_without_uncertain_submission(bad_key):
+    calls = []
+    with pytest.raises(MediaProviderError) as caught:
+        await VeoVideoAdapter(bad_key, transport=httpx.MockTransport(lambda request: calls.append(request))).submit(REQUEST, png())
+    assert not calls
+    assert caught.value.submission_unknown is False
+    assert caught.value.code in ('media_credentials_missing', 'media_credentials_invalid')
+    assert bad_key not in str(caught.value)
