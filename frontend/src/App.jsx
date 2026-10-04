@@ -287,7 +287,7 @@ function OrgRecoveryBanner({ banner, onDismiss }) {
 }
 
 function ClerkAuthControlsInner({ variant = 'settings' }) {
-  const { isLoaded, isSignedIn } = useAuth()
+  const { isLoaded, isSignedIn, orgId } = useAuth()
   if (variant === 'shell' && isSignedIn) return null
   if (!isLoaded) {
     return (
@@ -302,7 +302,7 @@ function ClerkAuthControlsInner({ variant = 'settings' }) {
     <div className={`auth-controls${variant === 'shell' ? ' auth-controls--shell' : ''}`}>
       {isSignedIn ? (
         <>
-          <OrganizationSwitcher hidePersonal />
+          {orgId && <OrganizationSwitcher hidePersonal />}
           <SignOutButton>
             <button type="button" className="auth-btn">
               Sign out
