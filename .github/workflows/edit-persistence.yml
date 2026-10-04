@@ -14,6 +14,9 @@ on:
       - 'frontend/src/components/FreeTextLayer.jsx'
       - 'frontend/src/components/TextAppearanceControls.jsx'
       - 'frontend/src/components/MediaComposer.jsx'
+      - 'frontend/src/components/MediaLibrary.*'
+      - 'frontend/src/components/MediaAsset.jsx'
+      - 'frontend/scripts/test-media-library.mjs'
       - 'frontend/src/App.jsx'
       - 'frontend/src/hooks/useProjectCreatePrivilege.jsx'
       - 'frontend/src/lib/edit*.js'
@@ -45,9 +48,10 @@ jobs:
           node scripts/test-clerk-persistent-access.mjs
           node scripts/test-auth-header-stability.mjs
           node scripts/test-personal-entry.mjs
+          node scripts/test-media-library.mjs
       - name: Lint new editor modules
         working-directory: frontend
-        run: npx eslint src/lib/editSession.js src/components/SavedVideoEditor.jsx src/components/VideoSubtitleEditor.jsx src/components/FreeTextLayer.jsx src/components/TextAppearanceControls.jsx src/lib/editorStorage.js src/lib/subtitleCommands.js src/lib/textAppearance.js
+        run: npx eslint src/components/MediaLibrary.jsx src/components/MediaAsset.jsx src/lib/editSession.js src/components/SavedVideoEditor.jsx src/components/VideoSubtitleEditor.jsx src/components/FreeTextLayer.jsx src/components/TextAppearanceControls.jsx src/lib/editorStorage.js src/lib/subtitleCommands.js src/lib/textAppearance.js
       - run: npm run build
         working-directory: frontend
   persistence:

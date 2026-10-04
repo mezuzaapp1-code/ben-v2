@@ -1,6 +1,5 @@
 import PhotoSourceUpload from './PhotoSourceUpload.jsx'
-import VideoSubtitleEditor from './VideoSubtitleEditor.jsx'
-import SavedVideoEditor from './SavedVideoEditor.jsx'
+import MediaImage from './MediaAsset.jsx'
 import { cloneElement, isValidElement, useEffect, useRef, useState } from 'react'
 import CreativeEditLab from './CreativeEditLab.jsx'
 import NarrationPanel from './NarrationPanel.jsx'
@@ -8,39 +7,6 @@ import MobileVideoUpload from './MobileVideoUpload.jsx'
 import { ComposerCapsule } from './ComposerCapsule.jsx'
 import { clearPendingMedia, mediaRequest, mediaTerminal, pendingMedia } from '../api/media.js'
 
-function MediaImage({ resourceId, buildHeaders, mimeType, editing, onEdit, onClose, scope, savedEditing, documentId }) {
-  const player = useRef(null)
-  useEffect(() => { if (editing) player.current?.pause() }, [editing])
-  const [url, setUrl] = useState(null)
-  const [error, setError] = useState(false)
-  useEffect(() => {
-    const controller = new AbortController()
-    setUrl(null); setError(false)
-    let objectUrl
-    async function load() {
-      try {
-        const bytes = await mediaRequest(`/resources/${resourceId}/content`, await buildHeaders(),
-          { binary: true, signal: controller.signal })
-        if (controller.signal.aborted) return
-        objectUrl = URL.createObjectURL(bytes)
-        setUrl(objectUrl)
-      } catch {
-        if (!controller.signal.aborted) setError(true)
-      }
-    }
-    void load()
-    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl) }
-  }, [resourceId, buildHeaders])
-  if (url && mimeType === 'video/mp4') return <div>
-    <video ref={player} src={url} controls preload="metadata" aria-label="BEN video" style={{ objectFit: 'contain', maxWidth: '100%', maxHeight: 360 }} />
-    <button type="button" onClick={onEdit}>Edit video</button>
-    <a href={url} download="ben-video.mp4">Download video</a>
-    {savedEditing ? <SavedVideoEditor key={`${scope}:${resourceId}:${documentId || ''}`} resourceId={resourceId} documentId={documentId} scope={scope} buildHeaders={buildHeaders} url={url} open={editing} onClose={onClose} />
-      : <VideoSubtitleEditor draftKey={`${scope}:${resourceId}`} url={url} open={editing} onClose={onClose} />}
-  </div>
-  return url ? <a href={url} download="ben-image.png"><img src={url} alt="BEN generated image" style={{ maxWidth: '100%', maxHeight: 360 }} /></a>
-    : <p>{error ? 'Image unavailable. Reopen to retry.' : 'Loading imageâ€¦'}</p>
-}
 
 function SavedWork({ scope, buildHeaders }) {
   const [items, setItems] = useState(null), [error, setError] = useState('')
@@ -70,7 +36,7 @@ function SavedWork({ scope, buildHeaders }) {
 }
 
 /** Text child is the unchanged BEN composer; media has its own explicit path. */
-export default function MediaComposer({ children, conversationId, scope, buildHeaders, ensureConversation, disabled, workspaceId, onChooseProject, onCreateProject, selectedPhoto }) {
+export default function MediaComposer({ children, conversationId, scope, buildHeaders, ensureConversation, disabled, workspaceId, onChooseProject, onCreateProject, selectedPhoto, onOpenSavedWork }) {
   const [photoSource, setPhotoSource] = useState(null)
   useEffect(() => { if (selectedPhoto) { setMode('video'); setPhotoSource(null) } }, [selectedPhoto])
   useEffect(() => setPhotoSource(null), [scope, workspaceId, conversationId])
@@ -167,14 +133,14 @@ export default function MediaComposer({ children, conversationId, scope, buildHe
     ...(children?.props?.attachMenuItems || []),
     ...(mobileEnabled ? [{ id: 'video-upload', label: 'Upload video', icon: '▷', disabled: disabled || busy, onClick: () => setMode('upload') }] : []),
     ...(rows.some(row => row.resource_id && row.mime_type === 'video/mp4') ? [{ id: 'video-edit', label: 'Edit video', icon: '✎', disabled: disabled || busy, onClick: () => setEditingId(rows.find(row => row.resource_id && row.mime_type === 'video/mp4').resource_id) }] : []),
-    ...(savedEditing ? [{ id: 'saved-work', label: 'My saved work', icon: '▣', disabled: disabled || busy, onClick: () => setWorkOpen(true) }] : []),
+    ...(savedEditing ? [{ id: 'saved-work', label: 'My saved work', icon: '▣', disabled: disabled || busy, onClick: () => onOpenSavedWork ? onOpenSavedWork() : setWorkOpen(true) }] : []),
     ...(narrationEnabled ? [{ id: 'narration', label: 'Replace narration', icon: '♫', disabled: disabled || busy, onClick: () => setMode('narration') }] : []),
     { id: 'image', label: 'Generate image', icon: '◇', disabled: disabled || busy, onClick: () => setMode('image') },
     ...(videoModels.length ? [{ id: 'video', label: 'Animate my photo', icon: '▷', disabled: disabled || busy, onClick: () => setMode('video') }] : []),
   ]
   const composer = isValidElement(children) ? cloneElement(children, { attachMenuItems: actions }) : children
   return <>
-    {savedEditing && <button type="button" aria-expanded={workOpen} onClick={() => setWorkOpen(v => !v)}>{workOpen ? 'Close saved work' : 'My saved work'}</button>}
+    {savedEditing && <button type="button" aria-expanded={workOpen} onClick={() => onOpenSavedWork ? onOpenSavedWork() : setWorkOpen(v => !v)}>{workOpen ? 'Close saved work' : 'My saved work'}</button>}
     {savedEditing && workOpen && <SavedWork key={scope} scope={scope} buildHeaders={buildHeaders} />}
     {labEnabled && <div>
       <button type="button" aria-expanded={labOpen} onClick={() => setLabOpen(open => !open)}>Creative Edit Lab - internal</button>
