@@ -141,3 +141,32 @@ async def test_size_limit_before_preflight(mobile_setup, monkeypatch):
         response = await client.post('/api/media/video-imports', params=query(workspace), content=b'x'*11)
     assert response.status_code == 413 and response.json()['detail']['code'] == 'VIDEO_SIZE_EXCEEDED'
     probe.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_chat_upload_without_project_retry_owner_and_worker(mobile_setup, tmp_path):
+    svc, admin, _, app = mobile_setup
+    await admin.execute(migration_sql(filename='chat_video_sources_v1.py'))
+    async with svc.repo.transaction(ORG) as session:
+        role=await session.scalar(text('SELECT current_user'))
+    await admin.execute(f'GRANT SELECT,INSERT ON ben.chat_video_sources TO {role}')
+    original=make_video(tmp_path,codec='libx265')
+    params=dict(conversation_id=str(THREAD),idempotency_key='chat-video-only')
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app),base_url='http://test') as client:
+        first=await client.post('/api/media/video-imports',params=params,content=original)
+        assert first.status_code==202,first.text
+        retry=await client.post('/api/media/video-imports',params=params,content=original)
+        assert retry.json()==first.json()
+        await svc.tick(ORG)
+        row=await svc.repo.read(ORG,'tester',execution=uuid.UUID(first.json()['execution_id']))
+        assert row['state']=='succeeded'
+        ref=row['request_payload']['input_resource_refs'][0]
+        assert 'workspace_id' not in ref
+        assert await mobile_import.source_bytes(svc.repo,ORG,'tester',ref)==original
+        with pytest.raises(HTTPException):await mobile_import.source_bytes(svc.repo,ORG,'outsider',ref)
+        # Same tenant, different authenticated owner cannot SELECT at the RLS layer.
+        async with svc.repo.transaction(ORG) as session:
+            await session.execute(text("SELECT set_config('app.current_user_id','outsider',true)"))
+            assert await session.scalar(text('SELECT count(*) FROM ben.chat_video_sources'))==0
+        changed=await client.post('/api/media/video-imports',params=params,content=make_video(tmp_path,seconds=2))
+        assert changed.status_code==409

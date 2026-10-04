@@ -101,7 +101,7 @@ async def upload_photo(request: Request, conversation_id: uuid.UUID, workspace_i
 
 
 @router.post('/video-imports', status_code=202, response_model=ExecutionResponse)
-async def upload_video(request: Request, conversation_id: uuid.UUID, workspace_id: uuid.UUID,
+async def upload_video(request: Request, conversation_id: uuid.UUID, workspace_id: uuid.UUID | None = None,
                        idempotency_key: str = Query(min_length=1, max_length=128, pattern=r'^[a-zA-Z0-9_-]+$'),
                        identity=Depends(require_mobile_pilot), service=Depends(mobile_service)):
     # Raw bounded stream: do not let multipart parsing spool an unlimited body

@@ -62,3 +62,8 @@
 @media(max-height:480px) and (orientation:landscape) { .ben-video-editor__body { display:grid; grid-template-columns:minmax(0,1fr) 280px; }.ben-video-editor__preview { max-height:none; padding:8px; --editor-video-height:40dvh; }.ben-video-editor__header { padding:4px 12px; }.ben-video-editor__notice { display:none; }.ben-video-editor__body--collapsed { grid-template-columns:1fr; } }
 
 .ben-video-editor { font-family:'IBM Plex Sans','Segoe UI',system-ui,sans-serif; }
+
+.ben-video-editor__export { padding:8px 20px; border-bottom:1px solid #8b98b644; flex-shrink:0; }
+.ben-video-editor__export p { margin:4px 0; }
+.ben-video-editor__export a { color:inherit; display:inline-block; padding:10px 14px; border:1px solid #5479f7; border-radius:10px; }
+.ben-video-editor__actions { flex-wrap:wrap; }

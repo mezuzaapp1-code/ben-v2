@@ -1,3 +1,4 @@
+import { withMediaDeadline } from '../api/mediaDeadline.js'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { activeSubtitle, DEFAULT_STYLE, parseSrt, toSrt, validateCues, subtitleDirection, subtitleAlignment, clampSubtitlePoint } from '../lib/subtitleDraft.js'
@@ -12,7 +13,11 @@ import { editFailure } from '../lib/editSession.js'
 export default function VideoSubtitleEditor(props) {
   return <EditorSession key={props.draftKey || props.url} {...props} />
 }
-function EditorSession({ url, open, onClose, initialCues = [], draftKey, remote }) {
+function EditorSession({ url, open, onClose, initialCues = [], draftKey, remote, onExport }) {
+  const [exportStatus, setExportStatus] = useState(''), [exportUrl, setExportUrl] = useState(''), [exportBusy, setExportBusy] = useState(false)
+  const exportController = useRef(null)
+  useEffect(() => () => exportController.current?.abort(), [])
+  useEffect(() => () => { if (exportUrl) URL.revokeObjectURL(exportUrl) }, [exportUrl])
   const [loaded] = useState(() => remote ? { saved: null, error: '' } : readEditorDraft(draftKey))
   const [draft, setDraft] = useState(() => loaded.saved?.draft || { cues: initialCues, style: DEFAULT_STYLE, textLayers: [] })
   const [savedSnapshot, setSavedSnapshot] = useState(() => loaded.saved ? JSON.stringify(loaded.saved.draft) : null)
@@ -63,6 +68,22 @@ function EditorSession({ url, open, onClose, initialCues = [], draftKey, remote 
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [open, dirty])
+  async function exportMp4() {
+    if (exportController.current || dirty || cloud.saving || cloud.pending || !onExport) return
+    const controller = new AbortController(); exportController.current = controller
+    const timer = setTimeout(() => controller.abort(), 180000)
+    setExportBusy(true); setExportUrl(''); setExportStatus('Preparing text…')
+    try {
+      const blob = await withMediaDeadline(signal => onExport(video.current.videoWidth, video.current.videoHeight, signal, setExportStatus), controller.signal, 180000)
+      if (!alive.current || controller.signal.aborted) return
+      setExportUrl(URL.createObjectURL(blob)); setExportStatus(`MP4 ready · version ${cloud.revision}`)
+    } catch (e) {
+      if (alive.current) setExportStatus(controller.signal.aborted ? 'Export timed out. Your saved edit is safe; please retry.' : e.message)
+    } finally {
+      clearTimeout(timer); exportController.current = null
+      if (alive.current) setExportBusy(false)
+    }
+  }
   function requestClose() {
     if (cloud.saving) return
     if (remote && dirty && !cloud.pending && !window.confirm('Close with unsaved changes? Keep this video open to continue, or save first.')) return
@@ -259,9 +280,11 @@ function EditorSession({ url, open, onClose, initialCues = [], draftKey, remote 
           <button type="button" disabled={!past.length || cloud.saving || cloud.pending} onClick={undo} title="Undo · Ctrl/Cmd+Z">Undo</button>
           <button type="button" disabled={!future.length || cloud.saving || cloud.pending} onClick={redo} title="Redo · Ctrl/Cmd+Shift+Z">Redo</button>
           <button type="button" className="ben-video-editor__save" disabled={!draftKey || !duration || cloud.saving || (remote && !cloud.ready)} onClick={saveDraft} title="Save draft · Ctrl/Cmd+S">{cloud.pending ? 'Retry save' : 'Save'}</button>
+          {onExport && <button type="button" disabled={dirty || !cloud.revision || cloud.saving || cloud.pending || exportBusy} onClick={exportMp4} title={dirty ? 'Save your changes before export' : 'Render this saved version to MP4'}>{exportBusy ? 'Exporting…' : 'Export MP4'}</button>}
           {remote && <button type="button" disabled={!cloud.revision || cloud.saving || cloud.pending || historyBusy} onClick={() => showHistory()}>Versions</button>}
         </div>
         <button ref={close} type="button" disabled={cloud.saving} onClick={requestClose} aria-label="Close video editor">✕</button></header>
+      {onExport && (exportStatus || exportUrl) && <div className="ben-video-editor__export"><p role="status">{exportStatus}</p>{exportUrl && <a href={exportUrl} download="ben-edited-video.mp4">Download edited MP4</a>}</div>}
       {saveError && <p className="ben-video-editor__save-error" role="alert">{saveError}</p>}
       {remote && cloud.ready && remote.head && !cloud.pending && <button type="button" disabled={cloud.saving} onClick={() => loadVersion()}>Load latest · keep current changes in Undo</button>}
       {versions && <section className="ben-video-editor__versions" aria-label="Saved versions">
@@ -304,7 +327,7 @@ function EditorSession({ url, open, onClose, initialCues = [], draftKey, remote 
             <button type="submit" disabled={!command.trim()}>Apply correction</button>
           </form>
           {commandStatus && <p className="ben-video-editor__feedback" role="status">{commandStatus}</p>}
-          <p className="ben-video-editor__notice">{remote ? 'Save keeps your text, subtitles and styling privately in BEN. Open this video again to continue. ' : 'Save keeps subtitles, text layers, styling and positions in this browser for this video. It does not sync to another device. '}Saving does not render a new video. SRT includes subtitles only. Sound controls affect preview playback.</p>
+          <p className="ben-video-editor__notice">{remote ? 'Save keeps your text, subtitles and styling privately in BEN. Open this video again to continue. ' : 'Save keeps subtitles, text layers, styling and positions in this browser for this video. It does not sync to another device. '}{onExport ? 'Export MP4 renders the saved version with its text and styling. ' : ''}SRT includes subtitles only. Sound controls affect preview playback.</p>
           <button type="button" aria-expanded={expanded} aria-controls="subtitle-design-panel" onClick={() => setExpanded(v => !v)}>{expanded ? 'Hide controls' : 'Show controls'}</button>
         </div>
         {expanded && <aside id="subtitle-design-panel" className="ben-video-editor__panel" aria-label="Subtitle controls">

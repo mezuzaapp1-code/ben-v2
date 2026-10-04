@@ -9,6 +9,10 @@ on:
       - 'routers/edit_documents.py'
       - 'database/migrations/versions/video_edit_documents_v1.py'
       - 'tests/test_edit*.py'
+      - 'tests/test_mobile*.py'
+      - 'database/migrations/versions/chat_video_sources_v1.py'
+      - 'frontend/src/components/MobileVideoUpload.jsx'
+      - 'frontend/src/lib/renderTextTrack.js'
       - 'tests/test_veo_media.py'
       - '.github/workflows/edit-persistence.yml'
       - 'frontend/src/components/*Editor*'
@@ -20,6 +24,8 @@ on:
       - 'frontend/src/api/media*.js'
       - 'frontend/src/api/photoUpload.js'
       - 'frontend/scripts/test-photo-source.mjs'
+      - 'frontend/scripts/test-mobile-upload.mjs'
+      - 'frontend/scripts/test-chat-video-export.mjs'
       - 'frontend/src/components/MediaLibrary.*'
       - 'frontend/src/components/MediaAsset.jsx'
       - 'frontend/scripts/test-media-library.mjs'
@@ -56,9 +62,11 @@ jobs:
           node scripts/test-personal-entry.mjs
           node scripts/test-media-library.mjs
           node scripts/test-photo-source.mjs
+          node scripts/test-mobile-upload.mjs
+          node scripts/test-chat-video-export.mjs
       - name: Lint new editor modules
         working-directory: frontend
-        run: npx eslint src/components/PhotoSourceUpload.jsx src/api/photoUpload.js src/api/mediaSubmission.js src/components/MediaLibrary.jsx src/components/MediaAsset.jsx src/lib/editSession.js src/components/SavedVideoEditor.jsx src/components/VideoSubtitleEditor.jsx src/components/FreeTextLayer.jsx src/components/TextAppearanceControls.jsx src/lib/editorStorage.js src/lib/subtitleCommands.js src/lib/textAppearance.js
+        run: npx eslint src/components/PhotoSourceUpload.jsx src/api/photoUpload.js src/api/mediaSubmission.js src/components/MediaLibrary.jsx src/components/MediaAsset.jsx src/lib/editSession.js src/components/SavedVideoEditor.jsx src/components/VideoSubtitleEditor.jsx src/components/FreeTextLayer.jsx src/components/TextAppearanceControls.jsx src/lib/editorStorage.js src/lib/subtitleCommands.js src/lib/textAppearance.js src/lib/renderTextTrack.js
       - run: npm run build
         working-directory: frontend
   persistence:
@@ -88,6 +96,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: python -m pip install -r requirements.txt -r requirements-dev.txt
       - name: Contract, real PostgreSQL persistence and existing media regressions
         run: >-
@@ -95,6 +104,7 @@ jobs:
           tests/test_media_repository.py tests/test_media_migration.py
           tests/test_media_connection.py tests/test_media_vertical_slice.py
           tests/test_narration_capabilities.py tests/test_veo_media.py
+          tests/test_mobile_import.py tests/test_mobile_video.py tests/test_edit_export.py
           -q --junitxml=edit-persistence-results.xml
       - name: Require every case to execute and pass
         run: |

@@ -31,10 +31,12 @@ try {
     return revisions.at(-1)
   }
   const session=()=>new EditSession({resourceId,scope:'account-a',storage:window.localStorage,request})
+  URL.createObjectURL = () => "blob:export"; URL.revokeObjectURL = () => {}
+  let exports=0
   let root,remote
   const render=async()=>{
     root=createRoot(document.getElementById('app'));remote=session()
-    await act(async()=>root.render(React.createElement(Editor,{url:'blob:test',open:true,draftKey:'account-a:video',remote,onClose:()=>{}})))
+    await act(async()=>root.render(React.createElement(Editor,{url:'blob:test',open:true,draftKey:'account-a:video',remote,onClose:()=>{},onExport:async(w,h)=>{assert.equal(w,720);assert.equal(h,1280);exports++;return new Blob(['mp4'],{type:'video/mp4'})}})))
     const v=document.querySelector('video');v.pause=()=>{}
     Object.defineProperties(v,{duration:{value:3},videoWidth:{value:720},videoHeight:{value:1280}})
     await act(async()=>v.dispatchEvent(new dom.window.Event('loadedmetadata')))
@@ -47,8 +49,11 @@ try {
     await act(async()=>file.dispatchEvent(new dom.window.Event('change',{bubbles:true})))
   }
   await render();await importText('יוסטון Houston')
+  assert(button('Export MP4').disabled, 'unsaved edits cannot export')
   await act(async()=>button('Save').click())
   assert.match(status(),/Saved to BEN · version 1/)
+  await act(async()=>button('Export MP4').click())
+  assert.equal(exports,1);assert(document.querySelector('a[download="ben-edited-video.mp4"]'))
   await act(async()=>root.unmount());await render()
   assert.equal(document.querySelector('.ben-video-editor__caption').textContent,'יוסטון Houston')
   assert.match(status(),/version 1/)
